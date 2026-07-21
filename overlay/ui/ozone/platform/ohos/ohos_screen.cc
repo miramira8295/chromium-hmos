@@ -1,0 +1,124 @@
+#include "ui/ozone/platform/ohos/ohos_screen.h"
+
+#include "base/functional/bind.h"
+#include "base/location.h"
+#include "base/task/single_thread_task_runner.h"
+#include "ui/ozone/platform/ohos/ohos_native_window_registry.h"
+
+namespace ui {
+
+namespace {
+
+constexpr int64_t kOhosPrimaryDisplayId = 1;
+constexpr float kOhosPrimaryDisplayScale = 1.0f;
+constexpr gfx::Size kOhosPrimaryDisplaySize(1920, 1080);
+
+}  // namespace
+
+OhosScreen::OhosScreen() {
+  float scale = kOhosPrimaryDisplayScale;
+  gfx::Rect bounds(kOhosPrimaryDisplaySize);
+  if (std::optional<OhosDisplayMetrics> metrics = GetOhosDisplayMetrics()) {
+    scale = metrics->density;
+    bounds = gfx::Rect(metrics->pixel_size);
+  }
+
+  display::Display display(kOhosPrimaryDisplayId);
+  display.SetScaleAndBounds(scale, bounds);
+  display_list_.AddDisplay(display, display::DisplayList::Type::PRIMARY);
+
+  SetOhosDisplayMetricsChangedCallback(base::BindRepeating(
+      [](scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+         base::WeakPtr<OhosScreen> screen, gfx::Size pixel_size,
+         float density) {
+        task_runner->PostTask(
+            FROM_HERE, base::BindOnce(&OhosScreen::OnDisplayMetricsChanged,
+                                      screen, pixel_size, density));
+      },
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
+      weak_factory_.GetWeakPtr()));
+}
+
+OhosScreen::~OhosScreen() {
+  SetOhosDisplayMetricsChangedCallback({});
+}
+
+const std::vector<display::Display>& OhosScreen::GetAllDisplays() const {
+  return display_list_.displays();
+}
+
+display::Display OhosScreen::GetPrimaryDisplay() const {
+  auto iter = display_list_.GetPrimaryDisplayIterator();
+  DCHECK(iter != display_list_.displays().end());
+  return *iter;
+}
+
+display::Display OhosScreen::GetDisplayForAcceleratedWidget(
+    gfx::AcceleratedWidget widget) const {
+  (void)widget;
+  return GetPrimaryDisplayWithSurfaceWorkArea();
+}
+
+gfx::Point OhosScreen::GetCursorScreenPoint() const {
+  return GetOhosCursorScreenPoint();
+}
+
+gfx::AcceleratedWidget OhosScreen::GetAcceleratedWidgetAtScreenPoint(
+    const gfx::Point& point) const {
+  return GetOhosAcceleratedWidgetAtScreenPoint(point);
+}
+
+display::Display OhosScreen::GetDisplayNearestPoint(
+    const gfx::Point& point) const {
+  (void)point;
+  return GetPrimaryDisplayWithSurfaceWorkArea();
+}
+
+display::Display OhosScreen::GetDisplayMatching(
+    const gfx::Rect& match_rect) const {
+  (void)match_rect;
+  return GetPrimaryDisplayWithSurfaceWorkArea();
+}
+
+void OhosScreen::AddObserver(display::DisplayObserver* observer) {
+  display_list_.AddObserver(observer);
+}
+
+void OhosScreen::RemoveObserver(display::DisplayObserver* observer) {
+  display_list_.RemoveObserver(observer);
+}
+
+display::Display OhosScreen::GetPrimaryDisplayWithSurfaceWorkArea() const {
+  display::Display display = GetPrimaryDisplay();
+  const std::optional<OhosNativeSurface> surface =
+      GetPrimaryOhosNativeSurface();
+  if (!surface || surface->bounds.IsEmpty()) {
+    return display;
+  }
+
+  // Aura child widgets share the XComponent compositor and cannot draw beyond
+  // its surface. Use that surface as the popup work area so menus are shifted
+  // or scrolled before their lower rows would be clipped by the ArkUI window.
+  const float scale = display.device_scale_factor();
+  if (scale <= 0.0f) {
+    return display;
+  }
+  gfx::Rect work_area = gfx::ScaleToEnclosedRect(surface->bounds, 1.0f / scale);
+  work_area.Intersect(display.bounds());
+  if (!work_area.IsEmpty()) {
+    display.set_work_area(work_area);
+  }
+  return display;
+}
+
+void OhosScreen::OnDisplayMetricsChanged(gfx::Size pixel_size, float density) {
+  if (pixel_size.IsEmpty() || density <= 0.0f) {
+    return;
+  }
+
+  display::Display display(kOhosPrimaryDisplayId);
+  display.SetScaleAndBounds(density, gfx::Rect(pixel_size));
+  display_list_.UpdateDisplay(display, display::DisplayList::Type::PRIMARY);
+}
+
+}  // namespace ui

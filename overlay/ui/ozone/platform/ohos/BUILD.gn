@@ -1,0 +1,77 @@
+# Copyright 2026 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+visibility = [ "//ui/ozone/*" ]
+
+source_set("event_source") {
+  visibility += [ "//ohos_nweb/src/aura_shell:*" ]
+
+  sources = [
+    "ohos_event_source.cc",
+    "ohos_event_source.h",
+  ]
+
+  deps = [
+    "//base",
+    "//ui/events",
+    "//ui/events/platform",
+  ]
+}
+
+source_set("native_window_registry") {
+  visibility += [ "//ohos_nweb/src/aura_shell:*" ]
+
+  sources = [
+    "ohos_native_window_registry.cc",
+    "ohos_native_window_registry.h",
+  ]
+
+  deps = [
+    "//base",
+    "//ui/gfx/geometry",
+  ]
+}
+
+source_set("ohos") {
+  visibility += [ "//ohos_nweb/src/aura_shell:*" ]
+
+  sources = [
+    "ohos_input_method.cc",
+    "ohos_input_method.h",
+    "ohos_native_window_adapter.cc",
+    "ohos_native_window_adapter.h",
+    "ohos_platform_window.cc",
+    "ohos_platform_window.h",
+    "ohos_screen.cc",
+    "ohos_screen.h",
+    "ohos_surface_factory.cc",
+    "ohos_surface_factory.h",
+    "ozone_platform_ohos.cc",
+    "ozone_platform_ohos.h",
+  ]
+
+  defines = [ "OZONE_IMPLEMENTATION" ]
+
+  libs = [ "ohinputmethod" ]
+
+  deps = [
+    ":event_source",
+    ":native_window_registry",
+    "//base",
+    "//skia",
+    "//ui/base",
+    "//ui/base/cursor",
+    "//ui/events",
+    "//ui/events/ozone/layout",
+    "//ui/events/platform",
+    "//ui/gfx/geometry",
+    "//ui/gl",
+    "//ui/ozone:ozone_base",
+    "//ui/ozone/common",
+    "//ui/ozone/platform/headless",
+    "//ui/platform_window",
+    "//ui/platform_window/stub",
+    "//ui/platform_window/wm",
+  ]
+}

@@ -1,0 +1,57 @@
+target_os = "ohos"
+target_cpu = "arm64"
+is_debug = false
+is_official_build = true
+is_component_build = false
+optimize_for_size = true
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+use_musl = true
+use_ohos_sdk_sysroot = true
+product_name = "kirin_pc"
+enable_arkweb = false
+enable_library_cdms = false
+enable_lens_desktop = false
+enable_lens_desktop_google_branded_features = false
+enable_pdf = true
+enable_pdf_ink2 = false
+enable_basic_print_dialog = false
+enable_screen_ai_service = true
+enable_widevine = false
+enterprise_cloud_content_analysis = true
+enterprise_client_certificates = true
+enterprise_local_content_analysis = false
+use_aura = true
+toolkit_views = true
+use_ozone = true
+ozone_auto_platforms = false
+ozone_platform = "ohos"
+ozone_platform_headless = false
+use_alsa = false
+use_pulseaudio = false
+use_v8_context_snapshot = false
+v8_enable_lite_mode = true
+v8_jitless = true
+v8_enable_sparkplug = false
+v8_enable_maglev = false
+v8_enable_turbofan = false
+v8_enable_webassembly = true
+v8_enable_drumbrake = true
+v8_drumbrake_bounds_checks = true
+v8_control_flow_integrity = true
+v8_enable_builtins_optimization = false
+pdf_enable_v8 = false
+build_with_tflite_lib = true
+use_fake_screen_ai = true
+dawn_use_swiftshader = false
+enable_swiftshader = false
+angle_libs_suffix = "_angle"
+angle_enable_vulkan = true
+angle_enable_swiftshader = false
+angle_use_custom_libvulkan = false
+root_extra_deps = [
+  "//cef:libweb_engine",
+  "//chrome:packed_resources",
+  "//ohos_nweb/src/aura_shell:libnweb_render",
+]

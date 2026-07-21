@@ -1,0 +1,81 @@
+{
+  "app": {
+    "bundleName": "com.ohos.nweb",
+    "vendor": "openharmony",
+    "version": {
+      "code": 1000000,
+      "name": "1.0.0"
+    },
+    "apiVersion": {
+      "compatible": 50001013,
+      "target": 50005017,
+      "releaseType": "Release"
+    },
+    "icon": "$media:app_icon",
+    "label": "$string:app_name",
+    "distributedNotificationEnabled": false
+  },
+  "module": {
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "tv",
+      "car",
+      "desktop"
+    ],
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./entry/src/main/ets/ability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:EntryAbility_label",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home",
+              "entity.system.browsable"
+            ],
+            "actions": [
+              "action.system.home",
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "http"
+              },
+              {
+                "scheme": "https"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:internet_permission_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.GET_NETWORK_INFO",
+        "reason": "$string:network_info_permission_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ]
+  }
+}
+

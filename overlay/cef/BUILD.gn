@@ -1,0 +1,45 @@
+# Copyright (c) 2026
+# Licensed under the Apache License, Version 2.0.
+
+# Minimal CEF placeholders used when the browser-shell route is built from a
+# tree that does not include the full CEF embedder checkout.
+
+group("cef") {
+}
+
+source_set("libcef_static") {
+}
+
+source_set("libcef_dll_wrapper") {
+}
+
+source_set("libweb_engine_core") {
+  sources = [
+    "//ohos_nweb/src/aura_shell/ohos_aura_shell_host.h",
+    "//ohos_nweb/src/aura_shell/ohos_aura_shell_napi.h",
+    "//ohos_nweb/src/aura_shell/ohos_aura_shell_types.h",
+    "//ohos_nweb/src/aura_shell/ohos_chrome_main_runner.h",
+  ]
+
+  public_deps = [
+    "//ohos_nweb/src/aura_shell:aura_shell_api",
+    "//ohos_nweb/src/aura_shell:aura_shell_core",
+  ]
+}
+
+executable("libweb_engine") {
+  output_name = "libweb_engine"
+  output_extension = "so"
+
+  version_script = "//cef/libweb_engine.exports"
+  inputs = [ version_script ]
+
+  ldflags = [
+    "-shared",
+    "-Wl,-soname,libweb_engine.so",
+    "-Wl,--version-script=" + rebase_path(version_script, root_build_dir),
+  ]
+
+  deps = [ ":libweb_engine_core" ]
+  libs = [ "hilog_ndk.z" ]
+}

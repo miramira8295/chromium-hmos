@@ -1,0 +1,4 @@
+<!-- Derived from chrome/app/vector_icons/close.icon. -->
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M13.4 12l4.9-4.9a.99.99 0 0 0-1.4-1.4L12 10.6 7.1 5.7a.99.99 0 0 0-1.4 1.4l4.9 4.9-4.9 4.9a.99.99 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a.99.99 0 0 0 1.4-1.4L13.4 12z"/>
+</svg>

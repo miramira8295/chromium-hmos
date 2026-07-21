@@ -1,0 +1,34 @@
+# Local signing material must never be committed.
+.signing/
+*.cer
+*.jks
+*.key
+*.p12
+*.p7b
+*.pem
+*.pfx
+*.keystore
+
+# Local SDKs, build output, packaged apps, and staged runtime files.
+ohos_sdk/
+out/
+*.app
+*.hap
+*.a
+*.o
+*.rlib
+*.so
+*.log
+*.ninja
+overlay/chromium-ui/.hvigor/
+overlay/chromium-ui/.idea/
+overlay/chromium-ui/entry/.cxx/
+overlay/chromium-ui/entry/.hvigor/
+overlay/chromium-ui/entry/build/
+overlay/chromium-ui/entry/libs/
+overlay/chromium-ui/entry/src/main/resources/rawfile/chromium/
+
+# Local-only absolute links into the private SDK/toolchain checkout.
+/overlay/ohos/third_party/ohpm
+/overlay/third_party/ohos_ndk/sysroot
+/overlay/third_party/ohos_ndk/toolchains/llvm

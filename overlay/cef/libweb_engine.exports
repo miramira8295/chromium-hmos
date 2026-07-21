@@ -1,0 +1,7 @@
+{
+  global:
+    RegisterWebEngineModule;
+    close;
+  local:
+    *;
+};

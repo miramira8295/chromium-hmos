@@ -1,0 +1,8 @@
+{
+  "src": [
+    "pages/phone/Index",
+    "pages/tablet/Index",
+    "pages/pc/Index"
+  ]
+}
+

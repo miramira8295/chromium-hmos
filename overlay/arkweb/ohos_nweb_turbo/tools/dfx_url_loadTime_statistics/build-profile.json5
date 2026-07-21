@@ -1,0 +1,30 @@
+{
+  "app": {
+    "signingConfigs": [],
+    "compileSdkVersion": 9,
+    "compatibleSdkVersion": 9,
+    "products": [
+      {
+        "name": "default",
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WebviewTestTool",
+      "srcPath": "./dfx_url_loadTime_core_component"
+    }
+  ]
+}

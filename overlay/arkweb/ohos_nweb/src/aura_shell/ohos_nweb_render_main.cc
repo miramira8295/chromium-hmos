@@ -1,0 +1,177 @@
+// Copyright (c) 2026
+// Licensed under the Apache License, Version 2.0.
+
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <hilog/log.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "AbilityKit/native_child_process.h"
+#include "base/base_paths.h"
+#include "base/files/file_path.h"
+#include "base/files/scoped_file.h"
+#include "base/logging.h"
+#include "base/path_service.h"
+#include "base/posix/global_descriptors.h"
+#include "base/process/launch_ohos.h"
+#include "base/strings/string_number_conversions.h"
+#include "ohos_nweb/src/nweb_hilog.h"
+
+extern "C" int ChromeMain(int argc, const char** argv);
+
+namespace {
+
+bool ForwardChromiumChildLogToHilog(int severity,
+                                    const char*,
+                                    int,
+                                    size_t,
+                                    const std::string& message) {
+  LogLevel level = LOG_INFO;
+  if (severity >= logging::LOGGING_FATAL) {
+    level = LOG_FATAL;
+  } else if (severity >= logging::LOGGING_ERROR) {
+    level = LOG_ERROR;
+  } else if (severity >= logging::LOGGING_WARNING) {
+    level = LOG_WARN;
+  } else if (severity < logging::LOGGING_INFO) {
+    level = LOG_DEBUG;
+  }
+  OH_LOG_PrintMsg(LOG_APP, level, 0xc233, "ChromiumChild", message.c_str());
+  return false;
+}
+
+int RunChromeMain(std::vector<std::string> argv_strings) {
+  if (argv_strings.empty()) {
+    argv_strings.push_back("web_render");
+  }
+
+  std::vector<const char*> argv;
+  argv.reserve(argv_strings.size());
+  for (const std::string& item : argv_strings) {
+    argv.push_back(item.c_str());
+  }
+  return ChromeMain(static_cast<int>(argv.size()), argv.data());
+}
+
+bool RestoreFileDescriptors(NativeChildProcess_Fd* fd) {
+  constexpr int kMinChromiumDescriptor = 1000;
+  using DescriptorMapping =
+      std::pair<base::GlobalDescriptors::Key, base::ScopedFD>;
+  std::vector<DescriptorMapping> mappings;
+  for (NativeChildProcess_Fd* current = fd; current; current = current->next) {
+    int destination_fd = -1;
+    if (!current->fdName ||
+        !base::StringToInt(current->fdName, &destination_fd) ||
+        destination_fd < base::GlobalDescriptors::kBaseDescriptor ||
+        current->fd < 0) {
+      return false;
+    }
+    const int source_flags = fcntl(current->fd, F_GETFL);
+    const int duplicated_fd =
+        fcntl(current->fd, F_DUPFD_CLOEXEC, kMinChromiumDescriptor);
+    if (source_flags < 0 || duplicated_fd < 0) {
+      return false;
+    }
+    const auto descriptor_key = static_cast<base::GlobalDescriptors::Key>(
+        destination_fd - base::GlobalDescriptors::kBaseDescriptor);
+    mappings.emplace_back(descriptor_key, base::ScopedFD(duplicated_fd));
+  }
+
+  base::GlobalDescriptors* global_descriptors =
+      base::GlobalDescriptors::GetInstance();
+  for (auto& [key, descriptor] : mappings) {
+    global_descriptors->Set(key, descriptor.release());
+  }
+  return true;
+}
+
+bool ApplyLaunchParams(
+    const base::internal::OhosNativeChildParams& launch_params) {
+  if (launch_params.clear_environment && clearenv() != 0) {
+    return false;
+  }
+  for (const auto& [key, value] : launch_params.environment) {
+    if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+      return false;
+    }
+  }
+  return launch_params.current_directory.empty() ||
+         chdir(launch_params.current_directory.value().c_str()) == 0;
+}
+
+bool ConfigureRuntimePaths(
+    const base::internal::OhosNativeChildParams& launch_params) {
+  if (launch_params.resources_directory.empty() ||
+      !launch_params.resources_directory.IsAbsolute() ||
+      !base::PathService::Override(base::DIR_ASSETS,
+                                   launch_params.resources_directory)) {
+    return false;
+  }
+
+  Dl_info module_info = {};
+  if (!dladdr(reinterpret_cast<const void*>(&ConfigureRuntimePaths),
+              &module_info) ||
+      !module_info.dli_fname) {
+    return false;
+  }
+
+  const base::FilePath module_directory =
+      base::FilePath(module_info.dli_fname).DirName();
+  return module_directory.IsAbsolute() &&
+         base::PathService::Override(base::DIR_MODULE, module_directory);
+}
+
+}  // namespace
+
+extern "C" __attribute__((visibility("default"))) void NWebRenderMain(
+    const char* args) {
+  WVLOG_I("AuraShell NWebRenderMain start");
+
+  std::string args_string = args ? args : "";
+  std::stringstream args_stream(args_string);
+  std::vector<std::string> argv_strings;
+  std::string arg;
+  while (std::getline(args_stream, arg, '#')) {
+    if (!arg.empty()) {
+      argv_strings.push_back(arg);
+    }
+  }
+
+  const int exit_code = RunChromeMain(std::move(argv_strings));
+  WVLOG_I("AuraShell NWebRenderMain end code=%{public}d", exit_code);
+  (void)exit_code;
+}
+
+extern "C" __attribute__((visibility("default"))) void ChromiumNativeChildMain(
+    NativeChildProcess_Args args) {
+  logging::SetLogMessageHandler(&ForwardChromiumChildLogToHilog);
+  LOG(WARNING) << "AuraShell native child start pid=" << getpid();
+  base::internal::OhosNativeChildParams launch_params;
+  if (!args.entryParams || !base::internal::DecodeOhosNativeChildParams(
+                               args.entryParams, &launch_params)) {
+    WVLOG_E("AuraShell native child rejected encoded startup parameters");
+    return;
+  }
+  if (!RestoreFileDescriptors(args.fdList.head) ||
+      !ApplyLaunchParams(launch_params) ||
+      !ConfigureRuntimePaths(launch_params)) {
+    WVLOG_E("AuraShell native child rejected startup parameters");
+    return;
+  }
+
+  std::ostringstream command_line;
+  for (const std::string& argument : launch_params.argv) {
+    command_line << argument << ' ';
+  }
+  LOG(WARNING) << "AuraShell native child argv=" << command_line.str();
+  const int exit_code = RunChromeMain(std::move(launch_params.argv));
+  LOG(WARNING) << "AuraShell native child end pid=" << getpid()
+               << " code=" << exit_code;
+  (void)exit_code;
+}

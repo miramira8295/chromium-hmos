@@ -1,0 +1,10 @@
+{
+  "name": "ohos_nweb_hap",
+  "version": "1.0.0",
+  "description": "NWeb HAP包 - Chromium WebView组件",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}
+

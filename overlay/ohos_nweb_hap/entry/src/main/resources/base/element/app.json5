@@ -1,0 +1,18 @@
+{
+  "app": {
+    "bundleName": "com.caidingding233.chromium",
+    "vendor": "harmonyos",
+    "version": {
+      "code": 1000000,
+      "name": "1.0.0"
+    },
+    "apiVersion": {
+      "compatible": 50001013,
+      "target": 50005017,
+      "releaseType": "Release"
+    },
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}
+

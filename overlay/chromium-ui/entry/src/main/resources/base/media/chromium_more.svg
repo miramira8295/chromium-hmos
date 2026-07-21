@@ -1,0 +1,4 @@
+<!-- Derived from chrome/app/vector_icons/more_vert.icon. -->
+<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="10" cy="5.5" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="14.5" r="1.5"/>
+</svg>

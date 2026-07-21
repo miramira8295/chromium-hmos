@@ -1,0 +1,19 @@
+# DevEco Studio
+.idea/
+*.iml
+local.properties
+build/
+.ohpm/
+oh_modules/
+
+# Build outputs
+entry/build/
+entry/.cxx/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+

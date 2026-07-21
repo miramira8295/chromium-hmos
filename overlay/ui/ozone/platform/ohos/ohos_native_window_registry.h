@@ -1,0 +1,114 @@
+#ifndef UI_OZONE_PLATFORM_OHOS_OHOS_NATIVE_WINDOW_REGISTRY_H_
+#define UI_OZONE_PLATFORM_OHOS_OHOS_NATIVE_WINDOW_REGISTRY_H_
+
+#include <cstdint>
+#include <optional>
+#include <string>
+
+#include "base/functional/callback.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/native_ui_types.h"
+
+namespace ui {
+
+struct OhosNativeSurface {
+  void* window = nullptr;
+  gfx::Rect bounds;
+  float density = 1.0f;
+};
+
+struct OhosDisplayMetrics {
+  gfx::Size pixel_size;
+  float density = 1.0f;
+};
+
+struct OhosLogicalWindowState {
+  gfx::AcceleratedWidget widget = gfx::kNullAcceleratedWidget;
+  gfx::Rect bounds;
+  bool visible = false;
+  bool auxiliary = false;
+  bool destroyed = false;
+  uint64_t stacking_order = 0;
+};
+
+enum class OhosWindowAction {
+  kClose,
+  kEnterFullscreen,
+  kExitFullscreen,
+  kMaximize,
+  kMinimize,
+  kRestore,
+  kStartMoving,
+};
+
+using OhosNativeSurfaceBoundsCallback =
+    base::RepeatingCallback<void(gfx::Rect bounds, float density)>;
+using OhosDisplayMetricsChangedCallback =
+    base::RepeatingCallback<void(gfx::Size pixel_size, float density)>;
+using OhosWindowActionCallback =
+    base::RepeatingCallback<void(OhosWindowAction action)>;
+using OhosLogicalWindowStateCallback =
+    base::RepeatingCallback<void(const OhosLogicalWindowState& state)>;
+using OhosLogicalWindowCloseCallback = base::RepeatingClosure;
+
+void RegisterOhosNativeSurface(const std::string& component_id,
+                               void* window,
+                               const gfx::Rect& bounds,
+                               float density);
+void UpdateOhosNativeSurface(const std::string& component_id,
+                             void* window,
+                             const gfx::Rect& bounds,
+                             float density);
+void UnregisterOhosNativeSurface(const std::string& component_id, void* window);
+
+std::optional<OhosNativeSurface> BindOhosNativeSurface(
+    gfx::AcceleratedWidget widget);
+void UnbindOhosNativeSurface(gfx::AcceleratedWidget widget);
+std::optional<OhosNativeSurface> GetOhosNativeSurface(
+    gfx::AcceleratedWidget widget);
+gfx::AcceleratedWidget GetOhosAcceleratedWidgetForNativeSurface(
+    const std::string& component_id);
+std::optional<OhosNativeSurface> GetPrimaryOhosNativeSurface();
+
+// Aura menus, bubbles, and popup widgets share the application's XComponent
+// compositor. They still need independent bounds and stacking state for input
+// routing even though they do not own an OHNativeWindow.
+void RegisterOhosLogicalWindow(gfx::AcceleratedWidget widget,
+                               const gfx::Rect& bounds);
+void UnregisterOhosLogicalWindow(gfx::AcceleratedWidget widget);
+void UpdateOhosLogicalWindowBounds(gfx::AcceleratedWidget widget,
+                                   const gfx::Rect& bounds);
+void SetOhosLogicalWindowVisible(gfx::AcceleratedWidget widget, bool visible);
+void ActivateOhosLogicalWindow(gfx::AcceleratedWidget widget);
+void DeactivateOhosLogicalWindow(gfx::AcceleratedWidget widget);
+std::optional<gfx::Rect> GetOhosLogicalWindowBounds(
+    gfx::AcceleratedWidget widget);
+gfx::AcceleratedWidget GetOhosFocusedLogicalWindow();
+bool IsOhosPrimaryLogicalWindow(gfx::AcceleratedWidget widget);
+gfx::AcceleratedWidget GetOhosAcceleratedWidgetAtScreenPoint(
+    const gfx::Point& point);
+void SetOhosNativeSurfaceBoundsCallback(
+    gfx::AcceleratedWidget widget,
+    OhosNativeSurfaceBoundsCallback callback);
+void UpdateOhosDisplayMetrics(const gfx::Size& pixel_size, float density);
+std::optional<OhosDisplayMetrics> GetOhosDisplayMetrics();
+void SetOhosDisplayMetricsChangedCallback(
+    OhosDisplayMetricsChangedCallback callback);
+void UpdateOhosCursorScreenPoint(const gfx::Point& point);
+gfx::Point GetOhosCursorScreenPoint();
+void SetOhosApplicationWindowId(int32_t window_id);
+int32_t GetOhosApplicationWindowId();
+void SetOhosWindowActionCallback(const std::string& component_id,
+                                 OhosWindowActionCallback callback);
+bool RequestOhosWindowAction(gfx::AcceleratedWidget widget,
+                             OhosWindowAction action);
+void SetOhosLogicalWindowStateCallback(OhosLogicalWindowStateCallback callback);
+void SetOhosLogicalWindowCloseCallback(gfx::AcceleratedWidget widget,
+                                       OhosLogicalWindowCloseCallback callback);
+bool RequestCloseOhosLogicalWindow(gfx::AcceleratedWidget widget);
+
+}  // namespace ui
+
+#endif  // UI_OZONE_PLATFORM_OHOS_OHOS_NATIVE_WINDOW_REGISTRY_H_

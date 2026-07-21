@@ -1,0 +1,10 @@
+# Copyright (c) 2026
+# Licensed under the Apache License, Version 2.0.
+
+# Default to disabling CEF when the OHOS tree is built as a native Chromium
+# browser shell without the full embedder checkout.
+declare_args() {
+  enable_cef = false
+}
+
+is_cef_sandbox_build = false

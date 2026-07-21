@@ -1,0 +1,32 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Chromium HAP包 - Chromium WebView组件"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Chromium主入口Ability"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Chromium"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "需要网络权限以加载网页"
+    },
+    {
+      "name": "network_info_permission_reason",
+      "value": "需要网络信息权限以检测网络状态"
+    },
+    {
+      "name": "holding_hand_permission_reason",
+      "value": "用于根据握持位置调整浏览器快捷按钮"
+    },
+    {
+      "name": "extensional_device_permission_reason",
+      "value": "需要扩展设备权限以访问原生功能"
+    }
+  ]
+}

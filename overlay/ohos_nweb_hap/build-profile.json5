@@ -1,0 +1,19 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {},
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
+
