@@ -3,6 +3,58 @@
     {
       "name": "start_window_background",
       "value": "#000000"
+    },
+    {
+      "name": "browser_canvas",
+      "value": "#000000"
+    },
+    {
+      "name": "surface_primary",
+      "value": "#1D1D1F"
+    },
+    {
+      "name": "surface_secondary",
+      "value": "#2A2A2D"
+    },
+    {
+      "name": "surface_floating",
+      "value": "#29292C"
+    },
+    {
+      "name": "text_primary",
+      "value": "#F5F5F5"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#B7BAC0"
+    },
+    {
+      "name": "icon_primary",
+      "value": "#F5F5F5"
+    },
+    {
+      "name": "icon_secondary",
+      "value": "#B7BAC0"
+    },
+    {
+      "name": "accent_primary",
+      "value": "#5B8CFF"
+    },
+    {
+      "name": "on_accent",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "divider",
+      "value": "#26FFFFFF"
+    },
+    {
+      "name": "shadow",
+      "value": "#66000000"
+    },
+    {
+      "name": "transparent",
+      "value": "#00000000"
     }
   ]
 }

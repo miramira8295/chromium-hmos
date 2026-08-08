@@ -1,0 +1,34 @@
+name: Adapter CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-publication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify public tree
+        run: scripts/verify-public-tree.sh
+      - name: Check scripts
+        run: bash -n scripts/*.sh
+      - name: Apply adapter to pinned Chromium
+        env:
+          REQUIRE_COMPATIBLE: '1'
+        run: >-
+          scripts/check-upstream-adapter.sh
+          150.0.7871.114
+          f405107495a07cb1bfcf687d4af8d91117098db6
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-adapter-report
+          path: upstream-compatibility.md

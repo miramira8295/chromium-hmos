@@ -100,6 +100,7 @@ export interface AuraStartupConfig {
   printOutputDir?: string;
   resourcesDir?: string;
   applicationLocale?: string;
+  colorScheme: 'light' | 'dark';
   icuDataFd?: number;
   icuDataOffset?: number;
   icuDataLength?: number;
@@ -181,7 +182,8 @@ export class DeviceRoutingPolicy {
   static createAuraStartupConfig(
     startUrl: string,
     windowState?: WindowStateSnapshot,
-    foldStatusOverride?: number
+    foldStatusOverride?: number,
+    colorScheme: 'light' | 'dark' = 'light'
   ): AuraStartupConfig {
     const routing = DeviceRoutingPolicy.resolve(windowState, foldStatusOverride);
     return {
@@ -194,6 +196,7 @@ export class DeviceRoutingPolicy {
       productModel: routing.identity.productModel,
       isFoldable: routing.identity.isFoldable,
       foldStatus: routing.identity.foldStatus,
+      colorScheme,
       jitless: true,
       fullscreenRequested: routing.fullscreenRequested
     };

@@ -28,6 +28,7 @@ bool NavigateAuraShellBrowser(const std::string& url);
 bool ExecuteAuraShellBrowserCommand(const std::string& command_json);
 void SetAuraShellBrowserStateCallback(AuraShellBrowserStateCallback callback);
 void UpdateAuraShellUiFamily(const std::string& ui_family);
+void UpdateAuraShellColorScheme(const std::string& color_scheme);
 void UpdateAuraShellPrintOutputDirectory(const std::string& output_directory);
 bool IsAuraShellMobilePhoneUi();
 bool IsAuraShellDesktopUi();

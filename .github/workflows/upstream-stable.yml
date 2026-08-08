@@ -1,0 +1,96 @@
+name: Track Chromium Stable
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.upstream.outputs.version }}
+      revision: ${{ steps.upstream.outputs.revision }}
+      is_newer: ${{ steps.upstream.outputs.is_newer }}
+      compatible: ${{ steps.adapter.outputs.compatible }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: upstream
+        name: Resolve official stable release
+        run: scripts/resolve-latest-stable.sh
+      - id: adapter
+        name: Test current patch
+        run: >-
+          scripts/check-upstream-adapter.sh
+          "${{ steps.upstream.outputs.version }}"
+          "${{ steps.upstream.outputs.revision }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stable-${{ steps.upstream.outputs.version }}-report
+          path: upstream-compatibility.md
+      - name: Open or update upstream issue
+        if: steps.upstream.outputs.is_newer == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.upstream.outputs.version }}';
+            const revision = '${{ steps.upstream.outputs.revision }}';
+            const compatible = '${{ steps.adapter.outputs.compatible }}';
+            const title = `[upstream] Chromium ${version} adapter refresh`;
+            const body = [
+              `Official Chromium Stable ${version} (${revision}) was detected.`,
+              `Current HarmonyOS patch applies cleanly: ${compatible}.`,
+              '',
+              compatible === 'true'
+                ? 'The licensed self-hosted HAP build may run when it is enabled.'
+                : 'The patch needs a compatibility refresh before a native build can be trusted.'
+            ].join('\n');
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+            const existing = issues.data.find(issue => issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body
+              });
+            }
+
+  build-hap:
+    needs: compatibility
+    if: >-
+      needs.compatibility.outputs.compatible == 'true' &&
+      vars.ENABLE_HARMONYOS_SELF_HOSTED_BUILD == 'true'
+    runs-on: [self-hosted, harmonyos-chromium]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native runtime and HAP
+        env:
+          HARMONYOS_SDK_ROOT: ${{ vars.HARMONYOS_SDK_ROOT }}
+          HARMONYOS_SIGNING_CONFIG_PATH: ${{ vars.HARMONYOS_SIGNING_CONFIG_PATH }}
+          NINJA_JOBS: ${{ vars.NINJA_JOBS }}
+        run: >-
+          scripts/self-hosted-build-hap.sh
+          "${{ needs.compatibility.outputs.version }}"
+          "${{ needs.compatibility.outputs.revision }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naviloom-${{ needs.compatibility.outputs.version }}
+          path: artifacts/*.hap
+          retention-days: 7

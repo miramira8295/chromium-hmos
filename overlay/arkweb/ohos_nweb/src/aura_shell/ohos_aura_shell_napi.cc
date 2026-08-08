@@ -831,6 +831,7 @@ AuraStartupConfig ParseStartupConfig(const std::string& config_json) {
   ReadStringField(dict, "printOutputDir", &config.print_output_dir);
   ReadStringField(dict, "resourcesDir", &config.resources_dir);
   ReadStringField(dict, "applicationLocale", &config.application_locale);
+  ReadStringField(dict, "colorScheme", &config.color_scheme);
   ReadPositiveNumberField(dict, "displayWidth", &config.display_width);
   ReadPositiveNumberField(dict, "displayHeight", &config.display_height);
   ReadPositiveNumberField(dict, "displayDensity", &config.display_density);
@@ -867,6 +868,9 @@ AuraStartupConfig ParseStartupConfig(const std::string& config_json) {
   }
   if (config.ui_family.empty()) {
     config.ui_family = kDefaultUiFamily;
+  }
+  if (config.color_scheme != "dark") {
+    config.color_scheme = "light";
   }
   return config;
 }

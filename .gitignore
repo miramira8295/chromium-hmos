@@ -20,6 +20,7 @@ out/
 *.so
 *.log
 *.ninja
+upstream-compatibility.md
 overlay/chromium-ui/.hvigor/
 overlay/chromium-ui/.idea/
 overlay/chromium-ui/entry/.cxx/

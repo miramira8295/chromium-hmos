@@ -15,6 +15,8 @@ endorsed by Google, Chromium, Huawei, or the OpenHarmony project.
 - Product: `plan_kirin_pc`
 - V8: JITless, WebAssembly interpreter enabled
 - UI: Aura/Views on large screens; ArkUI mobile shell on phones
+- Brand: NaviLoom (the open-source bundle ID remains
+  `com.caidingding233.chromium`; an AppGallery product flavor is separate)
 
 ## Repository Layout
 
@@ -26,6 +28,8 @@ endorsed by Google, Chromium, Huawei, or the OpenHarmony project.
 - `config/args.plan_kirin_pc.gn`: GN arguments used by the tested native build.
 - `scripts/apply-adapter.sh`: applies this snapshot to the pinned Chromium
   revision.
+- `.github/workflows/upstream-stable.yml`: checks official Chromium Stable
+  every six hours and can dispatch a licensed self-hosted HAP build.
 - `licenses/`: applicable license texts and the generated third-party credits.
 - `SOURCE_MANIFEST.sha256`: SHA-256 checksums for every published regular file
   except the manifest itself.
@@ -45,6 +49,8 @@ cp config/args.plan_kirin_pc.gn /path/to/chromium/src/out/plan_kirin_pc/args.gn
 ```
 
 Read [BUILDING.md](BUILDING.md) before generating or compiling the target.
+DRM and codec boundaries are documented in [docs/DRM_AND_MEDIA.md](docs/DRM_AND_MEDIA.md),
+and the account/sync trust model is in [docs/HARMONYOS_SYNC.md](docs/HARMONYOS_SYNC.md).
 
 ## Licensing
 

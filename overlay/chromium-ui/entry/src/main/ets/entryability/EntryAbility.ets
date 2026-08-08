@@ -9,12 +9,22 @@ import {
   CrossDeviceEntryAdapter,
   CrossDeviceSessionSnapshot
 } from '../utils/crossdevice/CrossDeviceEntryAdapter';
+import {
+  BrowserProfileService,
+  BrowserProfileState
+} from '../utils/profile/BrowserProfileService';
 
 const DOMAIN = 0x0000;
 const AURA_SURFACE_READY_KEY = 'auraSurfaceReady';
 const AURA_APP_VISIBLE_KEY = 'auraAppVisible';
 const AURA_THEME_FONT_ID_KEY = 'auraThemeFontId';
 const AURA_THEME_FONT_REVISION_KEY = 'auraThemeFontRevision';
+const AURA_COLOR_SCHEME_KEY = 'auraColorScheme';
+const AURA_ONBOARDING_READY_KEY = 'auraOnboardingReady';
+const AURA_ONBOARDING_COMPLETE_KEY = 'auraOnboardingComplete';
+const AURA_PROFILE_ID_KEY = 'auraProfileId';
+const AURA_PROFILE_KIND_KEY = 'auraProfileKind';
+const AURA_SYNC_MODE_KEY = 'auraSyncMode';
 const CDP_PAGE_LIST_URL = 'http://127.0.0.1:9222/json/list';
 
 interface CdpPageTarget {
@@ -28,6 +38,7 @@ export default class EntryAbility extends UIAbility {
   private mainWindow: window.Window | null = null;
   private lastRoutingSignature: string = '';
   private lastThemeFontId: string = '';
+  private lastColorScheme: 'light' | 'dark' = 'light';
   private lastFoldStatus: number = -1;
   private routingRefreshTimer: number = -1;
 
@@ -47,9 +58,16 @@ export default class EntryAbility extends UIAbility {
     this.startupWant = want;
     const initialThemeFontId = this.context.config.fontId ?? '';
     this.lastThemeFontId = initialThemeFontId;
+    this.lastColorScheme = this.resolveColorScheme(this.context.config.colorMode);
     AppStorage.setOrCreate(AURA_APP_VISIBLE_KEY, true);
     AppStorage.setOrCreate(AURA_THEME_FONT_ID_KEY, initialThemeFontId);
     AppStorage.setOrCreate(AURA_THEME_FONT_REVISION_KEY, 0);
+    AppStorage.setOrCreate(AURA_COLOR_SCHEME_KEY, this.lastColorScheme);
+    AppStorage.setOrCreate(AURA_ONBOARDING_READY_KEY, false);
+    AppStorage.setOrCreate(AURA_ONBOARDING_COMPLETE_KEY, false);
+    AppStorage.setOrCreate(AURA_PROFILE_ID_KEY, 'local');
+    AppStorage.setOrCreate(AURA_PROFILE_KIND_KEY, 'local');
+    AppStorage.setOrCreate(AURA_SYNC_MODE_KEY, 'off');
     AppStorage.setOrCreate('auraPwaWindowActive', false);
     hilog.info(DOMAIN, 'AuraShell', 'Initial theme font configuration: %{public}s', initialThemeFontId);
     try {
@@ -57,6 +75,7 @@ export default class EntryAbility extends UIAbility {
     } catch (err) {
       hilog.error(DOMAIN, 'AuraShell', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
     }
+    this.restoreBrowserProfile();
   }
 
   onDestroy(): void {
@@ -74,15 +93,21 @@ export default class EntryAbility extends UIAbility {
 
   onConfigurationUpdate(newConfig: Configuration): void {
     const fontId = newConfig.fontId ?? '';
-    if (fontId === this.lastThemeFontId) {
-      return;
+    if (fontId !== this.lastThemeFontId) {
+      this.lastThemeFontId = fontId;
+      AppStorage.setOrCreate(AURA_THEME_FONT_ID_KEY, fontId);
+      const revision = Number(AppStorage.get(AURA_THEME_FONT_REVISION_KEY) ?? 0);
+      AppStorage.setOrCreate(AURA_THEME_FONT_REVISION_KEY, revision + 1);
+      hilog.info(DOMAIN, 'AuraShell', 'Theme font configuration changed: %{public}s', fontId);
     }
 
-    this.lastThemeFontId = fontId;
-    AppStorage.setOrCreate(AURA_THEME_FONT_ID_KEY, fontId);
-    const revision = Number(AppStorage.get(AURA_THEME_FONT_REVISION_KEY) ?? 0);
-    AppStorage.setOrCreate(AURA_THEME_FONT_REVISION_KEY, revision + 1);
-    hilog.info(DOMAIN, 'AuraShell', 'Theme font configuration changed: %{public}s', fontId);
+    const colorScheme = this.resolveColorScheme(newConfig.colorMode);
+    if (colorScheme !== this.lastColorScheme) {
+      this.lastColorScheme = colorScheme;
+      AppStorage.setOrCreate(AURA_COLOR_SCHEME_KEY, colorScheme);
+      this.refreshRouting('colorModeChange', this.lastFoldStatus);
+      hilog.info(DOMAIN, 'AuraShell', 'Color scheme changed: %{public}s', colorScheme);
+    }
   }
 
   async onContinue(wantParam: Record<string, Object>): Promise<AbilityConstant.OnContinueResult> {
@@ -108,7 +133,8 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('auraStartUrl', startUrl);
     AppStorage.setOrCreate('auraRoutingRevision', 0);
     AppStorage.setOrCreate('auraRouting', '');
-    AppStorage.setOrCreate('auraStartupConfig', UIManager.serializeAuraStartupConfig(startUrl));
+    AppStorage.setOrCreate('auraStartupConfig',
+      UIManager.serializeAuraStartupConfig(startUrl, undefined, undefined, this.lastColorScheme));
     AppStorage.setOrCreate(AURA_SURFACE_READY_KEY, false);
 
     windowStage.loadContent(uiPath, (err) => {
@@ -250,7 +276,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
 
-    if (reason !== 'initial' && !this.isSurfaceReady()) {
+    if (reason !== 'initial' && reason !== 'colorModeChange' && !this.isSurfaceReady()) {
       hilog.info(DOMAIN, 'AuraShell', 'Skip routing refresh before first surface frame: %{public}s', reason);
       return;
     }
@@ -259,12 +285,12 @@ export default class EntryAbility extends UIAbility {
     const foldStatus = foldStatusOverride ?? this.lastFoldStatus;
     const routing = UIManager.getRouting(windowState, foldStatus);
     const startUrl = (AppStorage.get('auraStartUrl') as string) || CHROMIUM_HOME_URL;
-    const routingSignature = DeviceRoutingPolicy.buildRoutingSignature(routing);
+    const routingSignature = `${DeviceRoutingPolicy.buildRoutingSignature(routing)}|${this.lastColorScheme}`;
 
     this.applyWindowPolicy(this.mainWindow, routing);
     AppStorage.setOrCreate('auraRouting', JSON.stringify(routing));
     AppStorage.setOrCreate('auraStartupConfig',
-      UIManager.serializeAuraStartupConfig(startUrl, windowState, foldStatus));
+      UIManager.serializeAuraStartupConfig(startUrl, windowState, foldStatus, this.lastColorScheme));
 
     if (routingSignature !== this.lastRoutingSignature) {
       this.lastRoutingSignature = routingSignature;
@@ -277,6 +303,26 @@ export default class EntryAbility extends UIAbility {
 
   private isSurfaceReady(): boolean {
     return Boolean(AppStorage.get(AURA_SURFACE_READY_KEY) ?? false);
+  }
+
+  private resolveColorScheme(colorMode?: ConfigurationConstant.ColorMode): 'light' | 'dark' {
+    return colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK ? 'dark' : 'light';
+  }
+
+  private restoreBrowserProfile(): void {
+    BrowserProfileService.load(this.context)
+      .then((state: BrowserProfileState): void => {
+        AppStorage.setOrCreate(AURA_ONBOARDING_COMPLETE_KEY, state.onboardingComplete);
+        AppStorage.setOrCreate(AURA_PROFILE_ID_KEY, state.profileId);
+        AppStorage.setOrCreate(AURA_PROFILE_KIND_KEY, state.profileKind);
+        AppStorage.setOrCreate(AURA_SYNC_MODE_KEY, state.syncMode);
+        AppStorage.setOrCreate(AURA_ONBOARDING_READY_KEY, true);
+      })
+      .catch((error: Error): void => {
+        hilog.error(DOMAIN, 'AuraShell', 'Failed to restore browser profile: %{public}s',
+          JSON.stringify(error));
+        AppStorage.setOrCreate(AURA_ONBOARDING_READY_KEY, true);
+      });
   }
 
   private captureWindowState(win: window.Window): WindowStateSnapshot {

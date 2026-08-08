@@ -61,6 +61,7 @@
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/shell_dialogs/select_file_dialog_ohos.h"
 #include "url/gurl.h"
 
@@ -79,6 +80,7 @@ struct RuntimeBridgeState {
   std::optional<GURL> pending_url GUARDED_BY(lock);
   std::optional<std::string> pending_theme_font_id GUARDED_BY(lock);
   std::string ui_family GUARDED_BY(lock) = "mobile_phone";
+  std::string color_scheme GUARDED_BY(lock) = "light";
   std::string print_output_directory GUARDED_BY(lock);
   AuraShellBrowserStateCallback browser_state_callback GUARDED_BY(lock);
   std::string last_browser_state_json GUARDED_BY(lock);
@@ -462,6 +464,48 @@ void ApplyUiFamilyOnUiThread(std::string ui_family) {
             << " touch_ui=" << use_touch_ui;
 }
 
+void ApplyColorSchemeOnUiThread(std::string color_scheme) {
+  const ui::NativeTheme::PreferredColorScheme preferred_scheme =
+      color_scheme == "dark" ? ui::NativeTheme::PreferredColorScheme::kDark
+                             : ui::NativeTheme::PreferredColorScheme::kLight;
+
+  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+  if (native_theme &&
+      native_theme->preferred_color_scheme() != preferred_scheme) {
+    native_theme->set_preferred_color_scheme(preferred_scheme);
+    native_theme->NotifyOnNativeThemeUpdated();
+  }
+
+  ui::NativeTheme* web_theme = ui::NativeTheme::GetInstanceForWeb();
+  if (web_theme && web_theme != native_theme &&
+      web_theme->preferred_color_scheme() != preferred_scheme) {
+    web_theme->set_preferred_color_scheme(preferred_scheme);
+    web_theme->NotifyOnNativeThemeUpdated();
+  }
+
+  if (GlobalBrowserCollection* browsers =
+          GlobalBrowserCollection::GetInstance()) {
+    browsers->ForEach([](BrowserWindowInterface* browser) {
+      TabStripModel* tabs = browser->GetTabStripModel();
+      if (tabs) {
+        for (int index = 0; index < tabs->count(); ++index) {
+          if (content::WebContents* contents = tabs->GetWebContentsAt(index)) {
+            contents->NotifyPreferencesChanged();
+          }
+        }
+      }
+      if (BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(
+              browser->GetBrowserForMigrationOnly())) {
+        browser_view->InvalidateLayout();
+        browser_view->SchedulePaint();
+      }
+      return true;
+    });
+  }
+
+  LOG(INFO) << "OHOS Aura shell applied color scheme " << color_scheme;
+}
+
 void ExecuteBrowserCommandOnUiThread(base::DictValue command) {
   const std::string* name = command.FindString("command");
   if (!name || *name == "requestState") {
@@ -640,6 +684,7 @@ void NotifyAuraShellBrowserStarted() {
   std::optional<std::string> pending_theme_font_id;
   bool pending_shutdown = false;
   std::string ui_family;
+  std::string color_scheme;
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner;
   uint64_t browser_generation = 0;
   {
@@ -651,11 +696,13 @@ void NotifyAuraShellBrowserStarted() {
     pending_url = std::move(state.pending_url);
     pending_theme_font_id = std::move(state.pending_theme_font_id);
     ui_family = state.ui_family;
+    color_scheme = state.color_scheme;
     pending_shutdown = state.pending_shutdown;
     state.pending_shutdown = false;
   }
 
   ApplyUiFamilyOnUiThread(std::move(ui_family));
+  ApplyColorSchemeOnUiThread(std::move(color_scheme));
   ui_task_runner->PostTask(
       FROM_HERE,
       base::BindOnce(&PollBrowserStateOnUiThread, browser_generation));
@@ -764,6 +811,26 @@ void UpdateAuraShellUiFamily(const std::string& ui_family) {
   if (ui_task_runner) {
     ui_task_runner->PostTask(
         FROM_HERE, base::BindOnce(&ApplyUiFamilyOnUiThread, resolved_family));
+  }
+}
+
+void UpdateAuraShellColorScheme(const std::string& color_scheme) {
+  const std::string resolved_scheme = color_scheme == "dark" ? "dark" : "light";
+  scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner;
+  {
+    RuntimeBridgeState& state = GetState();
+    base::AutoLock lock(state.lock);
+    if (state.color_scheme == resolved_scheme) {
+      return;
+    }
+    state.color_scheme = resolved_scheme;
+    ui_task_runner = state.ui_task_runner;
+  }
+
+  if (ui_task_runner) {
+    ui_task_runner->PostTask(
+        FROM_HERE,
+        base::BindOnce(&ApplyColorSchemeOnUiThread, resolved_scheme));
   }
 }
 

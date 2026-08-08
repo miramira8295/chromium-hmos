@@ -123,6 +123,7 @@ OhosChromeMainRunner::~OhosChromeMainRunner() = default;
 
 bool OhosChromeMainRunner::EnsureStarted(const AuraStartupConfig& config) {
   chrome::ohos::UpdateAuraShellUiFamily(config.ui_family);
+  chrome::ohos::UpdateAuraShellColorScheme(config.color_scheme);
   chrome::ohos::UpdateAuraShellPrintOutputDirectory(config.print_output_dir);
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -216,6 +217,7 @@ std::vector<std::string> OhosChromeMainRunner::BuildArgumentsLocked(
   AppendSwitchWithValue(&arguments, "--ohos-ui-profile", config.ui_profile);
   AppendSwitchWithValue(&arguments, "--ohos-ui-family", config.ui_family);
   AppendSwitchWithValue(&arguments, "--ohos-device-class", config.device_class);
+  AppendSwitchWithValue(&arguments, "--ohos-color-scheme", config.color_scheme);
   AppendSwitchWithValue(&arguments, "--user-data-dir", config.user_data_dir);
   AppendSwitchWithValue(&arguments, "--lang", config.application_locale);
 

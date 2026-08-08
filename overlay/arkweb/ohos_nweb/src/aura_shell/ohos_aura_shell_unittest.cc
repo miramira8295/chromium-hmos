@@ -293,6 +293,7 @@ TEST(NWebAuraShellTest, ChromiumArgumentsEnforceJitlessWasmPhoneFallback) {
   config.ui_family = "mobile_phone";
   config.user_data_dir = "/data/storage/el2/base/files/chromium-profile";
   config.application_locale = "zh-CN";
+  config.color_scheme = "dark";
 
   OhosChromeMainRunner runner;
   const std::vector<std::string> arguments =
@@ -309,6 +310,7 @@ TEST(NWebAuraShellTest, ChromiumArgumentsEnforceJitlessWasmPhoneFallback) {
       arguments,
       "--user-data-dir=/data/storage/el2/base/files/chromium-profile"));
   EXPECT_TRUE(ContainsArgument(arguments, "--lang=zh-CN"));
+  EXPECT_TRUE(ContainsArgument(arguments, "--ohos-color-scheme=dark"));
   EXPECT_TRUE(
       ContainsArgument(arguments, "--remote-debugging-address=127.0.0.1"));
   EXPECT_TRUE(ContainsArgument(arguments, "--remote-debugging-port=9222"));

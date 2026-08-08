@@ -12,6 +12,8 @@
 - 单一产品：`plan_kirin_pc`
 - V8：JITless；保留 WebAssembly，使用解释器执行
 - 大屏：Chromium Aura/Views；手机：ArkUI 浏览器栏加 Chromium 内容层
+- 品牌：NaviLoom；开源版包名仍为 `com.caidingding233.chromium`，
+  AppGallery 产品口味使用独立包名
 
 ## 仓库内容
 
@@ -20,6 +22,8 @@
 - `external/deps_code/webview/`：适配层需要的 WebView 接口源码。
 - `config/args.plan_kirin_pc.gn`：本次原生构建使用的 GN 参数。
 - `scripts/apply-adapter.sh`：把适配快照应用到指定 Chromium 基线。
+- `.github/workflows/upstream-stable.yml`：每 6 小时检查官方 Chromium Stable，
+  补丁兼容时可触发带授权 SDK 的自托管 HAP 构建。
 - `licenses/`：许可证正文与目标构建生成的第三方许可清单。
 - `SOURCE_MANIFEST.sha256`：除清单自身外，所有公开常规文件的 SHA-256 校验值。
 
@@ -37,3 +41,5 @@ cp config/args.plan_kirin_pc.gn /path/to/chromium/src/out/plan_kirin_pc/args.gn
 
 继续构建前请阅读 [BUILDING.md](BUILDING.md)。许可证及对应源码说明见
 [OPEN_SOURCE_NOTICES.md](OPEN_SOURCE_NOTICES.md) 与 [SOURCE_OFFER.md](SOURCE_OFFER.md)。
+DRM/编解码边界见 [docs/DRM_AND_MEDIA.md](docs/DRM_AND_MEDIA.md)，账号与同步信任模型见
+[docs/HARMONYOS_SYNC.md](docs/HARMONYOS_SYNC.md)。

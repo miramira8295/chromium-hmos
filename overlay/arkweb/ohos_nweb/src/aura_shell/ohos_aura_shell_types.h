@@ -27,6 +27,7 @@ struct AuraStartupConfig {
   std::string print_output_dir;
   std::string resources_dir;
   std::string application_locale = "en-US";
+  std::string color_scheme = "light";
   double display_width = 1920.0;
   double display_height = 1080.0;
   double display_density = 1.0;

@@ -22,8 +22,8 @@ export struct PwaCapsuleOverlay {
       .height(44)
       .padding({ left: 4, right: 4 })
       .borderRadius(22)
-      .backgroundColor('#F2FFFFFF')
-      .shadow({ radius: 12, color: '#24000000', offsetY: 3 })
+      .backgroundColor($r('app.color.surface_floating'))
+      .shadow({ radius: 12, color: $r('app.color.shadow'), offsetY: 3 })
 
       Blank()
 
@@ -42,8 +42,8 @@ export struct PwaCapsuleOverlay {
       .height(44)
       .padding({ left: 4, right: 4 })
       .borderRadius(22)
-      .backgroundColor('#F2FFFFFF')
-      .shadow({ radius: 12, color: '#24000000', offsetY: 3 })
+      .backgroundColor($r('app.color.surface_floating'))
+      .shadow({ radius: 12, color: $r('app.color.shadow'), offsetY: 3 })
     }
     .width('100%')
     .height(60)
@@ -56,7 +56,7 @@ export struct PwaCapsuleOverlay {
       Image(icon)
         .width(20)
         .height(20)
-        .fillColor('#202124')
+        .fillColor($r('app.color.icon_primary'))
     }
     .width(36)
     .height(36)

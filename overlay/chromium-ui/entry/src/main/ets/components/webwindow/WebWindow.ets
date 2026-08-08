@@ -33,6 +33,7 @@ import {
 
 export interface WebWindowOptions {
   url?: string;
+  profileId?: string;
   startupConfigText?: string;
   routingRevision?: number;
   appVisible?: boolean;
@@ -66,6 +67,7 @@ const COMMON_RUNTIME_RAWFILES: string[] = [
 @ComponentV2
 export struct WebWindow {
   @Param url: string = CHROMIUM_HOME_URL;
+  @Param profileId: string = 'local';
   @Param startupConfigText: string = '';
   @Param routingRevision: number = 0;
   @Param appVisible: boolean = true;
@@ -318,7 +320,17 @@ export struct WebWindow {
     if (!hostContext || !hostContext.filesDir) {
       throw new Error('Failed to get Chromium user data directory');
     }
-    config.userDataDir = `${hostContext.filesDir}/chromium-profile`;
+    const safeProfileId = this.profileId.trim().replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 96) || 'local';
+    if (safeProfileId === 'local') {
+      // Preserve the legacy path so existing users keep their current profile.
+      config.userDataDir = `${hostContext.filesDir}/chromium-profile`;
+    } else {
+      const profilesDir = `${hostContext.filesDir}/chromium-profiles`;
+      if (!fileIo.accessSync(profilesDir)) {
+        fileIo.mkdirSync(profilesDir, true);
+      }
+      config.userDataDir = `${profilesDir}/${safeProfileId}`;
+    }
     config.printOutputDir = `${hostContext.filesDir}/chromium-print`;
   }
 

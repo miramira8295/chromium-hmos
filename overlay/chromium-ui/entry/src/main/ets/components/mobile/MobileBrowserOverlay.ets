@@ -22,6 +22,7 @@ const LAST_GRIP_SIDE_KEY: string = 'mobileLastGripSide';
 
 @Component
 export struct MobileBrowserOverlay {
+  @StorageLink('auraColorScheme') colorScheme: string = 'light';
   @Prop @Watch('onBrowserStateChanged') browserState: BrowserStateSnapshot;
   onCommand: (command: BrowserCommandPayload) => void = (_command: BrowserCommandPayload): void => {};
 
@@ -87,12 +88,12 @@ export struct MobileBrowserOverlay {
         $r('app.media.chromium_back') : $r('app.media.chromium_more'))
         .width(24)
         .height(24)
-        .fillColor('#202124')
+        .fillColor($r('app.color.icon_primary'))
     }
     .width(52)
     .height(52)
-    .backgroundColor('#F2FFFFFF')
-    .shadow({ radius: 16, color: '#24000000', offsetY: 4 })
+    .backgroundColor($r('app.color.surface_floating'))
+    .shadow({ radius: 16, color: $r('app.color.shadow'), offsetY: 4 })
     .visualEffect(this.buildBubbleEffect())
     .opacity(action === MobileEdgeAction.BACK && !this.browserState.canGoBack ? 0.52 : 1)
     .enabled(action !== MobileEdgeAction.BACK || this.browserState.canGoBack)
@@ -109,8 +110,8 @@ export struct MobileBrowserOverlay {
           .layoutWeight(1)
           .height(52)
           .fontSize(16)
-          .fontColor('#202124')
-          .placeholderColor('#71757A')
+          .fontColor($r('app.color.text_primary'))
+          .placeholderColor($r('app.color.text_secondary'))
           .backgroundColor(Color.Transparent)
           .padding({ left: 18, right: 12 })
           .enterKeyType(EnterKeyType.Go)
@@ -125,7 +126,7 @@ export struct MobileBrowserOverlay {
           Image($r('app.media.chromium_close'))
             .width(20)
             .height(20)
-            .fillColor('#3C4043')
+            .fillColor($r('app.color.icon_secondary'))
         }
         .width(40)
         .height(40)
@@ -143,14 +144,14 @@ export struct MobileBrowserOverlay {
               LoadingProgress()
                 .width(18)
                 .height(18)
-                .color('#0A59F7')
+                .color($r('app.color.accent_primary'))
             }
             Text(this.displayDomain())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#202124')
+              .fontColor($r('app.color.text_primary'))
           }
           .justifyContent(FlexAlign.Center)
           .width('100%')
@@ -166,8 +167,8 @@ export struct MobileBrowserOverlay {
     .layoutWeight(1)
     .height(52)
     .borderRadius(26)
-    .backgroundColor('#F2FFFFFF')
-    .shadow({ radius: 16, color: '#24000000', offsetY: 4 })
+    .backgroundColor($r('app.color.surface_floating'))
+    .shadow({ radius: 16, color: $r('app.color.shadow'), offsetY: 4 })
     .visualEffect(this.buildBubbleEffect())
   }
 
@@ -178,17 +179,17 @@ export struct MobileBrowserOverlay {
         Text('标签页')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#202124')
+          .fontColor($r('app.color.text_primary'))
         Blank()
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.chromium_add'))
             .width(22)
             .height(22)
-            .fillColor('#202124')
+            .fillColor($r('app.color.icon_primary'))
         }
         .width(44)
         .height(44)
-        .backgroundColor('#0D000000')
+        .backgroundColor($r('app.color.surface_secondary'))
         .accessibilityText('新建标签页')
         .onClick(() => {
           this.issueCommand({ command: 'newTab' });
@@ -205,19 +206,20 @@ export struct MobileBrowserOverlay {
                 .width(4)
                 .height(28)
                 .borderRadius(2)
-                .backgroundColor(tab.active ? '#0A59F7' : Color.Transparent)
+                .backgroundColor(tab.active ?
+                  $r('app.color.accent_primary') : $r('app.color.transparent'))
               Column({ space: 2 }) {
                 Text(tab.title && tab.title.length > 0 ? tab.title : '新标签页')
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .fontSize(16)
                   .fontWeight(tab.active ? FontWeight.Medium : FontWeight.Regular)
-                  .fontColor('#202124')
+                  .fontColor($r('app.color.text_primary'))
                 Text(this.shortUrl(tab.url))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .fontSize(12)
-                  .fontColor('#71757A')
+                  .fontColor($r('app.color.text_secondary'))
               }
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
@@ -225,7 +227,7 @@ export struct MobileBrowserOverlay {
                 Image($r('app.media.chromium_close'))
                   .width(18)
                   .height(18)
-                  .fillColor('#5F6368')
+                  .fillColor($r('app.color.icon_secondary'))
               }
               .width(40)
               .height(40)
@@ -248,7 +250,7 @@ export struct MobileBrowserOverlay {
       .layoutWeight(1)
 
       Divider()
-        .color('#18000000')
+        .color($r('app.color.divider'))
         .margin({ top: 6, bottom: 10 })
 
       Row({ space: 8 }) {
@@ -268,27 +270,31 @@ export struct MobileBrowserOverlay {
       Row() {
         Text('主按钮')
           .fontSize(15)
-          .fontColor('#3C4043')
+          .fontColor($r('app.color.text_secondary'))
         Blank()
         Row() {
           Button('返回')
             .height(36)
             .fontSize(14)
-            .fontColor(this.primaryAction === MobileEdgeAction.BACK ? '#FFFFFF' : '#3C4043')
-            .backgroundColor(this.primaryAction === MobileEdgeAction.BACK ? '#0A59F7' : Color.Transparent)
+            .fontColor(this.primaryAction === MobileEdgeAction.BACK ?
+              $r('app.color.on_accent') : $r('app.color.text_secondary'))
+            .backgroundColor(this.primaryAction === MobileEdgeAction.BACK ?
+              $r('app.color.accent_primary') : $r('app.color.transparent'))
             .borderRadius(8)
             .onClick(() => this.setPrimaryAction(MobileEdgeAction.BACK))
           Button('菜单')
             .height(36)
             .fontSize(14)
-            .fontColor(this.primaryAction === MobileEdgeAction.MENU ? '#FFFFFF' : '#3C4043')
-            .backgroundColor(this.primaryAction === MobileEdgeAction.MENU ? '#0A59F7' : Color.Transparent)
+            .fontColor(this.primaryAction === MobileEdgeAction.MENU ?
+              $r('app.color.on_accent') : $r('app.color.text_secondary'))
+            .backgroundColor(this.primaryAction === MobileEdgeAction.MENU ?
+              $r('app.color.accent_primary') : $r('app.color.transparent'))
             .borderRadius(8)
             .onClick(() => this.setPrimaryAction(MobileEdgeAction.MENU))
         }
         .padding(2)
         .borderRadius(8)
-        .backgroundColor('#0D000000')
+        .backgroundColor($r('app.color.surface_secondary'))
       }
       .width('100%')
       .height(52)
@@ -296,7 +302,7 @@ export struct MobileBrowserOverlay {
       Row() {
         Text('跟随握持手')
           .fontSize(15)
-          .fontColor('#3C4043')
+          .fontColor($r('app.color.text_secondary'))
         Blank()
         Toggle({ type: ToggleType.Switch, isOn: this.followGrip })
           .onChange((value: boolean) => this.setFollowGrip(value))
@@ -307,7 +313,7 @@ export struct MobileBrowserOverlay {
     .width('100%')
     .height('100%')
     .padding({ left: 20, right: 20, bottom: 16 })
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.surface_primary'))
   }
 
   @Builder
@@ -317,16 +323,16 @@ export struct MobileBrowserOverlay {
         Image(icon)
           .width(22)
           .height(22)
-          .fillColor('#202124')
+          .fillColor($r('app.color.icon_primary'))
         Text(label)
           .fontSize(12)
-          .fontColor('#3C4043')
+          .fontColor($r('app.color.text_secondary'))
       }
     }
     .layoutWeight(1)
     .height(58)
     .borderRadius(8)
-    .backgroundColor('#0D000000')
+    .backgroundColor($r('app.color.surface_secondary'))
     .onClick(() => this.issueCommand({ command }))
   }
 
@@ -337,24 +343,24 @@ export struct MobileBrowserOverlay {
         Image($r('app.media.chromium_share'))
           .width(22)
           .height(22)
-          .fillColor('#202124')
+          .fillColor($r('app.color.icon_primary'))
         Text('华为分享')
           .fontSize(12)
-          .fontColor('#3C4043')
+          .fontColor($r('app.color.text_secondary'))
       }
     }
     .layoutWeight(1)
     .height(58)
     .borderRadius(8)
-    .backgroundColor('#0D000000')
+    .backgroundColor($r('app.color.surface_secondary'))
     .onClick(() => this.shareCurrentPage())
   }
 
   @Builder
   private CastButton() {
     AVCastPicker({
-      normalColor: '#202124',
-      activeColor: '#0A59F7',
+      normalColor: this.colorScheme === 'dark' ? '#F5F5F5' : '#202124',
+      activeColor: this.colorScheme === 'dark' ? '#5B8CFF' : '#0A59F7',
       pickerStyle: AVCastPickerStyle.STYLE_PANEL,
       colorMode: AVCastPickerColorMode.AUTO,
       sessionType: 'video',
@@ -370,16 +376,16 @@ export struct MobileBrowserOverlay {
       Image($r('app.media.chromium_cast'))
         .width(22)
         .height(22)
-        .fillColor('#202124')
+        .fillColor($r('app.color.icon_primary'))
       Text('投放')
         .fontSize(12)
-        .fontColor('#3C4043')
+        .fontColor($r('app.color.text_secondary'))
     }
     .width('100%')
     .height(58)
     .justifyContent(FlexAlign.Center)
     .borderRadius(8)
-    .backgroundColor('#0D000000')
+    .backgroundColor($r('app.color.surface_secondary'))
   }
 
   private buildBubbleEffect(): VisualEffect {

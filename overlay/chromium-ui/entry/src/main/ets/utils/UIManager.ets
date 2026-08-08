@@ -40,16 +40,20 @@ export class UIManager {
   static buildAuraStartupConfig(
     startUrl: string,
     windowState?: WindowStateSnapshot,
-    foldStatusOverride?: number
+    foldStatusOverride?: number,
+    colorScheme: 'light' | 'dark' = 'light'
   ): AuraStartupConfig {
-    return DeviceRoutingPolicy.createAuraStartupConfig(startUrl, windowState, foldStatusOverride);
+    return DeviceRoutingPolicy.createAuraStartupConfig(
+      startUrl, windowState, foldStatusOverride, colorScheme);
   }
 
   static serializeAuraStartupConfig(
     startUrl: string,
     windowState?: WindowStateSnapshot,
-    foldStatusOverride?: number
+    foldStatusOverride?: number,
+    colorScheme: 'light' | 'dark' = 'light'
   ): string {
-    return JSON.stringify(UIManager.buildAuraStartupConfig(startUrl, windowState, foldStatusOverride));
+    return JSON.stringify(UIManager.buildAuraStartupConfig(
+      startUrl, windowState, foldStatusOverride, colorScheme));
   }
 }
