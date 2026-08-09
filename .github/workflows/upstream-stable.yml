@@ -1,6 +1,7 @@
 name: Track Chromium Stable
 
 on:
+  workflow_call:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
