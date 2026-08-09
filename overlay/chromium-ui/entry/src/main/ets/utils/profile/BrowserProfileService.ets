@@ -3,7 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { authentication } from '@kit.AccountKit';
 import { util } from '@kit.ArkTS';
 
-const PREFERENCES_NAME: string = 'naviloom_browser_profile';
+const PREFERENCES_NAME: string = 'chromium_hmos_browser_profile';
 const ONBOARDING_COMPLETE_KEY: string = 'onboardingComplete';
 const PROFILE_ID_KEY: string = 'profileId';
 const PROFILE_KIND_KEY: string = 'profileKind';

@@ -15,8 +15,8 @@ endorsed by Google, Chromium, Huawei, or the OpenHarmony project.
 - Product: `plan_kirin_pc`
 - V8: JITless, WebAssembly interpreter enabled
 - UI: Aura/Views on large screens; ArkUI mobile shell on phones
-- Brand: NaviLoom (the open-source bundle ID remains
-  `com.caidingding233.chromium`; an AppGallery product flavor is separate)
+- Public identity: Chromium HarmonyOS Adapter (`com.caidingding233.chromium`).
+  Product brands and AppGallery signing remain in separate downstream trees.
 
 ## Repository Layout
 

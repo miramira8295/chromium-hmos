@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "NaviLoom 浏览器"
+      "value": "Chromium HarmonyOS Adapter 浏览器"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "NaviLoom 主入口"
+      "value": "Chromium HarmonyOS Adapter 主入口"
     },
     {
       "name": "EntryAbility_label",
-      "value": "NaviLoom"
+      "value": "Chromium HarmonyOS Adapter"
     },
     {
       "name": "internet_permission_reason",

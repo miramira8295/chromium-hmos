@@ -18,10 +18,10 @@ export struct BrowserOnboarding {
           .width(88)
           .height(88)
           .objectFit(ImageFit.Contain)
-          .accessibilityText('NaviLoom')
+          .accessibilityText('Chromium HarmonyOS Adapter')
 
         Column({ space: 8 }) {
-          Text('NaviLoom')
+          Text('Chromium HarmonyOS Adapter')
             .fontSize(36)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))

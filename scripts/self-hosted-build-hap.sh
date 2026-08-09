@@ -40,17 +40,17 @@ cp "${project_root}/config/args.plan_kirin_pc.gn" \
 
 (
   cd "${chromium_src}/chromium-ui"
-  devecocli build --product naviloom --modules entry@default --build-mode release
+  devecocli build --product default --modules entry@default --build-mode release
 )
 
-built_hap="$(find "${chromium_src}/chromium-ui/entry/build/naviloom" \
+built_hap="$(find "${chromium_src}/chromium-ui/entry/build/default" \
   -type f -name '*-signed.hap' | LC_ALL=C sort | tail -n 1)"
 if [[ -z "${built_hap}" ]]; then
-  built_hap="$(find "${chromium_src}/chromium-ui/entry/build/naviloom" \
+  built_hap="$(find "${chromium_src}/chromium-ui/entry/build/default" \
     -type f -name '*-unsigned.hap' | LC_ALL=C sort | tail -n 1)"
 fi
 [[ -n "${built_hap}" ]] || {
-  echo 'devecocli did not produce a NaviLoom HAP.' >&2
+  echo 'devecocli did not produce a Chromium HarmonyOS Adapter HAP.' >&2
   exit 1
 }
 
@@ -68,4 +68,4 @@ for required_entry in \
   }
 done
 
-cp "${built_hap}" "${artifact_dir}/NaviLoom-${version}.hap"
+cp "${built_hap}" "${artifact_dir}/Chromium-HarmonyOS-${version}.hap"

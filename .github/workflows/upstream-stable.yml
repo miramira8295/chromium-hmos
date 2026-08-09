@@ -96,6 +96,6 @@ jobs:
           "${{ needs.compatibility.outputs.revision }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: naviloom-${{ needs.compatibility.outputs.version }}
+          name: chromium-hmos-${{ needs.compatibility.outputs.version }}
           path: artifacts/*.hap
           retention-days: 7

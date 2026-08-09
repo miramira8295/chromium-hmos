@@ -25,7 +25,7 @@ struct PCIndex {
     Column() {
       // PC使用全功能浏览器布局，由Native (Skia) 渲染标签页、工具栏等
       WebWindow({
-        url: 'https://www.google.com'
+        url: 'chrome://newtab/'
       })
         .width('100%')
         .height('100%')

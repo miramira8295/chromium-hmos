@@ -14,20 +14,6 @@
             "useNormalizedOHMUrl": true
           }
         }
-      },
-      {
-        "name": "naviloom",
-        "bundleName": "com.caidingding233.naviloom",
-        "targetSdkVersion": "6.0.1(21)",
-        "compatibleSdkVersion": "6.0.0(20)",
-        "runtimeOS": "HarmonyOS",
-        "buildOption": {
-          "nativeCompiler": "BiSheng",
-          "strictMode": {
-            "caseSensitiveCheck": true,
-            "useNormalizedOHMUrl": true
-          }
-        }
       }
     ],
     "buildModeSet": [
@@ -47,8 +33,7 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default",
-            "naviloom"
+            "default"
           ]
         }
       ]

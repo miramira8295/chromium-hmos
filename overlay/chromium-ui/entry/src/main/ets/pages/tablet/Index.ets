@@ -22,7 +22,7 @@ import { KeyCode } from '@kit.InputKit';
 @Entry
 @ComponentV2
 struct TabletIndex {
-  @Local url: string = 'https://www.google.com';
+  @Local url: string = 'chrome://newtab/';
   @Local pageTitle: string = '';
   @Local isLoading: boolean = false;
   @Local focusedIndex: number = 0;  // 遥控器焦点索引

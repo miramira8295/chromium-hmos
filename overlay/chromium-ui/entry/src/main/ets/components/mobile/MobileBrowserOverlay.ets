@@ -488,7 +488,7 @@ export struct MobileBrowserOverlay {
       return input;
     }
     if (/\s/.test(input) || !input.includes('.')) {
-      return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+      return `https://www.bing.com/search?q=${encodeURIComponent(input)}`;
     }
     return `https://${input}`;
   }

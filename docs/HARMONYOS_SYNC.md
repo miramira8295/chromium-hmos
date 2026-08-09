@@ -1,7 +1,8 @@
 # HarmonyOS profile and sync architecture
 
-NaviLoom maps each verified account identity to an isolated Chromium user data
-directory. The legacy local profile remains at `chromium-profile`; verified
+Chromium HarmonyOS Adapter maps each verified account identity to an isolated
+Chromium user data directory. The legacy local profile remains at
+`chromium-profile`; verified
 account profiles use `chromium-profiles/<stable-id>`.
 
 The first-run ArkUI flow supports a fully local profile today. Account Kit is

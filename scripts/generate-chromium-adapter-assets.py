@@ -23,14 +23,14 @@ def write_assets(project: Path, foreground_path: Path) -> None:
     entry_media = project / "entry/src/main/resources/base/media"
     for media_dir in (app_media, entry_media):
         media_dir.mkdir(parents=True, exist_ok=True)
-        canvas.save(media_dir / "naviloom_foreground.png", optimize=True)
-        background.save(media_dir / "naviloom_background.png", optimize=True)
-    start_icon.save(entry_media / "naviloom_start_icon.png", optimize=True)
+        canvas.save(media_dir / "chromium_hmos_foreground.png", optimize=True)
+        background.save(media_dir / "chromium_hmos_background.png", optimize=True)
+    start_icon.save(entry_media / "chromium_hmos_start_icon.png", optimize=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate deterministic HarmonyOS NaviLoom icon assets.")
+        description="Generate deterministic Chromium HarmonyOS Adapter icon assets.")
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--foreground", type=Path, required=True)
     args = parser.parse_args()

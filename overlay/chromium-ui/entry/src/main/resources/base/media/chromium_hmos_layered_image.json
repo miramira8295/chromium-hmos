@@ -1,0 +1,6 @@
+{
+  "layered-image": {
+    "background": "$media:chromium_hmos_background",
+    "foreground": "$media:chromium_hmos_foreground"
+  }
+}

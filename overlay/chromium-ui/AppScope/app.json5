@@ -4,7 +4,7 @@
     "vendor": "caidingding233",
     "versionCode": 1000000,
     "versionName": "1.0.0",
-    "icon": "$media:naviloom_layered_image",
+    "icon": "$media:chromium_hmos_layered_image",
     "label": "$string:app_name",
     "appEnvironments": [
       {

@@ -12,8 +12,8 @@
 - 单一产品：`plan_kirin_pc`
 - V8：JITless；保留 WebAssembly，使用解释器执行
 - 大屏：Chromium Aura/Views；手机：ArkUI 浏览器栏加 Chromium 内容层
-- 品牌：NaviLoom；开源版包名仍为 `com.caidingding233.chromium`，
-  AppGallery 产品口味使用独立包名
+- 公开身份：Chromium HarmonyOS Adapter，包名为
+  `com.caidingding233.chromium`；商业品牌与 AppGallery 签名留在独立下游
 
 ## 仓库内容
 

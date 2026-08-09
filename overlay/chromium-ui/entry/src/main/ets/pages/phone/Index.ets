@@ -21,7 +21,7 @@ import { WebWindow } from '../../components/webwindow/WebWindow';
 @Entry
 @ComponentV2
 struct PhoneIndex {
-  @Local url: string = 'https://www.google.com';
+  @Local url: string = 'chrome://newtab/';
   @Local pageTitle: string = '';
   @Local isLoading: boolean = false;
   

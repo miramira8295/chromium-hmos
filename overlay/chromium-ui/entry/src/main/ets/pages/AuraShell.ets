@@ -171,7 +171,7 @@ struct AuraShell {
   private AuxiliaryWindowSheet() {
     Column() {
       Row() {
-        Text('NaviLoom')
+        Text('Chromium HarmonyOS Adapter')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
