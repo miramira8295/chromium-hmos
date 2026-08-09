@@ -20,6 +20,8 @@ jobs:
       compatible: ${{ steps.adapter.outputs.compatible }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: hmos-150-adapter
       - id: upstream
         name: Resolve official stable release
         run: scripts/resolve-latest-stable.sh
@@ -81,6 +83,8 @@ jobs:
     runs-on: [self-hosted, harmonyos-chromium]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: hmos-150-adapter
       - name: Build native runtime and HAP
         env:
           HARMONYOS_SDK_ROOT: ${{ vars.HARMONYOS_SDK_ROOT }}
