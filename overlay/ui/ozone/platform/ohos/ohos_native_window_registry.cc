@@ -3,35 +3,48 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <set>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
+#include "base/time/time.h"
 
 namespace ui {
 namespace {
 
 constexpr char kAuxiliarySurfacePrefix[] = "aura_aux_";
+constexpr char kPwaSurfacePrefix[] = "aura_pwa_";
 
-std::optional<gfx::AcceleratedWidget> ParseAuxiliarySurfaceWidget(
-    const std::string& component_id) {
-  if (!base::StartsWith(component_id, kAuxiliarySurfacePrefix,
-                        base::CompareCase::SENSITIVE)) {
+std::optional<gfx::AcceleratedWidget> ParseTargetedSurfaceWidget(
+    const std::string& component_id,
+    std::string_view prefix) {
+  if (!base::StartsWith(component_id, prefix, base::CompareCase::SENSITIVE)) {
     return std::nullopt;
   }
 
   uint64_t value = 0;
-  if (!base::StringToUint64(
-          component_id.substr(std::size(kAuxiliarySurfacePrefix) - 1),
-          &value) ||
+  if (!base::StringToUint64(component_id.substr(prefix.size()), &value) ||
       value == 0 ||
       value > std::numeric_limits<gfx::AcceleratedWidget>::max()) {
     return std::nullopt;
   }
   return static_cast<gfx::AcceleratedWidget>(value);
+}
+
+std::optional<gfx::AcceleratedWidget> ParseAuxiliarySurfaceWidget(
+    const std::string& component_id) {
+  return ParseTargetedSurfaceWidget(component_id, kAuxiliarySurfacePrefix);
+}
+
+std::optional<gfx::AcceleratedWidget> ParsePwaSurfaceWidget(
+    const std::string& component_id) {
+  return ParseTargetedSurfaceWidget(component_id, kPwaSurfacePrefix);
 }
 
 struct SurfaceRecord {
@@ -61,36 +74,69 @@ OhosLogicalWindowState MakeLogicalWindowState(gfx::AcceleratedWidget widget,
 
 class NativeWindowRegistry {
  public:
+  NativeWindowRegistry() : surface_available_(&lock_) {}
+
   void Register(const std::string& component_id,
                 void* window,
                 const gfx::Rect& bounds,
                 float density) {
-    base::AutoLock lock(lock_);
-    SurfaceRecord& record = surfaces_[component_id];
-    record.surface = {window, bounds, density};
-    if (record.widget != gfx::kNullAcceleratedWidget) {
-      return;
-    }
-
-    const std::optional<gfx::AcceleratedWidget> requested_widget =
-        ParseAuxiliarySurfaceWidget(component_id);
-    if (requested_widget) {
-      auto pending = std::ranges::find(pending_widgets_, *requested_widget);
-      auto logical = logical_windows_.find(*requested_widget);
-      if (pending == pending_widgets_.end() ||
-          logical == logical_windows_.end() || !logical->second.auxiliary) {
-        return;
+    OhosLogicalWindowStateCallback callback;
+    OhosNativeSurfaceBoundsCallback bounds_callback;
+    std::optional<OhosLogicalWindowState> promoted_state;
+    std::optional<OhosNativeSurface> bound_surface;
+    {
+      base::AutoLock lock(lock_);
+      SurfaceRecord& record = surfaces_[component_id];
+      record.surface = {window, bounds, density};
+      if (record.widget != gfx::kNullAcceleratedWidget) {
+        auto bounds_it = bounds_callbacks_.find(record.widget);
+        if (bounds_it != bounds_callbacks_.end()) {
+          bounds_callback = bounds_it->second;
+          bound_surface = record.surface;
+        }
+      } else {
+        const std::optional<gfx::AcceleratedWidget> pwa_widget =
+            ParsePwaSurfaceWidget(component_id);
+        const std::optional<gfx::AcceleratedWidget> requested_widget =
+            pwa_widget ? pwa_widget
+                       : ParseAuxiliarySurfaceWidget(component_id);
+        if (requested_widget) {
+          auto pending =
+              std::ranges::find(pending_widgets_, *requested_widget);
+          auto logical = logical_windows_.find(*requested_widget);
+          if (pending != pending_widgets_.end() &&
+              logical != logical_windows_.end() &&
+              logical->second.auxiliary) {
+            record.widget = *requested_widget;
+            pending_widgets_.erase(pending);
+            widget_bindings_[record.widget] = component_id;
+            if (pwa_widget) {
+              promoted_state =
+                  MakeLogicalWindowState(record.widget, logical->second, true);
+              logical->second.auxiliary = false;
+              callback = logical_window_state_callback_;
+            }
+          }
+        } else if (!pending_widgets_.empty()) {
+          record.widget = pending_widgets_.front();
+          pending_widgets_.erase(pending_widgets_.begin());
+          widget_bindings_[record.widget] = component_id;
+        }
+        if (record.widget != gfx::kNullAcceleratedWidget) {
+          auto bounds_it = bounds_callbacks_.find(record.widget);
+          if (bounds_it != bounds_callbacks_.end()) {
+            bounds_callback = bounds_it->second;
+            bound_surface = record.surface;
+          }
+        }
       }
-      record.widget = *requested_widget;
-      pending_widgets_.erase(pending);
-      widget_bindings_[record.widget] = component_id;
-      return;
+      surface_available_.Broadcast();
     }
-
-    if (!pending_widgets_.empty()) {
-      record.widget = pending_widgets_.front();
-      pending_widgets_.erase(pending_widgets_.begin());
-      widget_bindings_[record.widget] = component_id;
+    if (bounds_callback && bound_surface) {
+      bounds_callback.Run(bound_surface->bounds, bound_surface->density);
+    }
+    if (callback && promoted_state) {
+      callback.Run(*promoted_state);
     }
   }
 
@@ -177,6 +223,7 @@ class NativeWindowRegistry {
       widget_bindings_.erase(binding);
     }
     std::erase(pending_widgets_, widget);
+    expected_native_surfaces_.erase(widget);
     bounds_callbacks_.erase(widget);
   }
 
@@ -193,6 +240,44 @@ class NativeWindowRegistry {
     return surface->second.surface;
   }
 
+  void ExpectSurface(gfx::AcceleratedWidget widget) {
+    if (widget == gfx::kNullAcceleratedWidget) {
+      return;
+    }
+    base::AutoLock lock(lock_);
+    expected_native_surfaces_.insert(widget);
+  }
+
+  bool IsSurfaceExpected(gfx::AcceleratedWidget widget) {
+    base::AutoLock lock(lock_);
+    return expected_native_surfaces_.contains(widget);
+  }
+
+  std::optional<OhosNativeSurface> WaitForSurface(
+      gfx::AcceleratedWidget widget,
+      base::TimeDelta timeout) {
+    base::AutoLock lock(lock_);
+    if (!expected_native_surfaces_.contains(widget)) {
+      return std::nullopt;
+    }
+
+    const base::TimeTicks deadline = base::TimeTicks::Now() + timeout;
+    while (true) {
+      auto binding = widget_bindings_.find(widget);
+      if (binding != widget_bindings_.end()) {
+        auto surface = surfaces_.find(binding->second);
+        if (surface != surfaces_.end() && surface->second.surface.window) {
+          return surface->second.surface;
+        }
+      }
+      const base::TimeDelta remaining = deadline - base::TimeTicks::Now();
+      if (remaining <= base::TimeDelta()) {
+        return std::nullopt;
+      }
+      surface_available_.TimedWait(remaining);
+    }
+  }
+
   gfx::AcceleratedWidget GetWidgetForComponent(
       const std::string& component_id) {
     base::AutoLock lock(lock_);
@@ -201,8 +286,23 @@ class NativeWindowRegistry {
                                       : surface->second.widget;
   }
 
+  std::optional<std::string> GetComponentForWidget(
+      gfx::AcceleratedWidget widget) {
+    base::AutoLock lock(lock_);
+    auto binding = widget_bindings_.find(widget);
+    if (binding == widget_bindings_.end()) {
+      return std::nullopt;
+    }
+    return binding->second;
+  }
+
   std::optional<OhosNativeSurface> GetPrimary() {
     base::AutoLock lock(lock_);
+    auto main_surface = surfaces_.find("aura_shell");
+    if (main_surface != surfaces_.end() &&
+        main_surface->second.surface.window) {
+      return main_surface->second.surface;
+    }
     std::optional<OhosNativeSurface> fallback;
     for (const auto& entry : surfaces_) {
       const SurfaceRecord& record = entry.second;
@@ -461,6 +561,29 @@ class NativeWindowRegistry {
     return application_window_id_;
   }
 
+  void SetApplicationWindowIdForComponent(const std::string& component_id,
+                                          int32_t window_id) {
+    if (component_id.empty() || window_id <= 0) {
+      return;
+    }
+    base::AutoLock lock(lock_);
+    application_window_ids_[component_id] = window_id;
+    if (component_id == "aura_shell" || application_window_id_ <= 0) {
+      application_window_id_ = window_id;
+    }
+  }
+
+  int32_t GetApplicationWindowIdForWidget(gfx::AcceleratedWidget widget) {
+    base::AutoLock lock(lock_);
+    auto binding = widget_bindings_.find(widget);
+    if (binding == widget_bindings_.end()) {
+      return application_window_id_;
+    }
+    auto window_id = application_window_ids_.find(binding->second);
+    return window_id == application_window_ids_.end() ? application_window_id_
+                                                      : window_id->second;
+  }
+
   void SetWindowActionCallback(const std::string& component_id,
                                OhosWindowActionCallback callback) {
     base::AutoLock lock(lock_);
@@ -538,10 +661,13 @@ class NativeWindowRegistry {
 
  private:
   base::Lock lock_;
+  base::ConditionVariable surface_available_;
   std::map<std::string, SurfaceRecord> surfaces_ GUARDED_BY(lock_);
   std::map<gfx::AcceleratedWidget, std::string> widget_bindings_
       GUARDED_BY(lock_);
   std::vector<gfx::AcceleratedWidget> pending_widgets_ GUARDED_BY(lock_);
+  std::set<gfx::AcceleratedWidget> expected_native_surfaces_
+      GUARDED_BY(lock_);
   std::map<gfx::AcceleratedWidget, OhosNativeSurfaceBoundsCallback>
       bounds_callbacks_ GUARDED_BY(lock_);
   std::map<gfx::AcceleratedWidget, LogicalWindowRecord> logical_windows_
@@ -554,6 +680,7 @@ class NativeWindowRegistry {
       GUARDED_BY(lock_);
   gfx::Point cursor_screen_point_ GUARDED_BY(lock_);
   int32_t application_window_id_ GUARDED_BY(lock_) = 0;
+  std::map<std::string, int32_t> application_window_ids_ GUARDED_BY(lock_);
   std::map<std::string, OhosWindowActionCallback> window_action_callbacks_
       GUARDED_BY(lock_);
   OhosLogicalWindowStateCallback logical_window_state_callback_
@@ -602,9 +729,28 @@ std::optional<OhosNativeSurface> GetOhosNativeSurface(
   return GetRegistry().Get(widget);
 }
 
+void ExpectOhosNativeSurface(gfx::AcceleratedWidget widget) {
+  GetRegistry().ExpectSurface(widget);
+}
+
+bool IsOhosNativeSurfaceExpected(gfx::AcceleratedWidget widget) {
+  return GetRegistry().IsSurfaceExpected(widget);
+}
+
+std::optional<OhosNativeSurface> WaitForOhosNativeSurface(
+    gfx::AcceleratedWidget widget,
+    base::TimeDelta timeout) {
+  return GetRegistry().WaitForSurface(widget, timeout);
+}
+
 gfx::AcceleratedWidget GetOhosAcceleratedWidgetForNativeSurface(
     const std::string& component_id) {
   return GetRegistry().GetWidgetForComponent(component_id);
+}
+
+std::optional<std::string> GetOhosNativeSurfaceComponentIdForWidget(
+    gfx::AcceleratedWidget widget) {
+  return GetRegistry().GetComponentForWidget(widget);
 }
 
 std::optional<OhosNativeSurface> GetPrimaryOhosNativeSurface() {
@@ -688,6 +834,15 @@ void SetOhosApplicationWindowId(int32_t window_id) {
 
 int32_t GetOhosApplicationWindowId() {
   return GetRegistry().GetApplicationWindowId();
+}
+
+void SetOhosApplicationWindowIdForNativeSurface(const std::string& component_id,
+                                                int32_t window_id) {
+  GetRegistry().SetApplicationWindowIdForComponent(component_id, window_id);
+}
+
+int32_t GetOhosApplicationWindowIdForWidget(gfx::AcceleratedWidget widget) {
+  return GetRegistry().GetApplicationWindowIdForWidget(widget);
 }
 
 void SetOhosWindowActionCallback(const std::string& component_id,

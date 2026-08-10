@@ -14,6 +14,7 @@
  */
 
 import { WebWindow } from '../../components/webwindow/WebWindow';
+import { CHROMIUM_HOME_URL } from '../../utils/DeviceType';
 
 /**
  * PC UI主页面（用于平板和电脑）
@@ -25,7 +26,7 @@ struct PCIndex {
     Column() {
       // PC使用全功能浏览器布局，由Native (Skia) 渲染标签页、工具栏等
       WebWindow({
-        url: 'chrome://newtab/'
+        url: CHROMIUM_HOME_URL
       })
         .width('100%')
         .height('100%')

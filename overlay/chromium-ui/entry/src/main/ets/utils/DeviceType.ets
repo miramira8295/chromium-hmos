@@ -106,26 +106,12 @@ export interface AuraStartupConfig {
   icuDataLength?: number;
   jitless: true;
   fullscreenRequested: boolean;
+  windowRole?: 'browser' | 'pwa';
+  targetWidget?: number;
+  pwaAppId?: string;
 }
 
 export const CHROMIUM_HOME_URL: string = 'chrome://newtab/';
-
-const CAR_FULLSCREEN_MODELS: string[] = [
-  '\u95ee\u754c M9',
-  '\u95ee\u754c M8',
-  '\u95ee\u754c M7',
-  '\u95ee\u754c M6',
-  '\u95ee\u754c M5',
-  '\u667a\u754c S7',
-  '\u667a\u754c R7',
-  '\u667a\u754c V9',
-  '\u4eab\u754c S9',
-  '\u4eab\u754c S9T',
-  '\u5c0a\u754c S800',
-  '\u5c1a\u754c H5',
-  '\u5c1a\u754c Z7',
-  '\u5c1a\u754c Z7T'
-];
 
 const TV_MARKET_KEYWORDS: string[] = [
   'MATETV',
@@ -316,7 +302,7 @@ export class DeviceRoutingPolicy {
     }
 
     if (DeviceRoutingPolicy.isCar(identity)) {
-      return DeviceRoutingPolicy.isCarFullscreenModel(identity) ? WindowPolicy.FULLSCREEN : WindowPolicy.WINDOWED;
+      return WindowPolicy.FULLSCREEN;
     }
 
     if (DeviceRoutingPolicy.isMatePad(identity)) {
@@ -389,10 +375,6 @@ export class DeviceRoutingPolicy {
     return MATEBOOK_KEYWORDS.some((keyword: string) => name.includes(keyword));
   }
 
-  private static isCarFullscreenModel(identity: DeviceIdentity): boolean {
-    const name = `${identity.marketName} ${identity.productModel}`;
-    return CAR_FULLSCREEN_MODELS.some((keyword: string) => name.includes(keyword));
-  }
 }
 
 export class DeviceTypeDetector {

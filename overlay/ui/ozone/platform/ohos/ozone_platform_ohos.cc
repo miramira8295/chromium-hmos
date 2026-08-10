@@ -50,7 +50,11 @@ class OzonePlatformOhos : public OzonePlatform {
   std::unique_ptr<PlatformWindow> CreatePlatformWindow(
       PlatformWindowDelegate* delegate,
       PlatformWindowInitProperties properties) override {
-    return std::make_unique<OhosPlatformWindow>(delegate, properties.bounds);
+    const bool expects_native_surface =
+        properties.type == PlatformWindowType::kWindow &&
+        properties.parent_widget == gfx::kNullAcceleratedWidget;
+    return std::make_unique<OhosPlatformWindow>(
+        delegate, properties.bounds, expects_native_surface);
   }
   bool IsWindowCompositingSupported() const override { return true; }
   std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate()
@@ -64,8 +68,7 @@ class OzonePlatformOhos : public OzonePlatform {
   std::unique_ptr<InputMethod> CreateInputMethod(
       ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
-    (void)widget;
-    return std::make_unique<OhosInputMethod>(ime_key_event_dispatcher);
+    return std::make_unique<OhosInputMethod>(ime_key_event_dispatcher, widget);
   }
 
   bool InitializeUI(const InitParams& params) override {

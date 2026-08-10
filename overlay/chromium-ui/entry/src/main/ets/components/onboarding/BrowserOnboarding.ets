@@ -14,7 +14,7 @@ export struct BrowserOnboarding {
   build() {
     Scroll() {
       Column({ space: 24 }) {
-        Image($r('app.media.startIcon'))
+        Image($r('app.media.chromium_hmos_start_icon'))
           .width(88)
           .height(88)
           .objectFit(ImageFit.Contain)

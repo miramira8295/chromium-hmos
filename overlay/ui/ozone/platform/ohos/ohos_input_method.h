@@ -13,6 +13,7 @@
 #include "inputmethod/inputmethod_controller_capi.h"
 #include "ui/base/ime/input_method_minimal.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/native_ui_types.h"
 
 namespace ui {
 
@@ -21,7 +22,8 @@ namespace ui {
 // text from an IME is delivered through libohinputmethod.
 class OhosInputMethod : public InputMethodMinimal {
  public:
-  explicit OhosInputMethod(ImeKeyEventDispatcher* ime_key_event_dispatcher);
+  OhosInputMethod(ImeKeyEventDispatcher* ime_key_event_dispatcher,
+                  gfx::AcceleratedWidget widget);
   OhosInputMethod(const OhosInputMethod&) = delete;
   OhosInputMethod& operator=(const OhosInputMethod&) = delete;
   ~OhosInputMethod() override;
@@ -93,6 +95,7 @@ class OhosInputMethod : public InputMethodMinimal {
   void HandleFinishPreview();
 
   bool focused_ = false;
+  const gfx::AcceleratedWidget widget_;
   InputMethod_TextEditorProxy* text_editor_proxy_ = nullptr;
   InputMethod_AttachOptions* attach_options_ = nullptr;
   InputMethod_InputMethodProxy* input_method_proxy_ = nullptr;

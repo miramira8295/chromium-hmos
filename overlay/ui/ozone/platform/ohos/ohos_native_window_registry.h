@@ -6,6 +6,7 @@
 #include <string>
 
 #include "base/functional/callback.h"
+#include "base/time/time.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -68,8 +69,15 @@ std::optional<OhosNativeSurface> BindOhosNativeSurface(
 void UnbindOhosNativeSurface(gfx::AcceleratedWidget widget);
 std::optional<OhosNativeSurface> GetOhosNativeSurface(
     gfx::AcceleratedWidget widget);
+void ExpectOhosNativeSurface(gfx::AcceleratedWidget widget);
+bool IsOhosNativeSurfaceExpected(gfx::AcceleratedWidget widget);
+std::optional<OhosNativeSurface> WaitForOhosNativeSurface(
+    gfx::AcceleratedWidget widget,
+    base::TimeDelta timeout);
 gfx::AcceleratedWidget GetOhosAcceleratedWidgetForNativeSurface(
     const std::string& component_id);
+std::optional<std::string> GetOhosNativeSurfaceComponentIdForWidget(
+    gfx::AcceleratedWidget widget);
 std::optional<OhosNativeSurface> GetPrimaryOhosNativeSurface();
 
 // Aura menus, bubbles, and popup widgets share the application's XComponent
@@ -100,6 +108,9 @@ void UpdateOhosCursorScreenPoint(const gfx::Point& point);
 gfx::Point GetOhosCursorScreenPoint();
 void SetOhosApplicationWindowId(int32_t window_id);
 int32_t GetOhosApplicationWindowId();
+void SetOhosApplicationWindowIdForNativeSurface(const std::string& component_id,
+                                                int32_t window_id);
+int32_t GetOhosApplicationWindowIdForWidget(gfx::AcceleratedWidget widget);
 void SetOhosWindowActionCallback(const std::string& component_id,
                                  OhosWindowActionCallback callback);
 bool RequestOhosWindowAction(gfx::AcceleratedWidget widget,

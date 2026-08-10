@@ -1,5 +1,6 @@
 #include "ui/ozone/platform/ohos/ohos_event_source.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/functional/bind.h"
@@ -93,7 +94,7 @@ bool OhosEventSource::WasTouchInteractionRecent() {
 }
 
 // static
-bool OhosEventSource::ResetPointerCaptures() {
+bool OhosEventSource::ResetPointerCaptures(gfx::AcceleratedWidget widget) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   base::WeakPtr<OhosEventSource> event_source;
   {
@@ -107,18 +108,19 @@ bool OhosEventSource::ResetPointerCaptures() {
   }
   if (task_runner->RunsTasksInCurrentSequence()) {
     if (event_source) {
-      event_source->ResetPointerCapturesOnEventThread();
+      event_source->ResetPointerCapturesOnEventThread(widget);
     }
     return true;
   }
   return task_runner->PostTask(
       FROM_HERE, base::BindOnce(
-                     [](base::WeakPtr<OhosEventSource> source) {
+                     [](base::WeakPtr<OhosEventSource> source,
+                        gfx::AcceleratedWidget widget) {
                        if (source) {
-                         source->ResetPointerCapturesOnEventThread();
+                         source->ResetPointerCapturesOnEventThread(widget);
                        }
                      },
-                     std::move(event_source)));
+                     std::move(event_source), widget));
 }
 
 // static
@@ -147,8 +149,22 @@ gfx::AcceleratedWidget OhosEventSource::ResolveDispatchTarget(
   const gfx::Point screen_point =
       gfx::ToRoundedPoint(event->AsLocatedEvent()->root_location_f());
   const auto target_at_point = [&]() {
-    if (target_hint != gfx::kNullAcceleratedWidget &&
-        GetOhosLogicalWindowBounds(target_hint).has_value()) {
+    if (target_hint != gfx::kNullAcceleratedWidget) {
+      const std::optional<gfx::Rect> hinted_bounds =
+          GetOhosLogicalWindowBounds(target_hint);
+      if (!hinted_bounds) {
+        return GetOhosAcceleratedWidgetAtScreenPoint(screen_point);
+      }
+      if (hinted_bounds->Contains(screen_point)) {
+        const gfx::AcceleratedWidget topmost =
+            GetOhosAcceleratedWidgetAtScreenPoint(screen_point);
+        if (topmost != gfx::kNullAcceleratedWidget) {
+          return topmost;
+        }
+      }
+      // ArkUI sheets can report coordinates in their own surface space while
+      // Chromium still has the pre-sheet logical bounds. Keep the explicit
+      // surface target as a fallback so the press cannot reach the page below.
       return target_hint;
     }
     return GetOhosAcceleratedWidgetAtScreenPoint(screen_point);
@@ -216,10 +232,23 @@ void OhosEventSource::ReleasePointerCaptureAfterDispatch(const Event& event) {
   }
 }
 
-void OhosEventSource::ResetPointerCapturesOnEventThread() {
-  dispatch_target_ = gfx::kNullAcceleratedWidget;
-  mouse_capture_ = gfx::kNullAcceleratedWidget;
-  touch_captures_.clear();
+void OhosEventSource::ResetPointerCapturesOnEventThread(
+    gfx::AcceleratedWidget widget) {
+  if (widget == gfx::kNullAcceleratedWidget) {
+    dispatch_target_ = gfx::kNullAcceleratedWidget;
+    mouse_capture_ = gfx::kNullAcceleratedWidget;
+    touch_captures_.clear();
+    return;
+  }
+  if (dispatch_target_ == widget) {
+    dispatch_target_ = gfx::kNullAcceleratedWidget;
+  }
+  if (mouse_capture_ == widget) {
+    mouse_capture_ = gfx::kNullAcceleratedWidget;
+  }
+  std::erase_if(touch_captures_, [widget](const auto& capture) {
+    return capture.second == widget;
+  });
 }
 
 void OhosEventSource::DispatchOwnedEvent(std::unique_ptr<Event> event,

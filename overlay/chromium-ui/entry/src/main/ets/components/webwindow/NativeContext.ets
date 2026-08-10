@@ -56,6 +56,31 @@ export interface BrowserTabState {
   loading: boolean;
 }
 
+export type PwaMenuItemType = 'command' | 'check' | 'radio' | 'separator' |
+  'buttonRow' | 'submenu' | 'actionableSubmenu' | 'highlighted' | 'title';
+
+export interface PwaMenuButtonState {
+  type: 'space' | 'button' | 'label';
+  commandId: number;
+  label: string;
+  enabled: boolean;
+  dismissesMenu: boolean;
+}
+
+export interface PwaMenuItemState {
+  type: PwaMenuItemType;
+  commandId: number;
+  label: string;
+  secondaryLabel: string;
+  minorText: string;
+  enabled: boolean;
+  checked: boolean;
+  groupId: number;
+  separatorType?: number;
+  children?: PwaMenuItemState[];
+  buttons?: PwaMenuButtonState[];
+}
+
 export interface BrowserStateSnapshot {
   version: number;
   mobileUi: boolean;
@@ -63,6 +88,10 @@ export interface BrowserStateSnapshot {
   ready: boolean;
   tabCount: number;
   activeTabIndex: number;
+  sidePanelVisible: boolean;
+  sidePanelEntryId: string;
+  focusedTarget: 'webContents' | 'sidePanel';
+  activationEpoch: number;
   tabs: BrowserTabState[];
   url: string;
   domain: string;
@@ -78,7 +107,9 @@ export interface BrowserStateSnapshot {
 export interface BrowserRuntimeEvent {
   version: number;
   event: 'systemPrintReady' | 'systemPrintFailed' | 'shareRequested' |
-    'castRequested' | 'filePickerRequested' | 'pwaInstalled' | 'pwaMenuFallback';
+    'castRequested' | 'filePickerRequested' | 'pwaInstalled' | 'pwaMenuModel' |
+    'pwaMenuClosed' | 'inputRecovered' | 'systemActionRequested';
+  action?: 'huaweiAccount' | 'huaweiWallet' | 'defaultBrowser' | 'checkForUpdates';
   filePath?: string;
   appId?: string;
   title?: string;
@@ -90,6 +121,16 @@ export interface BrowserRuntimeEvent {
   defaultName?: string;
   suffixFilters?: string[];
   fileTypeIndex?: number;
+  presentation?: 'popup' | 'sheet';
+  menuSessionId?: number;
+  items?: PwaMenuItemState[];
+  activated?: boolean;
+  activationEpoch?: number;
+  focusedTarget?: 'webContents' | 'sidePanel';
+  sidePanelEntryId?: string;
+  known?: boolean;
+  isDefault?: boolean;
+  huaweiWalletAvailable?: boolean;
 }
 
 export interface BrowserCommandPayload {
@@ -100,6 +141,17 @@ export interface BrowserCommandPayload {
   paths?: string[];
   fileTypeIndex?: number;
   canceled?: boolean;
+  presentation?: 'popup' | 'sheet';
+  anchorX?: number;
+  anchorY?: number;
+  anchorWidth?: number;
+  anchorHeight?: number;
+  menuSessionId?: number;
+  commandId?: number;
+  eventFlags?: number;
+  activationEpoch?: number;
+  focusedTarget?: 'webContents' | 'sidePanel';
+  sidePanelEntryId?: string;
 }
 
 export interface AuxiliaryWindowState {
@@ -113,6 +165,11 @@ export interface AuxiliaryWindowState {
   visible: boolean;
   destroyed: boolean;
   stackingOrder: number;
+  windowRole: 'auxiliary' | 'pwa';
+  pwaAppId?: string;
+  title?: string;
+  url?: string;
+  pwaStartUrl?: string;
 }
 
 export interface INativeContext {

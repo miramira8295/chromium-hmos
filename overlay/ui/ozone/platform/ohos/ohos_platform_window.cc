@@ -13,8 +13,10 @@
 namespace ui {
 
 OhosPlatformWindow::OhosPlatformWindow(PlatformWindowDelegate* delegate,
-                                       const gfx::Rect& bounds)
-    : StubWindow(delegate, false, bounds), adapter_(bounds) {
+                                       const gfx::Rect& bounds,
+                                       bool expects_native_surface)
+    : StubWindow(delegate, false, bounds),
+      adapter_(bounds, expects_native_surface) {
   SetWmMoveLoopHandler(this, this);
   delegate->OnAcceleratedWidgetAvailable(adapter_.GetAcceleratedWidget());
   SetOhosNativeSurfaceBoundsCallback(
@@ -182,6 +184,7 @@ void OhosPlatformWindow::OnNativeSurfaceBoundsChanged(gfx::Rect bounds,
   const bool origin_changed = adapter_.GetBounds().origin() != bounds.origin();
   adapter_.SetBounds(bounds);
   delegate()->OnBoundsChanged({origin_changed});
+  delegate()->OnDamageRect(gfx::Rect(bounds.size()));
   (void)density;
 }
 

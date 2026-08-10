@@ -38,6 +38,7 @@ struct ProxySnapshot {
   std::u16string text;
   int32_t selection_start = 0;
   int32_t selection_end = 0;
+  int32_t window_id = 0;
 };
 
 struct ProxyEntry {
@@ -182,8 +183,9 @@ void CopyTextForIme(const ProxySnapshot& snapshot,
 }  // namespace
 
 OhosInputMethod::OhosInputMethod(
-    ImeKeyEventDispatcher* ime_key_event_dispatcher)
-    : InputMethodMinimal(ime_key_event_dispatcher) {}
+    ImeKeyEventDispatcher* ime_key_event_dispatcher,
+    gfx::AcceleratedWidget widget)
+    : InputMethodMinimal(ime_key_event_dispatcher), widget_(widget) {}
 
 OhosInputMethod::~OhosInputMethod() {
   Detach();
@@ -307,9 +309,11 @@ bool OhosInputMethod::Attach() {
     return false;
   }
 
+  ProxySnapshot initial_snapshot;
+  initial_snapshot.window_id = GetOhosApplicationWindowIdForWidget(widget_);
   GetProxyRegistry().Register(
       text_editor_proxy_, {base::SingleThreadTaskRunner::GetCurrentDefault(),
-                           weak_factory_.GetWeakPtr(), ProxySnapshot()});
+                           weak_factory_.GetWeakPtr(), initial_snapshot});
   RefreshTextSnapshot(false);
 
   const InputMethod_ErrorCode result = OH_InputMethodController_Attach(
@@ -326,7 +330,7 @@ bool OhosInputMethod::Attach() {
   }
 
   LOG(INFO) << "HarmonyOS IME attached windowId="
-            << GetOhosApplicationWindowId()
+            << GetOhosApplicationWindowIdForWidget(widget_)
             << " showKeyboard=" << show_keyboard;
   OnInputMethodChanged();
   NotifyCursorRect();
@@ -386,6 +390,7 @@ void OhosInputMethod::RefreshTextSnapshot(bool notify_input_method) {
   const TextInputType input_type = GetTextInputType();
   snapshot.input_type = ToOhosInputType(input_type);
   snapshot.enter_key_type = ToOhosEnterKeyType(input_type);
+  snapshot.window_id = GetOhosApplicationWindowIdForWidget(widget_);
 
   TextInputClient* client = GetTextInputClient();
   gfx::Range text_range;
@@ -558,7 +563,7 @@ void OhosInputMethod::GetTextConfig(InputMethod_TextEditorProxy* proxy,
   OH_TextConfig_SetPreviewTextSupport(config, true);
   OH_TextConfig_SetSelection(config, entry->snapshot.selection_start,
                              entry->snapshot.selection_end);
-  const int32_t window_id = GetOhosApplicationWindowId();
+  const int32_t window_id = entry->snapshot.window_id;
   if (window_id > 0) {
     OH_TextConfig_SetWindowId(config, window_id);
   }

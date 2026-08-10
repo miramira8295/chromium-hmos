@@ -18,9 +18,10 @@ The project will not copy a CDM from Chrome, bypass DRM, or report Apple Music
 playback based only on a GN flag. Apple Music must be validated on a physical
 device after both EME and the required codecs are present.
 
-## Open media
+## Codec configuration
 
-The public configuration disables proprietary codecs. Sites using open codecs
-can work through Chromium's media pipeline. Enabling AAC, H.264, or other
-patent-encumbered formats for distribution is a separate licensing decision,
-not merely a compiler fix.
+The tested configuration enables Chromium's AAC/H.264 build switches so the
+HarmonyOS media path can be exercised on physical devices. This is only a
+technical capability flag. It does not grant patent, content, or distribution
+rights, and downstream distributors must make their own licensing decision.
+Open codecs continue to use Chromium's normal media pipeline.

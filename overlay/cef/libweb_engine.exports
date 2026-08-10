@@ -1,6 +1,8 @@
 {
   global:
     RegisterWebEngineModule;
+    ChromiumHarmonyOSNativeChildMain;
+    ChromiumNWebRenderMain;
     close;
   local:
     *;

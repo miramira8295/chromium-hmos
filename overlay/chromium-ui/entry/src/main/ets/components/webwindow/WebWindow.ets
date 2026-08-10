@@ -23,6 +23,7 @@ import { UIManager } from '../../utils/UIManager';
 import {
   INativeContext,
   AuxiliaryWindowState,
+  BrowserCommandPayload,
   BrowserRuntimeEvent,
   BrowserStateSnapshot,
   KeyEventPayload,
@@ -32,6 +33,9 @@ import {
 } from './NativeContext';
 
 export interface WebWindowOptions {
+  xComponentId?: string;
+  surfaceReadyStorageKey?: string;
+  manageWindowDecor?: boolean;
   url?: string;
   profileId?: string;
   startupConfigText?: string;
@@ -66,6 +70,9 @@ const COMMON_RUNTIME_RAWFILES: string[] = [
 
 @ComponentV2
 export struct WebWindow {
+  @Param xComponentId: string = 'aura_shell';
+  @Param surfaceReadyStorageKey: string = 'auraSurfaceReady';
+  @Param manageWindowDecor: boolean = true;
   @Param url: string = CHROMIUM_HOME_URL;
   @Param profileId: string = 'local';
   @Param startupConfigText: string = '';
@@ -89,7 +96,6 @@ export struct WebWindow {
   @Local currentUrl: string = CHROMIUM_HOME_URL;
   @Local useTextureXComponent: boolean = false;
 
-  private readonly xComponentId: string = 'aura_shell';
   private readonly xComponentController: XComponentController = new XComponentController();
   private nativeContext: NativeContext | null = null;
   private activeWindow: window.Window | null = null;
@@ -106,11 +112,14 @@ export struct WebWindow {
   private lastExecutedBrowserCommandRevision: number = 0;
   private lastAuxiliaryDismissRevision: number = 0;
   private lastPwaWindowActive: number = -1;
+  private lastActivationEpoch: number = 0;
+  private lastFocusedTarget: 'webContents' | 'sidePanel' = 'webContents';
+  private lastSidePanelEntryId: string = '';
 
   aboutToAppear() {
     this.currentUrl = this.url && this.url.trim().length > 0 ? this.url : CHROMIUM_HOME_URL;
     this.updateXComponentMode(this.readStartupConfig());
-    AppStorage.setOrCreate('auraSurfaceReady', false);
+    this.setSurfaceReady(false);
     this.initWindowListeners();
   }
 
@@ -150,7 +159,8 @@ export struct WebWindow {
     this.nativeContext.OnFocusChanged(this.appVisible);
     if (this.appVisible) {
       this.notifyCurrentBounds();
-      this.restoreXComponentFocus();
+      // Let the activating pointer sequence finish before restoring focus.
+      this.restoreXComponentFocus(80);
     }
   }
 
@@ -198,11 +208,6 @@ export struct WebWindow {
         .onAxisEvent((event: AxisEvent) => {
           this.dispatchAxisEvent(event);
         })
-        // Keep ArkUI and Native XComponent mouse delivery available. The
-        // native router pairs duplicate button events across both sources.
-        .onMouse((event: MouseEvent) => {
-          this.dispatchMouseEvent(event);
-        })
         .onKeyEventDispatch((event: KeyEvent): boolean => {
           return this.dispatchKeyEvent(event);
         })
@@ -226,7 +231,7 @@ export struct WebWindow {
       this.prepareRuntimeAssets(startupConfig);
       this.attachIcuDataDescriptor(startupConfig);
       this.surfaceReady = false;
-      AppStorage.setOrCreate('auraSurfaceReady', false);
+      this.setSurfaceReady(false);
       this.nativeContext = new NativeContext(this.xComponentId);
       this.nativeContext.init(
         context as INativeContext,
@@ -252,7 +257,7 @@ export struct WebWindow {
 
   private destroyNativeContext(): void {
     if (this.nativeContext) {
-      AppStorage.setOrCreate('auraSurfaceReady', false);
+      this.setSurfaceReady(false);
       this.surfaceReady = false;
       this.nativeContext.OnVisibilityChanged(false);
       this.nativeContext.OnSurfaceDestroyed();
@@ -270,21 +275,33 @@ export struct WebWindow {
     }
   }
 
-  private restoreXComponentFocus(): void {
+  private restoreXComponentFocus(delayMs: number = 0): void {
     if (!this.nativeContext || !this.appVisible) {
       return;
     }
 
     this.clearFocusRecoveryTimers();
-    [0, 60, 180, 400].forEach((delay: number): void => {
-      this.focusRecoveryTimers.push(setTimeout((): void => {
-        if (!this.nativeContext || !this.appVisible) {
-          return;
-        }
-        this.requestXComponentFocus();
-        this.nativeContext.OnFocusChanged(true);
-      }, delay));
-    });
+    this.focusRecoveryTimers.push(setTimeout((): void => {
+      if (!this.nativeContext || !this.appVisible) {
+        return;
+      }
+      this.requestXComponentFocus();
+      this.nativeContext.OnFocusChanged(true);
+      this.requestNativeInputRecovery();
+    }, delayMs));
+  }
+
+  private requestNativeInputRecovery(): void {
+    if (!this.nativeContext || !this.appVisible) {
+      return;
+    }
+    const command: BrowserCommandPayload = {
+      command: 'recoverInput',
+      activationEpoch: this.lastActivationEpoch,
+      focusedTarget: this.lastFocusedTarget,
+      sidePanelEntryId: this.lastSidePanelEntryId
+    };
+    this.nativeContext.ExecuteBrowserCommand(JSON.stringify(command));
   }
 
   private clearFocusRecoveryTimers(): void {
@@ -493,13 +510,13 @@ export struct WebWindow {
         try {
           win.on('windowStatusChange', (status: window.WindowStatusType): void => {
             this.onWindowStatus?.(Number(status));
-            this.restoreXComponentFocus();
+            this.restoreXComponentFocus(80);
           });
         } catch (statusChangeError) {
           try {
             win.on('windowStatusDidChange', (status: window.WindowStatusType): void => {
               this.onWindowStatus?.(Number(status));
-              this.restoreXComponentFocus();
+              this.restoreXComponentFocus(80);
             });
           } catch (statusDidChangeError) {
           }
@@ -642,7 +659,7 @@ export struct WebWindow {
       return;
     }
 
-    this.restoreXComponentFocus();
+    this.restoreXComponentFocus(80);
     this.notifyWindowStatus();
 
     if (this.activeWindow) {
@@ -672,7 +689,7 @@ export struct WebWindow {
       return;
     }
 
-    this.restoreXComponentFocus();
+    this.restoreXComponentFocus(80);
     this.notifyWindowStatus();
 
     this.updateSurfaceRect({
@@ -691,7 +708,7 @@ export struct WebWindow {
     if (event === window.WindowEventType.WINDOW_ACTIVE ||
       event === window.WindowEventType.WINDOW_SHOWN) {
       this.notifyCurrentBounds();
-      this.restoreXComponentFocus();
+      this.restoreXComponentFocus(80);
       return;
     }
     if (event === window.WindowEventType.WINDOW_INACTIVE ||
@@ -729,6 +746,9 @@ export struct WebWindow {
   }
 
   private applyPwaWindowDecor(active: boolean): void {
+    if (!this.manageWindowDecor) {
+      return;
+    }
     const marker = active ? 1 : 0;
     AppStorage.setOrCreate('auraPwaWindowActive', active);
     if (!this.activeWindow || this.lastPwaWindowActive === marker) {
@@ -780,7 +800,13 @@ export struct WebWindow {
     }
 
     this.surfaceReady = true;
-    AppStorage.setOrCreate('auraSurfaceReady', true);
+    this.setSurfaceReady(true);
+  }
+
+  private setSurfaceReady(ready: boolean): void {
+    if (this.surfaceReadyStorageKey.trim().length > 0) {
+      AppStorage.setOrCreate(this.surfaceReadyStorageKey, ready);
+    }
   }
 
   private dispatchAxisEvent(event: AxisEvent): void {
@@ -802,30 +828,6 @@ export struct WebWindow {
       rootWindowRelative: false,
       deltaX: Number(event.getHorizontalAxisValue()),
       deltaY: -Number(event.getVerticalAxisValue()),
-      timestamp: Number(event.timestamp)
-    };
-    this.nativeContext.DispatchPointerEvent(payload);
-  }
-
-  private dispatchMouseEvent(event: MouseEvent): void {
-    if (!this.nativeContext) {
-      return;
-    }
-
-    const payload: PointerEventPayload = {
-      action: Number(event.action),
-      pointerType: 'mouse',
-      dispatchSource: 'arkui',
-      pointerId: 0,
-      button: Number(event.button),
-      sourceTool: 0,
-      x: Number(event.x),
-      y: Number(event.y),
-      rootX: Number(event.globalDisplayX ?? event.displayX),
-      rootY: Number(event.globalDisplayY ?? event.displayY),
-      rootWindowRelative: false,
-      deltaX: Number(event.rawDeltaX ?? 0),
-      deltaY: Number(event.rawDeltaY ?? 0),
       timestamp: Number(event.timestamp)
     };
     this.nativeContext.DispatchPointerEvent(payload);
@@ -886,11 +888,26 @@ export struct WebWindow {
       const runtimeEvent = parsed as BrowserRuntimeEvent;
       if (runtimeEvent.event) {
         this.onRuntimeEvent?.(runtimeEvent);
+        if (runtimeEvent.event === 'pwaMenuClosed') {
+          this.restoreXComponentFocus();
+        }
         return;
       }
       const state = parsed as BrowserStateSnapshot;
+      const nextActivationEpoch = Number(state.activationEpoch ?? 0);
+      const nextFocusedTarget: 'webContents' | 'sidePanel' =
+        state.focusedTarget === 'sidePanel' ? 'sidePanel' : 'webContents';
+      const nextSidePanelEntryId = state.sidePanelEntryId ?? '';
+      const browserTargetChanged = nextActivationEpoch > 0 &&
+        nextActivationEpoch !== this.lastActivationEpoch;
+      this.lastActivationEpoch = nextActivationEpoch;
+      this.lastFocusedTarget = nextFocusedTarget;
+      this.lastSidePanelEntryId = nextSidePanelEntryId;
       this.applyPwaWindowDecor(state.isPwaWindow);
       this.onBrowserState?.(state);
+      if (browserTargetChanged) {
+        this.restoreXComponentFocus();
+      }
     } catch (error) {
       console.error('Failed to parse Chromium browser state:', error);
     }

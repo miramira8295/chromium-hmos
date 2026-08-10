@@ -12,6 +12,7 @@
 #include "base/functional/callback_forward.h"
 #include "ohos_nweb/src/aura_shell/ohos_aura_shell_types.h"
 #include "ohos_nweb/src/aura_shell/ohos_mcp_server.h"
+#include "ui/gfx/native_ui_types.h"
 
 namespace ohos_nweb {
 
@@ -23,12 +24,14 @@ class OhosChromeMainRunner {
   ~OhosChromeMainRunner();
 
   bool EnsureStarted(const AuraStartupConfig& config);
-  bool Navigate(const std::string& url);
-  bool ExecuteBrowserCommand(const std::string& command_json);
+  bool Navigate(const std::string& component_id, const std::string& url);
+  bool ExecuteBrowserCommand(const std::string& component_id,
+                             const std::string& command_json);
   void SetBrowserStateCallback(
-      base::RepeatingCallback<void(const std::string&)> callback);
-  void SetVisible(bool visible);
-  void SetFocused(bool focused);
+      base::RepeatingCallback<void(gfx::AcceleratedWidget, const std::string&)>
+          callback);
+  void SetVisible(const std::string& component_id, bool visible);
+  void SetFocused(const std::string& component_id, bool focused);
   void OnThemeFontChanged(const std::string& font_id);
   void Shutdown();
 

@@ -55,6 +55,7 @@ source_set("aura_shell_api") {
   sources = [
     "ohos_aura_shell_napi.cc",
     "ohos_aura_shell_napi.h",
+    "ohos_nweb_render_main.cc",
   ]
 
   deps = [
@@ -97,15 +98,15 @@ executable("libnweb_render") {
 
   configs += [ ":aura_shell_config" ]
 
-  sources = [ "ohos_nweb_render_main.cc" ]
-
-  deps = [
-    "//base",
-    "//chrome:chrome_main_runner",
-  ]
+  # NativeChildProcess loads this library by name. Keep the ABI entry points
+  # here, while the single Chromium runtime lives in libweb_engine.so.
+  sources = [ "ohos_nweb_render_shim.cc" ]
 
   if (target_cpu == "arm64") {
-    libs = [ "${ohos_sysroot}usr/lib/aarch64-linux-ohos/libhilog_ndk.z.so" ]
+    libs = [
+      "dl",
+      "${ohos_sysroot}usr/lib/aarch64-linux-ohos/libhilog_ndk.z.so",
+    ]
   }
 }
 
@@ -120,6 +121,7 @@ test("aura_shell_smoke_tests") {
     "//base/test:test_support",
     "//testing/gtest",
     "//testing/gtest:gtest_main",
+    "//ui/base",
     "//ui/ozone/platform/ohos",
   ]
 

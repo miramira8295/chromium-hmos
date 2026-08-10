@@ -4,7 +4,8 @@ import {
   DeviceIdentity,
   DeviceRoutingPolicy,
   UIFamily,
-  UIProfile
+  UIProfile,
+  WindowPolicy
 } from '../main/ets/utils/DeviceType';
 import { CrossDeviceEntryAdapter } from '../main/ets/utils/crossdevice/CrossDeviceEntryAdapter';
 
@@ -52,6 +53,7 @@ export default function localUnitTest() {
     it('routesLargeSurfacesToMobileLargeUi', 0, () => {
       const carRouting = DeviceRoutingPolicy.resolveFromIdentity(identity({ deviceType: 'car' }));
       expect(carRouting.uiFamily).assertEqual(UIFamily.MOBILE_LARGE);
+      expect(carRouting.windowPolicy).assertEqual(WindowPolicy.FULLSCREEN);
 
       const expandedFoldRouting = DeviceRoutingPolicy.resolveFromIdentity(identity({
         deviceType: 'tablet',

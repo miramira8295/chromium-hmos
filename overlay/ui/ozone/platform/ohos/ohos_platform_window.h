@@ -13,7 +13,9 @@ class OhosPlatformWindow : public StubWindow,
                            public PlatformEventDispatcher,
                            public WmMoveLoopHandler {
  public:
-  OhosPlatformWindow(PlatformWindowDelegate* delegate, const gfx::Rect& bounds);
+  OhosPlatformWindow(PlatformWindowDelegate* delegate,
+                     const gfx::Rect& bounds,
+                     bool expects_native_surface);
   ~OhosPlatformWindow() override;
 
   void Show(bool inactive) override;

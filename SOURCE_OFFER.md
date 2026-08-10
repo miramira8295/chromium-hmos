@@ -1,8 +1,9 @@
 # Corresponding Source
 
-This branch provides the source mapping for the test HAP with SHA-256:
+This branch provides the reusable Chromium/HarmonyOS engine source mapping for
+the locally validated downstream test HAP with SHA-256:
 
-`37968cb1082f8082dac6760e513a8a67b70a5ffacae5e0c75b830fd5633d05d6`
+`babb4439520275fbe34573b6537c7afb237ac785af06ec3dcd35dd424d9b0d53`
 
 The corresponding source consists of:
 
@@ -14,7 +15,13 @@ The corresponding source consists of:
 5. `SOURCE_MANIFEST.sha256`, which verifies every published regular file other
    than the manifest itself.
 
-For at least three years from 2026-07-21, recipients of that binary may request
+The public tree intentionally uses the generic Chromium HarmonyOS Adapter
+identity. Downstream application names, artwork, signing certificates,
+provisioning profiles, and private signing configuration are not included.
+Distributors remain responsible for providing any additional corresponding
+source required by the licenses that apply to their downstream changes.
+
+For at least three years from 2026-08-10, recipients of that binary may request
 an electronic copy of these materials through this repository's GitHub issues.
 The source is provided without charge. System SDKs and standard toolchain
 components are not included; obtain them from their respective vendors.

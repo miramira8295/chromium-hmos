@@ -14,6 +14,7 @@
  */
 
 import { WebWindow } from '../../components/webwindow/WebWindow';
+import { CHROMIUM_HOME_URL } from '../../utils/DeviceType';
 
 /**
  * 手机UI主页面
@@ -21,7 +22,7 @@ import { WebWindow } from '../../components/webwindow/WebWindow';
 @Entry
 @ComponentV2
 struct PhoneIndex {
-  @Local url: string = 'chrome://newtab/';
+  @Local url: string = CHROMIUM_HOME_URL;
   @Local pageTitle: string = '';
   @Local isLoading: boolean = false;
   

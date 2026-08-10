@@ -20,6 +20,7 @@
 #include "base/path_service.h"
 #include "chrome/browser/ui/ohos/aura_shell_runtime_bridge.h"
 #include "ohos_nweb/src/nweb_hilog.h"
+#include "ui/ozone/platform/ohos/ohos_native_window_registry.h"
 
 extern "C" int ChromeMain(int argc, const char** argv);
 
@@ -49,7 +50,8 @@ bool ForwardChromiumLogToHilog(int severity,
   } else if (severity < logging::LOGGING_INFO) {
     level = LOG_DEBUG;
   }
-  OH_LOG_PrintMsg(LOG_APP, level, 0xc233, "Chromium", message.c_str());
+  OH_LOG_Print(LOG_APP, level, 0xc233, "Chromium", "%{public}s",
+               message.c_str());
   return false;
 }
 
@@ -145,26 +147,51 @@ bool OhosChromeMainRunner::EnsureStarted(const AuraStartupConfig& config) {
   return true;
 }
 
-bool OhosChromeMainRunner::Navigate(const std::string& url) {
-  return chrome::ohos::NavigateAuraShellBrowser(url);
+bool OhosChromeMainRunner::Navigate(const std::string& component_id,
+                                    const std::string& url) {
+  const gfx::AcceleratedWidget widget =
+      ui::GetOhosAcceleratedWidgetForNativeSurface(component_id);
+  if (widget == gfx::kNullAcceleratedWidget && component_id != "aura_shell") {
+    return false;
+  }
+  return chrome::ohos::NavigateAuraShellBrowser(widget, url);
 }
 
 bool OhosChromeMainRunner::ExecuteBrowserCommand(
+    const std::string& component_id,
     const std::string& command_json) {
-  return chrome::ohos::ExecuteAuraShellBrowserCommand(command_json);
+  const gfx::AcceleratedWidget widget =
+      ui::GetOhosAcceleratedWidgetForNativeSurface(component_id);
+  if (widget == gfx::kNullAcceleratedWidget && component_id != "aura_shell") {
+    return false;
+  }
+  return chrome::ohos::ExecuteAuraShellBrowserCommand(widget, command_json);
 }
 
 void OhosChromeMainRunner::SetBrowserStateCallback(
-    base::RepeatingCallback<void(const std::string&)> callback) {
+    base::RepeatingCallback<void(gfx::AcceleratedWidget, const std::string&)>
+        callback) {
   chrome::ohos::SetAuraShellBrowserStateCallback(std::move(callback));
 }
 
-void OhosChromeMainRunner::SetVisible(bool visible) {
-  chrome::ohos::SetAuraShellBrowserVisible(visible);
+void OhosChromeMainRunner::SetVisible(const std::string& component_id,
+                                      bool visible) {
+  const gfx::AcceleratedWidget widget =
+      ui::GetOhosAcceleratedWidgetForNativeSurface(component_id);
+  if (widget == gfx::kNullAcceleratedWidget && component_id != "aura_shell") {
+    return;
+  }
+  chrome::ohos::SetAuraShellBrowserVisible(widget, visible);
 }
 
-void OhosChromeMainRunner::SetFocused(bool focused) {
-  chrome::ohos::SetAuraShellBrowserFocused(focused);
+void OhosChromeMainRunner::SetFocused(const std::string& component_id,
+                                      bool focused) {
+  const gfx::AcceleratedWidget widget =
+      ui::GetOhosAcceleratedWidgetForNativeSurface(component_id);
+  if (widget == gfx::kNullAcceleratedWidget && component_id != "aura_shell") {
+    return;
+  }
+  chrome::ohos::SetAuraShellBrowserFocused(widget, focused);
 }
 
 void OhosChromeMainRunner::OnThemeFontChanged(const std::string& font_id) {

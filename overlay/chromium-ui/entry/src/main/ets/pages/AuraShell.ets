@@ -17,7 +17,6 @@ import { common } from '@kit.AbilityKit';
 import { WebWindow } from '../components/webwindow/WebWindow';
 import { MobileBrowserOverlay } from '../components/mobile/MobileBrowserOverlay';
 import { CurrentTabCastSession } from '../components/mobile/CurrentTabCastSession';
-import { PwaCapsuleOverlay } from '../components/pwa/PwaCapsuleOverlay';
 import { BrowserOnboarding } from '../components/onboarding/BrowserOnboarding';
 import {
   AuxiliaryWindowState,
@@ -26,9 +25,11 @@ import {
   BrowserStateSnapshot
 } from '../components/webwindow/NativeContext';
 import { CHROMIUM_HOME_URL } from '../utils/DeviceType';
-import { HuaweiShareAdapter } from '../utils/HuaweiShareAdapter';
+import { HuaweiKnockShareSession, HuaweiShareAdapter } from '../utils/HuaweiShareAdapter';
 import { HarmonyFilePickerAdapter, HarmonyFilePickerResult } from '../utils/HarmonyFilePickerAdapter';
 import { SystemPrintAdapter } from '../utils/SystemPrintAdapter';
+import { ChromiumSystemAction, SystemIntegrationAdapter } from '../utils/SystemIntegrationAdapter';
+import { PwaWindowLauncher } from '../utils/PwaWindowLauncher';
 import { BrowserProfileState } from '../utils/profile/BrowserProfileService';
 
 const EMPTY_BROWSER_STATE: BrowserStateSnapshot = {
@@ -38,6 +39,10 @@ const EMPTY_BROWSER_STATE: BrowserStateSnapshot = {
   ready: false,
   tabCount: 0,
   activeTabIndex: -1,
+  sidePanelVisible: false,
+  sidePanelEntryId: '',
+  focusedTarget: 'webContents',
+  activationEpoch: 0,
   tabs: [],
   url: CHROMIUM_HOME_URL,
   domain: '',
@@ -65,18 +70,31 @@ struct AuraShell {
   @StorageLink('auraProfileKind') profileKind: string = 'local';
   @StorageLink('auraSyncMode') syncMode: string = 'off';
   @State private browserState: BrowserStateSnapshot = EMPTY_BROWSER_STATE;
-  @State private browserCommandText: string = '';
-  @State private browserCommandRevision: number = 0;
+  @StorageLink('auraBrowserCommandText') browserCommandText: string = '';
+  @StorageLink('auraBrowserCommandRevision') browserCommandRevision: number = 0;
   @State private auxiliaryWindows: AuxiliaryWindowState[] = [];
   @State private activeAuxiliaryWidget: number = 0;
   @State private auxiliarySheetVisible: boolean = false;
   @State private auxiliaryDismissWidget: number = 0;
   @State private auxiliaryDismissRevision: number = 0;
-  @State private windowStatus: number = 0;
-  @State private pwaMenuSheetVisible: boolean = false;
   private readonly currentTabCastSession: CurrentTabCastSession = new CurrentTabCastSession();
+  private readonly knockShareSession: HuaweiKnockShareSession = new HuaweiKnockShareSession();
+  private launchingPwaWidgets: number[] = [];
+
+  aboutToAppear(): void {
+    this.startKnockShare();
+  }
+
+  onPageShow(): void {
+    this.startKnockShare();
+  }
+
+  onPageHide(): void {
+    this.knockShareSession.stop();
+  }
 
   aboutToDisappear(): void {
+    this.knockShareSession.stop();
     this.currentTabCastSession.stop().catch((error: Error): void => {
       console.error('Failed to stop current-tab cast session:', error);
     });
@@ -115,12 +133,10 @@ struct AuraShell {
         onBrowserState: (state: BrowserStateSnapshot): void => {
           this.browserState = state;
           this.currentTabCastSession.update(state);
+          this.knockShareSession.update(state);
         },
         onRuntimeEvent: (event: BrowserRuntimeEvent): void => {
           this.handleRuntimeEvent(event);
-        },
-        onWindowStatus: (status: number): void => {
-          this.windowStatus = status;
         },
         onAuxiliaryWindowState: (state: AuxiliaryWindowState): void => {
           this.handleAuxiliaryWindowState(state);
@@ -136,20 +152,6 @@ struct AuraShell {
             }
           })
         }
-        if (this.browserState.isPwaWindow) {
-          PwaCapsuleOverlay({
-            browserState: this.browserState,
-            windowStatus: this.windowStatus,
-            onCommand: (command: BrowserCommandPayload): void => {
-              this.executeBrowserCommand(command);
-            }
-          })
-            .align(Alignment.Top)
-            .bindSheet($$this.pwaMenuSheetVisible, this.PwaMenuSheet, {
-              height: SheetSize.FIT_CONTENT,
-              showClose: false
-            })
-        }
       }
     }
     .width('100%')
@@ -158,6 +160,8 @@ struct AuraShell {
     .bindSheet($$this.auxiliarySheetVisible, this.AuxiliaryWindowSheet, {
       height: SheetSize.LARGE,
       showClose: false,
+      enableOutsideInteractive: false,
+      maskColor: Color.Transparent,
       onWillDismiss: (action: DismissSheetAction): void => {
         this.requestAuxiliaryWindowDismiss(this.activeAuxiliaryWidget);
         if (this.auxiliaryWindows.length <= 1) {
@@ -167,11 +171,21 @@ struct AuraShell {
     })
   }
 
+  private startKnockShare(): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (!context) {
+      return;
+    }
+    this.knockShareSession.start(context).catch((error: Error): void => {
+      console.error(`Failed to start HarmonyOS knock share: ${error.message}`);
+    });
+  }
+
   @Builder
   private AuxiliaryWindowSheet() {
     Column() {
       Row() {
-        Text('Chromium HarmonyOS Adapter')
+        Text('Chromium')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
@@ -243,68 +257,12 @@ struct AuraShell {
     .backgroundColor($r('app.color.surface_primary'))
   }
 
-  @Builder
-  private PwaMenuSheet() {
-    Column({ space: 8 }) {
-      Text(this.browserState.title || 'Chromium')
-        .width('100%')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.text_primary'))
-        .margin({ bottom: 4 })
-      this.PwaMenuButton('\u534e\u4e3a\u5206\u4eab', $r('app.media.chromium_share'), (): void => {
-        this.pwaMenuSheetVisible = false;
-        this.executeBrowserCommand({ command: 'share' });
-      })
-      this.PwaMenuButton('\u7cfb\u7edf\u6253\u5370', $r('app.media.chromium_print'), (): void => {
-        this.pwaMenuSheetVisible = false;
-        this.executeBrowserCommand({ command: 'print' });
-      })
-      this.PwaMenuButton('\u5237\u65b0', $r('app.media.chromium_reload'), (): void => {
-        this.pwaMenuSheetVisible = false;
-        this.executeBrowserCommand({ command: 'reload' });
-      })
-    }
-    .width('100%')
-    .padding({ left: 20, right: 20, top: 20, bottom: 24 })
-    .backgroundColor($r('app.color.surface_primary'))
-  }
-
-  @Builder
-  private PwaMenuButton(label: string, icon: Resource, action: () => void) {
-    Button({ type: ButtonType.Normal, stateEffect: true }) {
-      Row({ space: 12 }) {
-        Image(icon)
-          .width(22)
-          .height(22)
-          .fillColor($r('app.color.icon_primary'))
-        Text(label)
-          .fontSize(16)
-          .fontColor($r('app.color.text_primary'))
-        Blank()
-      }
-      .width('100%')
-    }
-    .width('100%')
-    .height(48)
-    .padding({ left: 12, right: 12 })
-    .borderRadius(8)
-    .backgroundColor($r('app.color.surface_secondary'))
-    .onClick(action)
-  }
-
   private executeBrowserCommand(command: BrowserCommandPayload): void {
     this.browserCommandText = JSON.stringify(command);
     this.browserCommandRevision += 1;
   }
 
   private handleRuntimeEvent(event: BrowserRuntimeEvent): void {
-    if (event.event === 'pwaMenuFallback') {
-      this.pwaMenuSheetVisible = true;
-      return;
-    }
     if (event.event === 'pwaInstalled' && this.isDesktopAuraUi()) {
       AlertDialog.show({
         title: '\u5b89\u88c5\u5b8c\u6210',
@@ -358,6 +316,11 @@ struct AuraShell {
             canceled: true
           });
         });
+    } else if (event.event === 'systemActionRequested' && event.action) {
+      SystemIntegrationAdapter.handle(context, event.action as ChromiumSystemAction)
+        .catch((error: Error): void => {
+          console.error(`HarmonyOS system action failed: ${error.message}`);
+        });
     } else if (event.event === 'systemPrintFailed') {
       console.error(`Chromium PDF generation failed: ${event.reason ?? 'unknown'}`);
     }
@@ -374,6 +337,10 @@ struct AuraShell {
   }
 
   private handleAuxiliaryWindowState(state: AuxiliaryWindowState): void {
+    if (state.windowRole === 'pwa') {
+      this.handlePwaWindowState(state);
+      return;
+    }
     if (!this.isFullscreenWindow()) {
       return;
     }
@@ -392,6 +359,30 @@ struct AuraShell {
 
     this.auxiliaryWindows = remaining;
     this.auxiliarySheetVisible = remaining.length > 0;
+  }
+
+  private handlePwaWindowState(state: AuxiliaryWindowState): void {
+    if (state.destroyed || !state.visible) {
+      this.launchingPwaWidgets = this.launchingPwaWidgets.filter(
+        (widget: number): boolean => widget !== state.widget);
+      return;
+    }
+    if (this.launchingPwaWidgets.includes(state.widget)) {
+      return;
+    }
+
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (!context) {
+      return;
+    }
+    this.launchingPwaWidgets.push(state.widget);
+    PwaWindowLauncher.launch(context, state, this.startupConfigText, this.profileId)
+      .catch((error: Error): void => {
+        this.launchingPwaWidgets = this.launchingPwaWidgets.filter(
+          (widget: number): boolean => widget !== state.widget);
+        console.error('Failed to launch the PWA system window:', error);
+        this.requestAuxiliaryWindowDismiss(state.widget);
+      });
   }
 
   private requestAuxiliaryWindowDismiss(widget: number): void {
@@ -417,13 +408,16 @@ struct AuraShell {
 
   private isDesktopAuraUi(): boolean {
     if (!this.startupConfigText || this.startupConfigText.trim().length === 0) {
-      return this.browserState.uiFamily === 'aura_pc';
+      return this.browserState.uiFamily === 'aura_pc' ||
+        this.browserState.uiFamily === 'aura_tablet';
     }
     try {
       const startupConfig = JSON.parse(this.startupConfigText) as Record<string, Object>;
-      return String(startupConfig['uiFamily'] ?? '') === 'aura_pc';
+      const uiFamily = String(startupConfig['uiFamily'] ?? '');
+      return uiFamily === 'aura_pc' || uiFamily === 'aura_tablet';
     } catch (error) {
-      return this.browserState.uiFamily === 'aura_pc';
+      return this.browserState.uiFamily === 'aura_pc' ||
+        this.browserState.uiFamily === 'aura_tablet';
     }
   }
 

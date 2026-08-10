@@ -77,7 +77,9 @@ export struct MobileBrowserOverlay {
     .padding({ left: 12, right: 12, bottom: 12 })
     .bindSheet($$this.menuVisible, this.MenuSheet, {
       height: SheetSize.LARGE,
-      showClose: false
+      showClose: false,
+      enableOutsideInteractive: false,
+      maskColor: Color.Transparent
     })
   }
 

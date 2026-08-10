@@ -34,16 +34,18 @@ autoninja -C out/plan_kirin_pc \
   chrome libweb_engine web_render libnweb_render
 ```
 
-The tested configuration uses Chromium branding, disables proprietary codecs,
-keeps V8 JavaScript enabled in JITless mode, and executes WebAssembly through
-the DrumBrake interpreter.
+The tested configuration uses Chromium branding, keeps V8 JavaScript enabled
+in JITless mode, and executes WebAssembly through the DrumBrake interpreter.
+It also enables the Chromium AAC/H.264 build switches used by the validated
+test package. Those switches do not grant codec patent or distribution rights;
+distributors remain responsible for the licenses required in their markets.
 
 ## HAP
 
 The ArkUI project is under `chromium-ui`. Configure signing locally in DevEco
 Studio. Do not commit generated signing blocks or `.cer`, `.p12`, or `.p7b`
 files. The native build must be staged into the ArkUI project before running
-the Hvigor release task.
+`devecocli build --product default --build-mode release`.
 
 This publication is a source snapshot, not a promise that every third-party
 machine has the same private SDK build used for the original test package.

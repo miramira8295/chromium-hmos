@@ -14,6 +14,8 @@
 namespace ui {
 namespace {
 
+constexpr base::TimeDelta kNativeSurfaceWaitTimeout = base::Seconds(3);
+
 class OhosNativeViewGLSurfaceEGL final : public gl::NativeViewGLSurfaceEGL {
  public:
   OhosNativeViewGLSurfaceEGL(gl::GLDisplayEGL* display,
@@ -113,6 +115,11 @@ class GLOzoneEGLOhos : public GLOzoneEGL {
       gl::GLDisplay* display,
       gfx::AcceleratedWidget widget) override {
     std::optional<OhosNativeSurface> surface = GetOhosNativeSurface(widget);
+    if ((!surface || !surface->window) &&
+        IsOhosNativeSurfaceExpected(widget)) {
+      surface =
+          WaitForOhosNativeSurface(widget, kNativeSurfaceWaitTimeout);
+    }
     if (!surface || !surface->window) {
       return nullptr;
     }

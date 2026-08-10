@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
 
 #include "arkui/native_key_event.h"
 #include "base/json/json_reader.h"
@@ -94,10 +95,24 @@ int ToWheelOffset(double value) {
   return value > 0 ? 1 : -1;
 }
 
-float ResolvePointerDensity() {
-  if (std::optional<ui::OhosNativeSurface> surface =
-          ui::GetPrimaryOhosNativeSurface();
-      surface && surface->density > 0.0f) {
+std::optional<ui::OhosNativeSurface> ResolvePointerSurface(
+    const std::string& component_id) {
+  if (!component_id.empty()) {
+    const gfx::AcceleratedWidget widget =
+        ui::GetOhosAcceleratedWidgetForNativeSurface(component_id);
+    if (widget != gfx::kNullAcceleratedWidget) {
+      if (std::optional<ui::OhosNativeSurface> surface =
+              ui::GetOhosNativeSurface(widget)) {
+        return surface;
+      }
+    }
+  }
+  return ui::GetPrimaryOhosNativeSurface();
+}
+
+float ResolvePointerDensity(
+    const std::optional<ui::OhosNativeSurface>& surface) {
+  if (surface && surface->density > 0.0f) {
     return surface->density;
   }
   if (std::optional<ui::OhosDisplayMetrics> metrics =
@@ -108,10 +123,12 @@ float ResolvePointerDensity() {
   return 1.0f;
 }
 
-gfx::PointF ToRootLocation(const base::DictValue& event,
-                           const gfx::PointF& location,
-                           float density,
-                           bool physical_pixels) {
+gfx::PointF ToRootLocation(
+    const base::DictValue& event,
+    const gfx::PointF& location,
+    float density,
+    bool physical_pixels,
+    const std::optional<ui::OhosNativeSurface>& surface) {
   std::optional<double> root_x = FindNumber(event, "rootX");
   std::optional<double> root_y = FindNumber(event, "rootY");
   if (root_x && root_y) {
@@ -119,15 +136,13 @@ gfx::PointF ToRootLocation(const base::DictValue& event,
     gfx::PointF root_location(static_cast<float>(*root_x * scale),
                               static_cast<float>(*root_y * scale));
     if (event.FindBool("rootWindowRelative").value_or(false)) {
-      if (std::optional<ui::OhosNativeSurface> surface =
-              ui::GetPrimaryOhosNativeSurface()) {
+      if (surface) {
         root_location.Offset(surface->bounds.x(), surface->bounds.y());
       }
     }
     return root_location;
   }
-  if (std::optional<ui::OhosNativeSurface> surface =
-          ui::GetPrimaryOhosNativeSurface()) {
+  if (surface) {
     return gfx::PointF(location.x() + surface->bounds.x(),
                        location.y() + surface->bounds.y());
   }
@@ -252,7 +267,8 @@ int ModifierFlagForKey(ui::KeyboardCode key_code) {
 
 }  // namespace
 
-OhosAuraInputRouter::OhosAuraInputRouter() = default;
+OhosAuraInputRouter::OhosAuraInputRouter(std::string component_id)
+    : component_id_(std::move(component_id)) {}
 
 OhosAuraInputRouter::~OhosAuraInputRouter() = default;
 
@@ -278,7 +294,17 @@ void OhosAuraInputRouter::ResetPointerState() {
   last_mouse_changed_button_flags_ = 0;
   recent_pointer_events_.clear();
   recent_key_events_.clear();
-  ui::OhosEventSource::ResetPointerCaptures();
+  const gfx::AcceleratedWidget widget = GetBoundWidget();
+  if (component_id_.empty() || widget != gfx::kNullAcceleratedWidget) {
+    ui::OhosEventSource::ResetPointerCaptures(widget);
+  }
+}
+
+gfx::AcceleratedWidget OhosAuraInputRouter::GetBoundWidget() const {
+  if (component_id_.empty()) {
+    return gfx::kNullAcceleratedWidget;
+  }
+  return ui::GetOhosAcceleratedWidgetForNativeSurface(component_id_);
 }
 
 bool OhosAuraInputRouter::IsDuplicatePointerEvent(
@@ -428,7 +454,9 @@ void OhosAuraInputRouter::DispatchPointerEvent(const std::string& event_json) {
       target_widget_value > 0
           ? static_cast<gfx::AcceleratedWidget>(target_widget_value)
           : gfx::kNullAcceleratedWidget;
-  const float density = ResolvePointerDensity();
+  const std::optional<ui::OhosNativeSurface> pointer_surface =
+      ResolvePointerSurface(component_id_);
+  const float density = ResolvePointerDensity(pointer_surface);
   const double coordinate_scale =
       !physical_pixels && density > 0.0f ? density : 1.0f;
   const double physical_x = *x * coordinate_scale;
@@ -447,8 +475,8 @@ void OhosAuraInputRouter::DispatchPointerEvent(const std::string& event_json) {
 
   const gfx::PointF location(static_cast<float>(physical_x),
                              static_cast<float>(physical_y));
-  const gfx::PointF root_location =
-      ToRootLocation(*event, location, density, physical_pixels);
+  const gfx::PointF root_location = ToRootLocation(
+      *event, location, density, physical_pixels, pointer_surface);
   last_pointer_root_x_ = root_location.x();
   last_pointer_root_y_ = root_location.y();
   if (*pointer_type == "mouse" && (*action == 0 || *action == 1)) {
@@ -504,6 +532,13 @@ void OhosAuraInputRouter::DispatchPointerEvent(const std::string& event_json) {
   int changed_button_flags = 0;
   switch (*action) {
     case 0:
+      if (button_flag && (mouse_button_flags_ & button_flag)) {
+        WVLOG_W("Aura input router recovered a stale pressed mouse button");
+        mouse_button_flags_ &= ~button_flag;
+        ui::OhosEventSource::ResetPointerCaptures(
+            target_widget != gfx::kNullAcceleratedWidget ? target_widget
+                                                         : GetBoundWidget());
+      }
       mouse_button_flags_ |= button_flag;
       changed_button_flags = button_flag;
       event_type = ui::EventType::kMousePressed;

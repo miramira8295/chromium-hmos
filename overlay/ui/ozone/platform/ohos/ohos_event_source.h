@@ -20,7 +20,8 @@ class OhosEventSource : public PlatformEventSource {
   static bool PostEvent(
       std::unique_ptr<Event> event,
       gfx::AcceleratedWidget target_hint = gfx::kNullAcceleratedWidget);
-  static bool ResetPointerCaptures();
+  static bool ResetPointerCaptures(
+      gfx::AcceleratedWidget widget = gfx::kNullAcceleratedWidget);
   static bool WasTouchInteractionRecent();
   static gfx::AcceleratedWidget GetCurrentDispatchTarget();
 
@@ -33,7 +34,7 @@ class OhosEventSource : public PlatformEventSource {
       Event* event,
       gfx::AcceleratedWidget target_hint);
   void ReleasePointerCaptureAfterDispatch(const Event& event);
-  void ResetPointerCapturesOnEventThread();
+  void ResetPointerCapturesOnEventThread(gfx::AcceleratedWidget widget);
   void DispatchOwnedEvent(std::unique_ptr<Event> event,
                           gfx::AcceleratedWidget target_hint);
 

@@ -33,7 +33,7 @@ gfx::Rect ToPixelBoundsWithOrigin(double fallback_x,
 }  // namespace
 
 OhosAuraShellHost::OhosAuraShellHost(std::string component_id)
-    : component_id_(std::move(component_id)) {}
+    : component_id_(std::move(component_id)), input_router_(component_id_) {}
 
 OhosAuraShellHost::~OhosAuraShellHost() = default;
 
@@ -167,14 +167,14 @@ void OhosAuraShellHost::OnSurfaceDestroyed() {
 void OhosAuraShellHost::OnVisibilityChanged(bool visible) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   xcomponent_bridge_.OnVisibilityChanged(visible);
-  GetOhosChromeMainRunner().SetVisible(visible);
+  GetOhosChromeMainRunner().SetVisible(component_id_, visible);
 }
 
 void OhosAuraShellHost::OnFocusChanged(bool focused) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   xcomponent_bridge_.OnFocusChanged(focused);
   input_router_.SetFocused(focused);
-  GetOhosChromeMainRunner().SetFocused(focused);
+  GetOhosChromeMainRunner().SetFocused(component_id_, focused);
 }
 
 void OhosAuraShellHost::OnThemeFontChanged(const std::string& font_id) {
@@ -195,7 +195,8 @@ bool OhosAuraShellHost::DispatchKeyEvent(const std::string& event_json) {
 void OhosAuraShellHost::Navigate(const std::string& url) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   current_url_ = url.empty() ? kChromiumHomeUrl : url;
-  const bool accepted = GetOhosChromeMainRunner().Navigate(current_url_);
+  const bool accepted =
+      GetOhosChromeMainRunner().Navigate(component_id_, current_url_);
   WVLOG_I("AuraShell navigate component=%{public}s url=%{public}s",
           component_id_.c_str(), current_url_.c_str());
   if (!accepted) {
@@ -206,7 +207,8 @@ void OhosAuraShellHost::Navigate(const std::string& url) {
 
 bool OhosAuraShellHost::ExecuteBrowserCommand(const std::string& command_json) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
-  return GetOhosChromeMainRunner().ExecuteBrowserCommand(command_json);
+  return GetOhosChromeMainRunner().ExecuteBrowserCommand(component_id_,
+                                                         command_json);
 }
 
 void OhosAuraShellHost::Shutdown() {
@@ -220,7 +222,6 @@ void OhosAuraShellHost::Shutdown() {
   }
   xcomponent_bridge_.OnSurfaceDestroyed();
   initialized_ = false;
-  GetOhosChromeMainRunner().Shutdown();
 }
 
 void OhosAuraShellHost::MaybeStartChromium() {

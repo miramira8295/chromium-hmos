@@ -1,5 +1,6 @@
 {
   "src": [
-    "pages/AuraShell"
+    "pages/AuraShell",
+    "pages/PWASmallAppExperience"
   ]
 }

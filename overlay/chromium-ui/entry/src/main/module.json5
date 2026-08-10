@@ -2,6 +2,10 @@
   "module": {
     "name": "entry",
     "type": "entry",
+    "querySchemes": [
+      "wallet"
+    ],
+    "srcEntry": "./ets/abilitystage/ChromiumAdapterAbilityStage.ets",
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
     "deviceTypes": [
@@ -31,11 +35,17 @@
         "skills": [
           {
             "entities": [
-              "entity.system.home",
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          },
+          {
+            "entities": [
               "entity.system.browsable"
             ],
             "actions": [
-              "action.system.home",
               "ohos.want.action.viewData"
             ],
             "uris": [
@@ -55,6 +65,24 @@
         ],
         "orientation": "auto_rotation_unspecified",
         "launchType": "singleton"
+      },
+      {
+        "name": "PWASmallAppExperience",
+        "srcEntry": "./ets/pwaability/PWASmallAppExperience.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:chromium_hmos_layered_image",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:chromium_hmos_start_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": false,
+        "supportWindowMode": [
+          "fullscreen",
+          "split",
+          "floating"
+        ],
+        "orientation": "auto_rotation_unspecified",
+        "launchType": "specified",
+        "removeMissionAfterTerminate": true
       }
     ],
     "extensionAbilities": [
@@ -77,7 +105,8 @@
         "reason": "$string:internet_permission_reason",
         "usedScene": {
           "abilities": [
-            "EntryAbility"
+            "EntryAbility",
+            "PWASmallAppExperience"
           ],
           "when": "inuse"
         }
@@ -87,7 +116,8 @@
         "reason": "$string:network_info_permission_reason",
         "usedScene": {
           "abilities": [
-            "EntryAbility"
+            "EntryAbility",
+            "PWASmallAppExperience"
           ],
           "when": "inuse"
         }

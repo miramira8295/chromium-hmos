@@ -8,12 +8,13 @@
 #include <string>
 
 #include "base/time/time.h"
+#include "ui/gfx/native_ui_types.h"
 
 namespace ohos_nweb {
 
 class OhosAuraInputRouter {
  public:
-  OhosAuraInputRouter();
+  explicit OhosAuraInputRouter(std::string component_id = {});
   OhosAuraInputRouter(const OhosAuraInputRouter&) = delete;
   OhosAuraInputRouter& operator=(const OhosAuraInputRouter&) = delete;
   ~OhosAuraInputRouter();
@@ -78,7 +79,9 @@ class OhosAuraInputRouter {
   bool IsDuplicateKeyEvent(const std::string& dispatch_source,
                            int action,
                            int key_code);
+  gfx::AcceleratedWidget GetBoundWidget() const;
 
+  const std::string component_id_;
   bool focused_ = false;
   int event_flags_ = 0;
   int mouse_button_flags_ = 0;

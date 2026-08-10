@@ -18,6 +18,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/ui/ohos/aura_shell_runtime_bridge.h"
 #include "ohos_nweb/src/aura_shell/ohos_aura_shell_host.h"
 #include "ohos_nweb/src/aura_shell/ohos_chrome_main_runner.h"
 #include "ohos_nweb/src/nweb_hilog.h"
@@ -34,6 +35,7 @@ using AuxiliaryWindowEventFunctionMap =
     std::map<std::string, napi_threadsafe_function>;
 
 constexpr char kAuxiliarySurfacePrefix[] = "aura_aux_";
+constexpr char kPwaSurfacePrefix[] = "aura_pwa_";
 
 std::mutex& HostsMutex() {
   static base::NoDestructor<std::mutex> mutex;
@@ -74,9 +76,14 @@ bool IsAuxiliaryComponentId(const std::string& component_id) {
   return component_id.starts_with(kAuxiliarySurfacePrefix);
 }
 
-void AddAuxiliaryEventTarget(const std::string& component_id,
+bool IsPwaComponentId(const std::string& component_id) {
+  return component_id.starts_with(kPwaSurfacePrefix);
+}
+
+void AddComponentEventTarget(const std::string& component_id,
                              base::DictValue* event) {
-  if (!event || !IsAuxiliaryComponentId(component_id)) {
+  if (!event || (!IsAuxiliaryComponentId(component_id) &&
+                 !IsPwaComponentId(component_id))) {
     return;
   }
   const gfx::AcceleratedWidget widget =
@@ -193,17 +200,47 @@ void CallJsBrowserEvent(napi_env env,
   napi_call_function(env, receiver, callback, 1, &argument, nullptr);
 }
 
-void DispatchBrowserEvent(const std::string& state_json) {
+void DispatchBrowserEvent(gfx::AcceleratedWidget widget,
+                          const std::string& state_json) {
   std::lock_guard<std::mutex> lock(BrowserEventFunctionsMutex());
-  for (const auto& [component_id, function] : BrowserEventFunctions()) {
-    auto state_copy = std::make_unique<std::string>(state_json);
-    if (napi_call_threadsafe_function(function, state_copy.get(),
-                                      napi_tsfn_nonblocking) == napi_ok) {
-      state_copy.release();
-    } else {
-      WVLOG_W("AuraShell dropped browser state for component=%{public}s",
-              component_id.c_str());
+  napi_threadsafe_function function = nullptr;
+  std::string target_component;
+  if (widget != gfx::kNullAcceleratedWidget) {
+    const std::optional<std::string> component_id =
+        ui::GetOhosNativeSurfaceComponentIdForWidget(widget);
+    if (component_id) {
+      auto target = BrowserEventFunctions().find(*component_id);
+      if (target != BrowserEventFunctions().end()) {
+        target_component = target->first;
+        function = target->second;
+      }
     }
+  } else {
+    auto main = BrowserEventFunctions().find("aura_shell");
+    if (main != BrowserEventFunctions().end()) {
+      target_component = main->first;
+      function = main->second;
+    } else {
+      for (const auto& [component_id, candidate] : BrowserEventFunctions()) {
+        if (!IsAuxiliaryComponentId(component_id) &&
+            !IsPwaComponentId(component_id)) {
+          target_component = component_id;
+          function = candidate;
+          break;
+        }
+      }
+    }
+  }
+  if (!function) {
+    return;
+  }
+  auto state_copy = std::make_unique<std::string>(state_json);
+  if (napi_call_threadsafe_function(function, state_copy.get(),
+                                    napi_tsfn_nonblocking) == napi_ok) {
+    state_copy.release();
+  } else {
+    WVLOG_W("AuraShell dropped browser state for component=%{public}s",
+            target_component.c_str());
   }
 }
 
@@ -267,6 +304,16 @@ void DispatchAuxiliaryWindowEvent(const ui::OhosLogicalWindowState& state) {
   event.Set("visible", state.visible);
   event.Set("destroyed", state.destroyed);
   event.Set("stackingOrder", static_cast<double>(state.stacking_order));
+  event.Set("windowRole", "auxiliary");
+  if (std::optional<chrome::ohos::AuraShellWindowMetadata> metadata =
+          chrome::ohos::GetAuraShellWindowMetadata(state.widget);
+      metadata && metadata->is_pwa) {
+    event.Set("windowRole", "pwa");
+    event.Set("pwaAppId", metadata->app_id);
+    event.Set("title", metadata->title);
+    event.Set("url", metadata->url);
+    event.Set("pwaStartUrl", metadata->start_url);
+  }
 
   std::string state_json;
   if (!base::JSONWriter::Write(event, &state_json)) {
@@ -474,13 +521,14 @@ void NativeDispatchTouchEvent(OH_NativeXComponent* component, void* window) {
   event.Set("y", static_cast<double>(touch_event.y));
   event.Set("rootX", static_cast<double>(touch_event.screenX));
   event.Set("rootY", static_cast<double>(touch_event.screenY));
-  // HarmonyOS PC reports screenX/screenY relative to the application window
-  // (including its system decoration). Add the registered window origin in
-  // the router to obtain the global-display point used for popup hit testing.
-  event.Set("rootWindowRelative", true);
+  // The Native XComponent contract defines screenX/screenY relative to the
+  // physical screen for both touch and mouse events. Treating touch as
+  // window-relative adds the surface offset twice in floating/folded layouts
+  // and makes popup input fall through to the page below.
+  event.Set("rootWindowRelative", false);
   event.Set("physicalPixels", true);
   event.Set("timestamp", static_cast<double>(touch_event.timeStamp));
-  AddAuxiliaryEventTarget(*component_id, &event);
+  AddComponentEventTarget(*component_id, &event);
 
   std::string event_json;
   if (!base::JSONWriter::Write(event, &event_json)) {
@@ -570,7 +618,7 @@ void NativeDispatchMouseEvent(OH_NativeXComponent* component, void* window) {
   event.Set("rootWindowRelative", false);
   event.Set("physicalPixels", true);
   event.Set("timestamp", static_cast<double>(mouse_event.timestamp));
-  AddAuxiliaryEventTarget(*component_id, &event);
+  AddComponentEventTarget(*component_id, &event);
 
   std::string event_json;
   if (!base::JSONWriter::Write(event, &event_json)) {
@@ -1012,10 +1060,12 @@ napi_value OnWindowIdChanged(napi_env env, napi_callback_info info) {
     return MakeUndefined(env);
   }
 
+  const std::string component_id = ReadString(env, args[0]);
   const double value = ReadNumber(env, args[1]);
   if (value > 0.0 &&
       value <= static_cast<double>(std::numeric_limits<int32_t>::max())) {
-    ui::SetOhosApplicationWindowId(static_cast<int32_t>(value));
+    ui::SetOhosApplicationWindowIdForNativeSurface(component_id,
+                                                   static_cast<int32_t>(value));
   }
   return MakeUndefined(env);
 }
@@ -1131,6 +1181,8 @@ napi_value Shutdown(napi_env env, napi_callback_info info) {
   if (host) {
     host->Shutdown();
   }
+  // XComponent hosts are transient during fold, rotation, and Ability window
+  // recreation. Keep Chromium alive for the application process lifetime.
   ReleaseWindowActionFunction(component_id);
   ReleaseBrowserEventFunction(component_id);
   ReleaseAuxiliaryWindowEventFunction(component_id);

@@ -17,6 +17,7 @@
 #include "ohos_nweb/src/aura_shell/ohos_aura_shell_host.h"
 #include "ohos_nweb/src/aura_shell/ohos_aura_xcomponent_bridge.h"
 #include "ohos_nweb/src/aura_shell/ohos_chrome_main_runner.h"
+#include "ui/base/resource/ohos_product_branding.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/pointer_details.h"
@@ -30,6 +31,13 @@ namespace {
 bool ContainsArgument(const std::vector<std::string>& arguments,
                       const std::string& expected) {
   return std::ranges::find(arguments, expected) != arguments.end();
+}
+
+TEST(NWebAuraShellTest, LocalizedProductBrandingPreservesProtocolAndPlatform) {
+  EXPECT_EQ(u"About Chromium", ui::ApplyOhosProductBranding(u"About Chromium"));
+  EXPECT_EQ(u"Chromium settings: chrome://settings on ChromeOS",
+            ui::ApplyOhosProductBranding(
+                u"Google Chrome settings: chrome://settings on ChromeOS"));
 }
 
 TEST(NWebAuraShellTest, XComponentStateFollowsLifecycle) {
@@ -99,7 +107,24 @@ TEST(NWebAuraShellTest, AbsoluteNativeMouseRootIsNotOffsetByWindowOrigin) {
   ui::UnregisterOhosNativeSurface(kComponentId, native_window);
 }
 
-TEST(NWebAuraShellTest, NativeRootCoordinatesIncludeApplicationWindowOrigin) {
+TEST(NWebAuraShellTest, AbsoluteNativeTouchRootIsNotOffsetByWindowOrigin) {
+  constexpr char kComponentId[] = "aura_shell_pointer_touch_root_test";
+  void* native_window = reinterpret_cast<void*>(0x1234);
+  ui::RegisterOhosNativeSurface(kComponentId, native_window,
+                                gfx::Rect(640, 320, 1600, 1200), 2.0f);
+
+  OhosAuraInputRouter router;
+  router.DispatchPointerEvent(
+      R"({"action":0,"pointerType":"touch","button":0,"x":200,"y":100,"rootX":840,"rootY":420,"rootWindowRelative":false,"physicalPixels":true})");
+
+  EXPECT_DOUBLE_EQ(200.0, router.last_pointer_x_for_testing());
+  EXPECT_DOUBLE_EQ(100.0, router.last_pointer_y_for_testing());
+  EXPECT_DOUBLE_EQ(840.0, router.last_pointer_root_x_for_testing());
+  EXPECT_DOUBLE_EQ(420.0, router.last_pointer_root_y_for_testing());
+  ui::UnregisterOhosNativeSurface(kComponentId, native_window);
+}
+
+TEST(NWebAuraShellTest, LegacyWindowRelativeRootIncludesWindowOrigin) {
   constexpr char kComponentId[] = "aura_shell_pointer_root_test";
   void* native_window = reinterpret_cast<void*>(0x1234);
   ui::RegisterOhosNativeSurface(kComponentId, native_window,
@@ -181,6 +206,20 @@ TEST(NWebAuraShellTest, MouseReleaseWithoutButtonClearsPressedState) {
   router.DispatchPointerEvent(
       R"({"action":1,"pointerType":"mouse","dispatchSource":"native","button":-1,"x":10,"y":20})");
   EXPECT_EQ(0, router.mouse_button_flags_for_testing());
+}
+
+TEST(NWebAuraShellTest, NewPressRecoversMissedMouseRelease) {
+  OhosAuraInputRouter router;
+
+  router.DispatchPointerEvent(
+      R"({"action":0,"pointerType":"mouse","dispatchSource":"native","button":0,"x":10,"y":20})");
+  EXPECT_NE(0, router.mouse_button_flags_for_testing());
+
+  router.DispatchPointerEvent(
+      R"({"action":0,"pointerType":"mouse","dispatchSource":"native","button":0,"x":12,"y":22})");
+  EXPECT_EQ(ui::EF_LEFT_MOUSE_BUTTON, router.mouse_button_flags_for_testing());
+  EXPECT_EQ(ui::EF_LEFT_MOUSE_BUTTON,
+            router.last_mouse_changed_button_flags_for_testing());
 }
 
 TEST(NWebAuraShellTest, MouseReleaseRetainsChangedButtonInEventFlags) {
@@ -539,6 +578,35 @@ TEST(NWebAuraShellTest, AuxiliarySurfaceTargetPreventsSheetTouchThrough) {
   ui::UnregisterOhosLogicalWindow(kRootWidget);
 }
 
+TEST(NWebAuraShellTest, ExplicitSurfaceTargetAllowsNestedPopupHitTesting) {
+  base::test::SingleThreadTaskEnvironment task_environment;
+  ui::OhosEventSource event_source;
+  constexpr gfx::AcceleratedWidget kRootWidget = 900019;
+  constexpr gfx::AcceleratedWidget kPopupWidget = 900020;
+
+  ui::RegisterOhosLogicalWindow(kRootWidget, gfx::Rect(0, 0, 1200, 800));
+  ui::SetOhosLogicalWindowVisible(kRootWidget, true);
+  ui::RegisterOhosLogicalWindow(kPopupWidget, gfx::Rect(700, 40, 360, 520));
+  ui::SetOhosLogicalWindowVisible(kPopupWidget, true);
+
+  ui::TouchEvent popup_touch(
+      ui::EventType::kTouchPressed, gfx::PointF(800, 100),
+      gfx::PointF(800, 100), base::TimeTicks::Now(),
+      ui::PointerDetails(ui::EventPointerType::kTouch, 11));
+  EXPECT_EQ(kPopupWidget, event_source.ResolveDispatchTargetForTesting(
+                              &popup_touch, kRootWidget));
+
+  ui::MouseEvent popup_mouse(ui::EventType::kMousePressed,
+                             gfx::PointF(800, 100), gfx::PointF(800, 100),
+                             base::TimeTicks::Now(), ui::EF_LEFT_MOUSE_BUTTON,
+                             ui::EF_LEFT_MOUSE_BUTTON);
+  EXPECT_EQ(kPopupWidget, event_source.ResolveDispatchTargetForTesting(
+                              &popup_mouse, kRootWidget));
+
+  ui::UnregisterOhosLogicalWindow(kPopupWidget);
+  ui::UnregisterOhosLogicalWindow(kRootWidget);
+}
+
 TEST(NWebAuraShellTest, BoundRootSurfaceIsThePrimaryInputWindow) {
   constexpr char kComponentId[] = "aura_shell_primary_input_test";
   constexpr gfx::AcceleratedWidget kRootWidget = 900015;
@@ -600,6 +668,86 @@ TEST(NWebAuraShellTest, AuxiliaryWindowBindsExactSheetSurfaceAndCloses) {
   EXPECT_TRUE(states.back().destroyed);
   ui::UnbindOhosNativeSurface(kWidget);
   ui::SetOhosLogicalWindowStateCallback({});
+}
+
+TEST(NWebAuraShellTest, PwaWindowBindsExactAbilitySurfaceAndBecomesPrimary) {
+  constexpr gfx::AcceleratedWidget kWidget = 900022;
+  constexpr char kComponentId[] = "aura_pwa_900022";
+  void* native_window = reinterpret_cast<void*>(0x9877);
+  std::vector<ui::OhosLogicalWindowState> states;
+  gfx::Rect callback_bounds;
+
+  EXPECT_FALSE(ui::BindOhosNativeSurface(kWidget).has_value());
+  ui::ExpectOhosNativeSurface(kWidget);
+  EXPECT_TRUE(ui::IsOhosNativeSurfaceExpected(kWidget));
+  ui::RegisterOhosLogicalWindow(kWidget, gfx::Rect(40, 80, 720, 900));
+  ui::SetOhosNativeSurfaceBoundsCallback(
+      kWidget, base::BindRepeating([](gfx::Rect* observed, gfx::Rect bounds,
+                                      float) { *observed = bounds; },
+                                   base::Unretained(&callback_bounds)));
+  ui::SetOhosLogicalWindowStateCallback(base::BindRepeating(
+      [](std::vector<ui::OhosLogicalWindowState>* events,
+         const ui::OhosLogicalWindowState& state) { events->push_back(state); },
+      base::Unretained(&states)));
+  ui::SetOhosLogicalWindowVisible(kWidget, true);
+  ASSERT_FALSE(states.empty());
+  EXPECT_TRUE(states.back().auxiliary);
+
+  ui::RegisterOhosNativeSurface(kComponentId, native_window,
+                                gfx::Rect(120, 160, 1200, 800), 2.0f);
+  std::optional<ui::OhosNativeSurface> surface =
+      ui::GetOhosNativeSurface(kWidget);
+  ASSERT_TRUE(surface.has_value());
+  EXPECT_EQ(native_window, surface->window);
+  EXPECT_EQ(120, callback_bounds.x());
+  EXPECT_EQ(160, callback_bounds.y());
+  EXPECT_EQ(1200, callback_bounds.width());
+  EXPECT_EQ(800, callback_bounds.height());
+  EXPECT_TRUE(
+      ui::WaitForOhosNativeSurface(kWidget, base::Milliseconds(1)).has_value());
+  EXPECT_TRUE(ui::IsOhosPrimaryLogicalWindow(kWidget));
+  ASSERT_FALSE(states.empty());
+  EXPECT_TRUE(states.back().destroyed);
+  const auto component_id =
+      ui::GetOhosNativeSurfaceComponentIdForWidget(kWidget);
+  ASSERT_TRUE(component_id.has_value());
+  EXPECT_EQ(kComponentId, *component_id);
+
+  ui::UnregisterOhosNativeSurface(kComponentId, native_window);
+  ui::UnregisterOhosLogicalWindow(kWidget);
+  ui::SetOhosNativeSurfaceBoundsCallback(kWidget, {});
+  ui::UnbindOhosNativeSurface(kWidget);
+  ui::SetOhosLogicalWindowStateCallback({});
+}
+
+TEST(NWebAuraShellTest, ApplicationWindowIdsFollowBoundChromiumWidgets) {
+  constexpr gfx::AcceleratedWidget kMainWidget = 900023;
+  constexpr gfx::AcceleratedWidget kPwaWidget = 900024;
+  constexpr char kMainComponent[] = "aura_shell_window_id_test";
+  constexpr char kPwaComponent[] = "aura_pwa_900024";
+  void* main_window = reinterpret_cast<void*>(0x9880);
+  void* pwa_window = reinterpret_cast<void*>(0x9881);
+
+  ui::RegisterOhosNativeSurface(kMainComponent, main_window,
+                                gfx::Rect(0, 0, 1200, 800), 2.0f);
+  ASSERT_TRUE(ui::BindOhosNativeSurface(kMainWidget).has_value());
+  EXPECT_FALSE(ui::BindOhosNativeSurface(kPwaWidget).has_value());
+  ui::RegisterOhosLogicalWindow(kPwaWidget, gfx::Rect(0, 0, 800, 600));
+  ui::RegisterOhosNativeSurface(kPwaComponent, pwa_window,
+                                gfx::Rect(100, 100, 800, 600), 2.0f);
+  ui::SetOhosApplicationWindowId(101);
+  ui::SetOhosApplicationWindowIdForNativeSurface(kMainComponent, 101);
+  ui::SetOhosApplicationWindowIdForNativeSurface(kPwaComponent, 202);
+
+  EXPECT_EQ(101, ui::GetOhosApplicationWindowIdForWidget(kMainWidget));
+  EXPECT_EQ(202, ui::GetOhosApplicationWindowIdForWidget(kPwaWidget));
+  EXPECT_EQ(101, ui::GetOhosApplicationWindowId());
+
+  ui::UnregisterOhosNativeSurface(kPwaComponent, pwa_window);
+  ui::UnregisterOhosNativeSurface(kMainComponent, main_window);
+  ui::UnregisterOhosLogicalWindow(kPwaWidget);
+  ui::UnbindOhosNativeSurface(kPwaWidget);
+  ui::UnbindOhosNativeSurface(kMainWidget);
 }
 
 TEST(NWebAuraShellTest, SeparateWindowsOpenAsForegroundTabs) {

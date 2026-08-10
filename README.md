@@ -15,8 +15,22 @@ endorsed by Google, Chromium, Huawei, or the OpenHarmony project.
 - Product: `plan_kirin_pc`
 - V8: JITless, WebAssembly interpreter enabled
 - UI: Aura/Views on large screens; ArkUI mobile shell on phones
+- Media: AAC/H.264 build flags enabled; Widevine CDM disabled
 - Public identity: Chromium HarmonyOS Adapter (`com.caidingding233.chromium`).
   Product brands and AppGallery signing remain in separate downstream trees.
+
+## HarmonyOS Integration
+
+- Phone and folded-phone windows use a mobile user agent and an ArkUI browser
+  bar; tablets, PCs, TVs, cars, and expanded foldables retain desktop content
+  behavior with the configured large-screen Chromium UI family.
+- PWA launches use a separate, non-exported `PWASmallAppExperience` UIAbility
+  with an immersive capsule and the native Chromium PWA menu model.
+- The ArkUI bridge exposes HarmonyOS share, cast, print, file selection, default
+  browser selection, AppGallery update, Huawei account, and Wallet entry points.
+- The Ozone input path separates mouse and touch state, resets stale capture on
+  lifecycle changes, and forwards IME focus through the HarmonyOS input method.
+- CDP and the local browser-content MCP bridge are loopback-only by default.
 
 ## Repository Layout
 

@@ -21,6 +21,8 @@ PACKAGE_HAP=0
 SKIP_NINJA="${CHROMIUM_SKIP_NINJA:-0}"
 EXTRA_GN_ARGS=""
 HVIGOR_PROJECT_RESULT=""
+HAP_PRODUCT="${CHROMIUM_HAP_PRODUCT:-default}"
+HAP_BUILD_MODE="${CHROMIUM_HAP_BUILD_MODE:-release}"
 REQUIRED_RUNTIME_PAKS=(
   chrome_100_percent.pak
   chrome_200_percent.pak
@@ -37,7 +39,7 @@ Every device maps to the single plan_kirin_pc / kirin_pc arm64 target.
 Options:
   -j N        Number of Ninja jobs (default: 8)
   -t b|n|w   Build and stage the native Chromium runtime
-  -t p       Build, stage, sign, and validate Chromium.Hap
+  -t p       Build, stage, sign, and validate Chromium.Hap with devecocli
   -G ARGS     Append GN arguments
   -A          Accepted for compatibility; still builds plan_kirin_pc
   -h          Show this help
@@ -104,10 +106,13 @@ target_cpu="arm64"
 is_debug=false
 is_official_build=true
 is_component_build=false
+proprietary_codecs=true
+ffmpeg_branding="Chrome"
 optimize_for_size=true
 symbol_level=0
 blink_symbol_level=0
 v8_symbol_level=0
+use_icf=false
 use_musl=true
 use_ohos_sdk_sysroot=true
 product_name="kirin_pc"
@@ -115,12 +120,16 @@ enable_arkweb=false
 enable_library_cdms=false
 enable_lens_desktop=false
 enable_lens_desktop_google_branded_features=false
+enable_glic_internal_resources=false
+safe_browsing_mode=0
+safe_browsing_use_unrar=false
 enable_pdf=true
 enable_pdf_ink2=false
+enable_pdf_save_to_drive=false
 enable_basic_print_dialog=false
-enable_screen_ai_service=true
+enable_screen_ai_service=false
 enable_widevine=false
-enterprise_cloud_content_analysis=true
+enterprise_cloud_content_analysis=false
 enterprise_client_certificates=true
 enterprise_local_content_analysis=false
 use_aura=true
@@ -144,7 +153,7 @@ v8_control_flow_integrity=true
 v8_enable_builtins_optimization=false
 pdf_enable_v8=false
 build_with_tflite_lib=true
-use_fake_screen_ai=true
+use_fake_screen_ai=false
 dawn_use_swiftshader=false
 enable_swiftshader=false
 angle_libs_suffix="_angle"
@@ -185,7 +194,7 @@ require_min_size() {
 }
 
 require_aarch64() {
-  readelf -h "$1" | grep -q 'Machine:.*AArch64' ||
+  readelf -h "$1" | grep 'Machine:.*AArch64' >/dev/null ||
     die "$1 is not an AArch64 ELF artifact"
 }
 
@@ -224,7 +233,7 @@ validate_native_runtime() {
   done
 
   require_min_size "${out_dir}/libweb_engine.so" 5242880
-  require_min_size "${out_dir}/libnweb_render.so" 1048576
+  require_min_size "${out_dir}/libnweb_render.so" 16384
   require_min_size "${out_dir}/libEGL_angle.so" 131072
   require_min_size "${out_dir}/libGLESv2_angle.so" 1048576
 
@@ -233,10 +242,21 @@ validate_native_runtime() {
   require_aarch64 "${out_dir}/libEGL_angle.so"
   require_aarch64 "${out_dir}/libGLESv2_angle.so"
   reject_stub_symbols "${out_dir}/libweb_engine.so"
+  reject_stub_symbols "${out_dir}/libnweb_render.so"
 
   nm -D "${out_dir}/libweb_engine.so" |
     grep 'RegisterWebEngineModule' >/dev/null ||
     die "libweb_engine.so does not export RegisterWebEngineModule"
+  nm -D "${out_dir}/libweb_engine.so" |
+    grep 'ChromiumHarmonyOSNativeChildMain' >/dev/null ||
+    die "libweb_engine.so does not export the Chromium child runtime"
+  nm -D "${out_dir}/libnweb_render.so" |
+    grep 'ChromiumNativeChildMain' >/dev/null ||
+    die "libnweb_render.so does not export ChromiumNativeChildMain"
+  nm -D "${out_dir}/libnweb_render.so" | grep 'NWebRenderMain' >/dev/null ||
+    die "libnweb_render.so does not export NWebRenderMain"
+  strings "${out_dir}/libnweb_render.so" | grep 'libweb_engine.so' >/dev/null ||
+    die "libnweb_render.so is not linked to the Chromium runtime bootstrap"
 }
 
 clear_directory() {
@@ -293,28 +313,25 @@ find_signed_hap() {
   printf '%s\n' "$hap"
 }
 
-run_hvigor() {
+run_devecocli() {
   local project_dir="$HAP_PROJECT"
 
-  if [[ -x "${HAP_PROJECT}/hvigorw" ]]; then
-    (cd "$HAP_PROJECT" && ./hvigorw clean --no-daemon &&
-      ./hvigorw assembleHap --mode module --no-daemon)
+  if command -v devecocli >/dev/null 2>&1 &&
+    command -v node >/dev/null 2>&1; then
+    (cd "$HAP_PROJECT" && devecocli build --product "$HAP_PRODUCT" \
+      --build-mode "$HAP_BUILD_MODE")
     HVIGOR_PROJECT_RESULT="$project_dir"
     return
   fi
 
   command -v wslpath >/dev/null 2>&1 ||
-    die "no local hvigorw and WSL path conversion is unavailable"
+    die "devecocli is unavailable and WSL path conversion is unavailable"
   command -v rsync >/dev/null 2>&1 || die "rsync is required for HAP staging"
+  command -v powershell.exe >/dev/null 2>&1 ||
+    die "devecocli is unavailable from WSL and Windows PowerShell was not found"
 
-  local deveco_home="${DEVECO_STUDIO_HOME:-/mnt/c/Program Files/Huawei/DevEco Studio}"
-  local node_exe="${deveco_home}/tools/node/node.exe"
-  local hvigor_js="${deveco_home}/tools/hvigor/bin/hvigorw.js"
-  local hvigor_js_win
   local stage_dir="${CHROMIUM_HAP_STAGING_DIR:-}"
-
-  [[ -x "$node_exe" ]] || die "DevEco Node.js not found: $node_exe"
-  [[ -f "$hvigor_js" ]] || die "DevEco Hvigor not found: $hvigor_js"
+  local stage_dir_win
 
   if [[ -z "$stage_dir" ]]; then
     if [[ -d /mnt/e ]]; then
@@ -325,11 +342,16 @@ run_hvigor() {
   fi
 
   mkdir -p "$stage_dir"
+  stage_dir=$(readlink -f "$stage_dir")
+  [[ "$stage_dir" != "/" && "$stage_dir" != "$HAP_PROJECT" ]] ||
+    die "refusing to use unsafe HAP staging directory: $stage_dir"
+  rm -rf "${stage_dir}/.hvigor" "${stage_dir}/entry/.cxx" \
+    "${stage_dir}/entry/build"
   rsync -a --delete --exclude '.hvigor/' --exclude 'entry/.cxx/' \
     --exclude 'entry/build/' "${HAP_PROJECT}/" "${stage_dir}/"
-  hvigor_js_win=$(wslpath -w "$hvigor_js")
-  (cd "$stage_dir" && "$node_exe" "$hvigor_js_win" clean --no-daemon &&
-    "$node_exe" "$hvigor_js_win" assembleHap --mode module --no-daemon)
+  stage_dir_win=$(wslpath -w "$stage_dir")
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+    "Set-Location -LiteralPath '${stage_dir_win}'; & devecocli.ps1 build --product '${HAP_PRODUCT}' --build-mode '${HAP_BUILD_MODE}'; exit \$LASTEXITCODE"
   HVIGOR_PROJECT_RESULT="$stage_dir"
 }
 
@@ -385,15 +407,28 @@ validate_hap() {
 
   unpack_dir=$(mktemp -d)
   unzip -q "$hap" 'libs/arm64-v8a/libweb_engine.so' \
+    'libs/arm64-v8a/libnweb_render.so' \
     'libs/arm64-v8a/libEGL_angle.so' \
     'libs/arm64-v8a/libGLESv2_angle.so' -d "$unpack_dir"
   require_min_size "${unpack_dir}/libs/arm64-v8a/libweb_engine.so" 5242880
+  require_min_size "${unpack_dir}/libs/arm64-v8a/libnweb_render.so" 16384
   require_min_size "${unpack_dir}/libs/arm64-v8a/libEGL_angle.so" 131072
   require_min_size "${unpack_dir}/libs/arm64-v8a/libGLESv2_angle.so" 1048576
   require_aarch64 "${unpack_dir}/libs/arm64-v8a/libweb_engine.so"
+  require_aarch64 "${unpack_dir}/libs/arm64-v8a/libnweb_render.so"
   require_aarch64 "${unpack_dir}/libs/arm64-v8a/libEGL_angle.so"
   require_aarch64 "${unpack_dir}/libs/arm64-v8a/libGLESv2_angle.so"
   reject_stub_symbols "${unpack_dir}/libs/arm64-v8a/libweb_engine.so"
+  reject_stub_symbols "${unpack_dir}/libs/arm64-v8a/libnweb_render.so"
+  nm -D "${unpack_dir}/libs/arm64-v8a/libweb_engine.so" |
+    grep 'ChromiumHarmonyOSNativeChildMain' >/dev/null ||
+    die "HAP libweb_engine.so is missing the Chromium child runtime"
+  nm -D "${unpack_dir}/libs/arm64-v8a/libnweb_render.so" |
+    grep 'ChromiumNativeChildMain' >/dev/null ||
+    die "HAP libnweb_render.so is missing the native child entry"
+  nm -D "${unpack_dir}/libs/arm64-v8a/libnweb_render.so" |
+    grep 'NWebRenderMain' >/dev/null ||
+    die "HAP libnweb_render.so is missing the legacy child entry"
   rm -rf "$unpack_dir"
 }
 
@@ -402,7 +437,8 @@ package_hap() {
   local built_hap
   local output_hap="${OUT_DIR}/Chromium.Hap"
 
-  run_hvigor
+  rm -f "$output_hap"
+  run_devecocli
   hvigor_project="$HVIGOR_PROJECT_RESULT"
   built_hap=$(find_signed_hap "$hvigor_project")
   cp -a "$built_hap" "$output_hap"

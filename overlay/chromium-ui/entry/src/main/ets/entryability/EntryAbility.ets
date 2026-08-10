@@ -3,6 +3,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { http } from '@kit.NetworkKit';
 import display from '@ohos.display';
+import defaultAppManager from '@ohos.bundle.defaultAppManager';
+import bundleManager from '@ohos.bundle.bundleManager';
 import { CHROMIUM_HOME_URL, DeviceRouting, DeviceRoutingPolicy, WindowPolicy, WindowStateSnapshot } from '../utils/DeviceType';
 import { UIManager } from '../utils/UIManager';
 import {
@@ -25,12 +27,22 @@ const AURA_ONBOARDING_COMPLETE_KEY = 'auraOnboardingComplete';
 const AURA_PROFILE_ID_KEY = 'auraProfileId';
 const AURA_PROFILE_KIND_KEY = 'auraProfileKind';
 const AURA_SYNC_MODE_KEY = 'auraSyncMode';
+const AURA_BROWSER_COMMAND_TEXT_KEY = 'auraBrowserCommandText';
+const AURA_BROWSER_COMMAND_REVISION_KEY = 'auraBrowserCommandRevision';
+const HUAWEI_WALLET_APP_LINK = 'wallet://com.huawei.wallet/';
 const CDP_PAGE_LIST_URL = 'http://127.0.0.1:9222/json/list';
 
 interface CdpPageTarget {
   type?: string;
   url?: string;
   title?: string;
+}
+
+interface BrowserSystemStateCommand {
+  command: string;
+  huaweiWalletAvailable: boolean;
+  known: boolean;
+  isDefault?: boolean;
 }
 
 export default class EntryAbility extends UIAbility {
@@ -69,6 +81,8 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate(AURA_PROFILE_KIND_KEY, 'local');
     AppStorage.setOrCreate(AURA_SYNC_MODE_KEY, 'off');
     AppStorage.setOrCreate('auraPwaWindowActive', false);
+    AppStorage.setOrCreate(AURA_BROWSER_COMMAND_TEXT_KEY, '');
+    AppStorage.setOrCreate(AURA_BROWSER_COMMAND_REVISION_KEY, 0);
     hilog.info(DOMAIN, 'AuraShell', 'Initial theme font configuration: %{public}s', initialThemeFontId);
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -85,6 +99,7 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     AppStorage.setOrCreate(AURA_APP_VISIBLE_KEY, true);
+    this.refreshSystemState();
   }
 
   onBackground(): void {
@@ -323,6 +338,40 @@ export default class EntryAbility extends UIAbility {
           JSON.stringify(error));
         AppStorage.setOrCreate(AURA_ONBOARDING_READY_KEY, true);
       });
+  }
+
+  private refreshSystemState(): void {
+    let huaweiWalletAvailable = false;
+    try {
+      huaweiWalletAvailable = bundleManager.canOpenLink(HUAWEI_WALLET_APP_LINK);
+    } catch (error) {
+      hilog.info(DOMAIN, 'AuraShell', 'Huawei Wallet link is unavailable: %{public}s',
+        JSON.stringify(error));
+    }
+    defaultAppManager.isDefaultApplication(defaultAppManager.ApplicationType.BROWSER)
+      .then((isDefault: boolean): void => {
+        this.dispatchBrowserCommand({
+          command: 'systemCapabilities',
+          huaweiWalletAvailable,
+          known: true,
+          isDefault
+        });
+      })
+      .catch((error: Error): void => {
+        hilog.warn(DOMAIN, 'AuraShell', 'Default browser state is unavailable: %{public}s',
+          JSON.stringify(error));
+        this.dispatchBrowserCommand({
+          command: 'systemCapabilities',
+          huaweiWalletAvailable,
+          known: false
+        });
+      });
+  }
+
+  private dispatchBrowserCommand(command: BrowserSystemStateCommand): void {
+    AppStorage.setOrCreate(AURA_BROWSER_COMMAND_TEXT_KEY, JSON.stringify(command));
+    const revision = Number(AppStorage.get(AURA_BROWSER_COMMAND_REVISION_KEY) ?? 0);
+    AppStorage.setOrCreate(AURA_BROWSER_COMMAND_REVISION_KEY, revision + 1);
   }
 
   private captureWindowState(win: window.Window): WindowStateSnapshot {

@@ -42,7 +42,8 @@ bool ForwardChromiumChildLogToHilog(int severity,
   } else if (severity < logging::LOGGING_INFO) {
     level = LOG_DEBUG;
   }
-  OH_LOG_PrintMsg(LOG_APP, level, 0xc233, "ChromiumChild", message.c_str());
+  OH_LOG_Print(LOG_APP, level, 0xc233, "ChromiumChild", "%{public}s",
+               message.c_str());
   return false;
 }
 
@@ -129,7 +130,7 @@ bool ConfigureRuntimePaths(
 
 }  // namespace
 
-extern "C" __attribute__((visibility("default"))) void NWebRenderMain(
+extern "C" __attribute__((visibility("default"))) void ChromiumNWebRenderMain(
     const char* args) {
   WVLOG_I("AuraShell NWebRenderMain start");
 
@@ -148,8 +149,8 @@ extern "C" __attribute__((visibility("default"))) void NWebRenderMain(
   (void)exit_code;
 }
 
-extern "C" __attribute__((visibility("default"))) void ChromiumNativeChildMain(
-    NativeChildProcess_Args args) {
+extern "C" __attribute__((visibility("default"))) void
+ChromiumHarmonyOSNativeChildMain(NativeChildProcess_Args args) {
   logging::SetLogMessageHandler(&ForwardChromiumChildLogToHilog);
   LOG(WARNING) << "AuraShell native child start pid=" << getpid();
   base::internal::OhosNativeChildParams launch_params;

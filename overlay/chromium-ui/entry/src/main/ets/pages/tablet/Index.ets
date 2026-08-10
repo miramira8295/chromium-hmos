@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 import { WebWindow } from '../../components/webwindow/WebWindow';
+import { CHROMIUM_HOME_URL } from '../../utils/DeviceType';
 
 import { KeyCode } from '@kit.InputKit';
 
@@ -22,7 +23,7 @@ import { KeyCode } from '@kit.InputKit';
 @Entry
 @ComponentV2
 struct TabletIndex {
-  @Local url: string = 'chrome://newtab/';
+  @Local url: string = CHROMIUM_HOME_URL;
   @Local pageTitle: string = '';
   @Local isLoading: boolean = false;
   @Local focusedIndex: number = 0;  // 遥控器焦点索引
@@ -95,4 +96,3 @@ struct TabletIndex {
     console.log('Remote key pressed:', key);
   }
 }
-
