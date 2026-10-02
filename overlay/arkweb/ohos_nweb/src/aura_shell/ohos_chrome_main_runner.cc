@@ -239,6 +239,12 @@ bool OhosChromeMainRunner::EnsureStarted(const AuraStartupConfig& config) {
 
   startup_config_ = config;
   ApplySystemTimeZone();
+  // ANGLE reaches the system EGL and GLES through the HarmonyOS wrapper's
+  // exports here too, as in a GPU process of its own: an EGLImage of a
+  // native buffer can only be made by the wrapper, against a display the
+  // wrapper gave out, and the display ANGLE got through eglGetProcAddress
+  // was the driver's. See ohos-angle.patch.
+  setenv("OHOS_ANGLE_WRAPPER_EXPORTS", "1", /*overwrite=*/0);
   arguments_ = BuildArgumentsLocked(config);
   started_ = true;
   if (!config.headless) {
@@ -389,7 +395,7 @@ std::vector<std::string> OhosChromeMainRunner::BuildArgumentsLocked(
     arguments.push_back("--use-gl=angle");
     // ANGLE on HarmonyOS's own EGL and GLES unless the shell asks for
     // Vulkan, which presents through VK_OHOS_surface
-    // (ohos-angle-vulkan-backend.patch) and is here to be measured against
+    // (ohos-angle.patch) and is here to be measured against
     // GLES before it could be anyone's default.
     if (config.angle_backend == "vulkan") {
       arguments.push_back("--use-angle=vulkan");

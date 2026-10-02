@@ -3,17 +3,18 @@
 #include <memory>
 
 #include "base/files/file_path.h"
+#include "base/logging.h"
 #include "ui/base/cursor/cursor_factory.h"
 #include "ui/display/types/native_display_delegate.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/ozone/common/bitmap_cursor_factory.h"
-#include "ui/ozone/common/stub_client_native_pixmap_factory.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/ohos/ohos_clipboard.h"
 #include "ui/ozone/platform/ohos/ohos_event_source.h"
 #include "ui/ozone/platform/ohos/ohos_gpu_child_channel.h"
 #include "ui/ozone/platform/ohos/ohos_input_method.h"
+#include "ui/ozone/platform/ohos/ohos_native_pixmap.h"
 #include "ui/ozone/platform/ohos/ohos_platform_window.h"
 #include "ui/ozone/platform/ohos/ohos_screen.h"
 #include "ui/ozone/platform/ohos/ohos_surface_factory.h"
@@ -67,6 +68,22 @@ class OzonePlatformOhos : public OzonePlatform {
         delegate, properties.bounds, expects_native_surface, anchored);
   }
   bool IsWindowCompositingSupported() const override { return true; }
+
+  const PlatformRuntimeProperties& GetPlatformRuntimeProperties() override {
+    static PlatformRuntimeProperties properties;
+    properties.supports_native_pixmaps = true;
+    return properties;
+  }
+
+  // Video frames the renderer writes and the GPU samples: ohos_native_pixmap.h.
+  bool IsNativePixmapConfigSupported(viz::SharedImageFormat format,
+                                     gfx::BufferUsage usage) const override {
+    // Video frames only: renderers write them. RGBA and BGRA buffers are
+    // WebGPU's, allocated in the GPU process.
+    return format.is_multi_plane() && IsOhosNativePixmapFormat(format) &&
+           (usage == gfx::BufferUsage::GPU_READ_CPU_READ_WRITE ||
+            usage == gfx::BufferUsage::SCANOUT_CPU_READ_WRITE);
+  }
   PlatformClipboard* GetPlatformClipboard() override {
     if (!clipboard_) {
       clipboard_ = std::make_unique<OhosClipboard>();
@@ -138,7 +155,7 @@ OzonePlatform* CreateOzonePlatformOhos() {
 }
 
 gfx::ClientNativePixmapFactory* CreateClientNativePixmapFactoryOhos() {
-  return CreateStubClientNativePixmapFactory();
+  return CreateOhosClientNativePixmapFactory().release();
 }
 
 }  // namespace ui
