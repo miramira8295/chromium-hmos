@@ -301,13 +301,6 @@ class OhosNativeViewGLSurfaceEGL final : public gl::NativeViewGLSurfaceEGL {
   // no surface has to be recreated. Back to sRGB once PQ output stops; a
   // window that never drew PQ is left as the system made it.
   void TagNativeWindowColorSpace() {
-    // EXPERIMENT (hmos-154-dev only): leave the window untagged, so the
-    // system composites it as SDR, to see whether HDR composition is what
-    // makes 1080p60 HDR video drop frames. The page shows grey with HDR
-    // video playing.
-    if (window_) {
-      return;
-    }
     auto* native_window = reinterpret_cast<OHNativeWindow*>(window_);
     if (!native_window || pq_output_ == tagged_pq_) {
       return;
