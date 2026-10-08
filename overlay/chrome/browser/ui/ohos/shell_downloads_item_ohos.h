@@ -26,8 +26,13 @@ bool IsUserVisibleDownload(const download::DownloadItem& item);
 // dangerous file, or one fetched insecurely.
 bool IsAwaitingUserVerdict(const download::DownloadItem& item);
 
+// Whether a finished download's file has been deleted or moved outside the
+// browser since it completed.
+bool IsFileMissing(const download::DownloadItem& item);
+
 // What makes an update worth sending at once rather than on the progress
-// clock: a new state, the file name being decided, or a new danger verdict.
+// clock: a new state, the file name being decided, a new danger verdict, or
+// the file found missing.
 std::string DownloadChangeSignature(const download::DownloadItem& item);
 
 // The item as the shell's downloadUpdated / downloadList entries carry it.

@@ -79,6 +79,10 @@ export interface DownloadItem {
   // Chromium's DownloadInterruptReason name; empty when there is none.
   failReason: string;
   canResume: boolean;
+  // A finished download whose file has been deleted or moved outside the
+  // browser; retry downloads it again. Checked each time the list is fetched.
+  // Absent from engines before it was added: treat as false.
+  fileMissing?: boolean;
   // Chromium flagged the file as dangerous or insecure. It waits, as
   // 'inProgress', until the user picks keepDangerous or discardDangerous.
   dangerous: boolean;

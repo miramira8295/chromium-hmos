@@ -72,9 +72,16 @@ bool IsAwaitingUserVerdict(const DownloadItem& item) {
   return item.IsDangerous() || item.IsInsecure();
 }
 
+// A finished download whose file is gone, deleted or moved outside the
+// browser. Chromium only notices on a check (CheckForHistoryFilesRemoval).
+bool IsFileMissing(const DownloadItem& item) {
+  return item.GetState() == DownloadItem::COMPLETE &&
+         item.GetFileExternallyRemoved();
+}
+
 std::string DownloadChangeSignature(const DownloadItem& item) {
   return std::string(StateName(item)) + '\n' + DangerTypeName(item) + '\n' +
-         PathOf(item).value();
+         PathOf(item).value() + '\n' + (IsFileMissing(item) ? '1' : '0');
 }
 
 base::DictValue ToShellDownloadItem(const DownloadItem& item, bool removed) {
@@ -93,6 +100,7 @@ base::DictValue ToShellDownloadItem(const DownloadItem& item, bool removed) {
   result.Set("state", StateName(item));
   result.Set("failReason", FailReason(item));
   result.Set("canResume", item.CanResume());
+  result.Set("fileMissing", IsFileMissing(item));
   result.Set("dangerous", IsAwaitingUserVerdict(item));
   result.Set("dangerType", DangerTypeName(item));
   result.Set("startTime", ToShellTime(item.GetStartTime()));

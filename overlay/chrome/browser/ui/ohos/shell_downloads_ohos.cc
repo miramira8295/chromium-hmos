@@ -394,6 +394,11 @@ bool FailedOnTheDestination(const DownloadItem& item) {
 }
 
 void RetryDownload(DownloadsWatcher& watcher, DownloadItem& item) {
+  // A finished download whose file was deleted: fetch it again.
+  if (IsFileMissing(item)) {
+    Redownload(*watcher.manager(), item);
+    return;
+  }
   if (item.CanResume() && !FailedOnTheDestination(item)) {
     item.Resume(/*user_resume=*/true);
     return;
@@ -467,6 +472,10 @@ void ListDownloads(const ShellCommandContext& context,
   DownloadsWatcher* watcher = Watchers().Get(context.profile);
   content::DownloadManager::DownloadVector all;
   if (watcher && watcher->manager()) {
+    // As chrome://downloads does each time it is shown: finished downloads
+    // whose file has since been deleted are found off the UI thread and come
+    // back to the shell as updates with fileMissing set.
+    watcher->manager()->CheckForHistoryFilesRemoval();
     watcher->manager()->GetAllDownloads(&all);
   }
   std::vector<const DownloadItem*> shown;
