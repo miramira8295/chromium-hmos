@@ -2,14 +2,15 @@
 
 ## 状态
 
-2026-10-08：外壳在 Pad 模拟器 HarmonyOS 7.0.0.107 / API 26 上复测
-`5d016bcc`：原生密码页成功导入 3 条 CSV；隔离 renderer 已通过资源启动，加载
-WebUI 模板与系统字体，保持独立 UID，但创建共享内存时仍访问应用 el2 cache，
-因目录不存在而 SIGTRAP。`365333c0` 的设备复测确认退出回调和 pidfd 可用，
-浏览器能识别 signal 5 并显示崩溃页；memfd 创建成功，但 `fchmod(0600)` 返回
-EACCES，普通进程也遇到同样错误并频繁回退到文件后端。本轮改为在只读转换时
-添加写入封印，不再修改 memfd 权限。新方案仍需外壳复测；密码导入本轮未复测。
-**P0 未解决，默认仍关闭试验开关。**
+2026-10-08：外壳在 Pad 模拟器 HarmonyOS 7.0.0.107 / API 26 上验证
+`83cd4f72`，开启 `ohos-isolate-renderers` 后基础运行通过：renderer 使用独立 UID
+并持续运行，原生密码页、本地 HTTP、HTTPS 页面及脚本正常；隔离开启时原生页
+成功导入 3 条密码。退出回调注册成功，观察到一次请求触发的快速正常回收，随后
+20 秒内没有 SIGTRAP 或 channel error。关闭隔离时，共享内存错误日志也已限频。
+
+**Pad 模拟器基础功能通过；P0 整体验收未完成，试验开关默认仍关闭。**
+真机 Pad、2in1、原生层文件/网络权限边界、只读共享内存攻击测试、跨 UID 强制
+终止与完整功能回归仍待验证；手机的进程隔离方案也尚未解决。
 
 当前代码中有三种不同的边界，不能混为一谈：
 
@@ -119,12 +120,19 @@ Linux/ChromeOS 启用。`ohos-memfd-shared-memory.patch` 为 OHOS 启用该实�
 
 匿名性、大小封印与 `O_RDONLY` 本身不足以防止通过 procfs 恢复写入权限，不能
 只删除 `fchmod` 而不补上上述约束。此实现依赖目标内核允许 `F_SEAL_FUTURE_WRITE`
-及 procfs 只读重开；这些操作在目标 SELinux 域中仍需验证。
+及 procfs 只读重开。`83cd4f72` 的 Pad 模拟器基础运行已通过，但反馈未包含
+`readonly sealing active`，不能据此确认只读封印路径及攻击测试在目标域中通过。
 
 每进程首次成功分别记录 `OHOS shared memory memfd active (conversion write seals)`
 和 `OHOS shared memory readonly sealing active`。失败的阶段与 errno 只记录一次，
 避免普通进程的文件回退刷屏；例如 `size sealing failed`、`readonly reopen failed`
 或 `readonly sealing failed`。
+
+`83cd4f72` 反馈中，浏览器先出现 `readonly reopen failed: EACCES`，后又出现
+`memfd active`。源码中前者会使当前 Writable 分配退出 memfd 路径；普通进程随后
+尝试旧文件后端，隔离 renderer 则返回失败。后续 `memfd active` 只说明另一笔分配
+成功使用 memfd，可能是无需重开的 Unsafe 内存，不表示先前失败的分配靠写入封印
+恢复成功，也不能证明所有共享内存均走 memfd。本轮没有观察到这一错误阻塞网页。
 
 Chromium 单元测试覆盖不存在 TMPDIR 的隔离 renderer、只读 FD 重开攻击、已有
 可写映射继续生效、Unsafe 后续映射以及只读封印失败不改变句柄状态；默认 HAR 构建
@@ -193,9 +201,11 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
 成功导入并在列表可见；普通 UID 的原生导入通路已通过本次设备验证。不能从这次
 结果单独确定上一版阻塞的具体原因；30 秒超时/断连恢复的新增单元测试尚未执行。
 
-下一轮重点复测隔离模式的 HTTPS、内置页和 renderer 退出/恢复，日志过滤
-`OHOS shared memory`、`OHOS native child tracking`、`OHOS native child pidfd`，
-并保留 `OHOS child bootstrap` / `OHOS child startup`。
+下一轮在真机 Pad 和 2in1 重复基础场景，并按上方清单执行原生层权限边界、
+只读内存和跨 UID 强制终止/恢复测试，随后覆盖跨站 iframe、图形媒体与前后台切换。
+日志过滤 `OHOS shared memory`、`OHOS native child tracking`、
+`OHOS native child pidfd`，并保留 `OHOS child bootstrap` / `OHOS child startup`。
+不要将此次 20 秒观察窗口或一次正常回收等同于长期稳定性、强制终止或崩溃恢复验收。
 
 验证记录：
 
@@ -252,3 +262,18 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
   Chromium 新增单元测试未执行，HarmonyOS 设备复测仍交给外壳；本机未操作设备，
   没有生成签名 HAP。重点验证隔离/普通模式的 HTTPS、内置页、崩溃恢复和密码导入，
   同时保留 `OHOS shared memory` 的创建、只读封印及失败阶段日志。
+
+- `83cd4f72` 外壳复测（仅 Pad 模拟器 / HarmonyOS 7.0.0.107 / API 26）：
+  - 开启隔离：renderer 使用 UID 20110019、20110020、20110022、20110023 等独立
+    UID；浏览器与 network/storage utility 保持应用 UID 20020065。
+  - 原生密码页、本地 HTTP 测试页、HTTPS example.com 均显示正常，页面脚本运行。
+    原生页密码导入提示“已将 3 个密码导入”。
+  - 退出回调注册成功。一次 renderer 退出带 `shutdown_requested=1 fast_shutdown=1`；
+    后续 20 秒没有 signo(5) 或 channel error，记录为正常回收的观察结果。
+  - 浏览器出现一次 `readonly reopen failed: Permission denied (13)`，浏览器与
+    renderer 均出现 `memfd active (conversion write seals)`。本次反馈未提供
+    `readonly sealing active`；不能将 memfd 分配成功等同于只读封印安全验收。
+  - 关闭隔离：`memfd active` 共 4 条、`readonly reopen failed` 共 2 条，各进程
+    错误只记录一次，相较旧版 25 秒 153 条错误已明显减少。
+  - 真机 Pad、2in1 和原生层对抗性边界测试未覆盖。本轮只更新验证记录，继续使用
+    `build-83cd4f72` 作为复测包。
