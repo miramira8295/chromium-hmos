@@ -26,8 +26,9 @@
 
 `OhosZeroCopyVideo` 实验路径通过 ConsumerSurface／NativeBuffer 直接生成 SharedImage，
 避开逐帧 CPU 输出拷贝。8 位首版 `build-0e19c42c` 和 HEVC Main10／P010 版本 `build-47c09559` 均已通过 CI；
-传递 PQ／HLG、色彩范围和 Chromium 已知 HDR 元数据。默认关闭；
-构建记录与外壳播放、seek、EOS、取帧和资源释放验收见下文链接，尚无真机性能结论，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
+传递 PQ／HLG、色彩范围和 Chromium 已知 HDR 元数据。首版 H.264 已通过 Mate 70 Pro+ 外壳验收。
+本轮补齐 VP9／AV1 动态硬解选择、HEVC 网页能力所需构建开关、旧 Surface 退役和测试服务器 Range 支持。
+零拷贝默认关闭；新增路径和修复待设备回归，尚无功耗／CPU 对照数据，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
 Safe Browsing 按维护者安排暂缓。
 
 ## WebOTP：明确不实施

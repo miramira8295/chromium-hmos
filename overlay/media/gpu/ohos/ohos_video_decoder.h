@@ -192,6 +192,7 @@ class MEDIA_GPU_EXPORT OhosVideoDecoder final : public VideoDecoder {
   size_t pending_conversions_ = 0;
   bool surface_eos_ = false;
   uint64_t surface_frame_count_ = 0;
+  bool buffer_frame_logged_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<OhosVideoDecoder> weak_factory_{this};

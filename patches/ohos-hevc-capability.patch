@@ -1,0 +1,31 @@
+Enable HEVC demuxing and parsing for the AVCodecKit decoder on OHOS.
+
+Keep support optional: Chromium obtains the supported HEVC profiles from the
+GPU decoder capability query rather than advertising HEVC on every device.
+No software HEVC decoder or DRM support is added.
+
+Generated against runner source snapshot 37748799880, pinned Chromium
+743f26418a267dd97c3c1c71d786038ae68cfc8f (154.0.8037.51).
+
+diff --git a/media/media_options.gni b/media/media_options.gni
+--- a/media/media_options.gni
++++ b/media/media_options.gni
+@@ -135,7 +135,8 @@
+   # Windows, Mac, and Android.
+   enable_hevc_parser_and_hw_decoder =
+       proprietary_codecs &&
+-      (use_fuzzing_engine || is_win || is_apple || is_android || is_linux)
++      (use_fuzzing_engine || is_win || is_apple || is_android || is_linux ||
++       is_ohos)
+ 
+   # Determines if a GpuChannel is needed between media capture utility process
+   # and gpu process for a given platform.
+@@ -179,7 +180,7 @@
+ declare_args() {
+   platform_has_optional_hevc_decode_support =
+       enable_platform_hevc &&
+-      (is_win || is_chromeos || is_linux || is_apple || is_android)
++      (is_win || is_chromeos || is_linux || is_apple || is_android || is_ohos)
+   platform_has_optional_hevc_encode_support =
+       enable_platform_hevc && (is_win || is_apple || is_android)
+ }

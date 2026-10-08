@@ -29,6 +29,9 @@ class OhosVideoSurface
 
   OHNativeWindow* window() const { return window_; }
   void StopListening();
+  // Call before destroying the producer. Its teardown clears the queue cache;
+  // outstanding frames must then drop their references without ReleaseBuffer.
+  void Retire();
 
   // The returned closure owns the acquired buffer and the surface. Run or
   // destroy it only after GPU reads have completed. It releases on our
@@ -57,6 +60,7 @@ class OhosVideoSurface
   // Borrowed from image_; NativeImage_Destroy releases it.
   RAW_PTR_EXCLUSION OHNativeWindow* window_ = nullptr;
   bool listening_ = false;
+  bool retired_ = false;
 };
 
 }  // namespace media

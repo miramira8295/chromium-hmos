@@ -14,5 +14,4 @@ command -v "$hdc" >/dev/null 2>&1 ||
   hdc=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
 "$hdc" rport tcp:8080 tcp:8080
 echo "Open http://localhost:8080/hardware-apis.html on the phone."
-cd "$here/docs/test-pages"
-exec python3 -m http.server 8080 --bind 127.0.0.1
+exec python3 "$here/scripts/serve-test-pages.py" --port 8080 --bind 127.0.0.1

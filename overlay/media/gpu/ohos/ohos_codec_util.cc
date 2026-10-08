@@ -4,6 +4,7 @@
 
 #include "media/gpu/ohos/ohos_codec_util.h"
 
+#include <dlfcn.h>
 #include <multimedia/player_framework/native_avcapability.h>
 #include <multimedia/player_framework/native_avcodec_base.h>
 #include <multimedia/player_framework/native_averrors.h>
@@ -27,6 +28,14 @@ namespace {
 // a working codec.
 constexpr std::array<VideoCodecProfile, 3> kFallbackH264Profiles = {
     H264PROFILE_BASELINE, H264PROFILE_MAIN, H264PROFILE_HIGH};
+
+// These data symbols were added in API 23. Resolve them at runtime instead of
+// introducing a load-time dependency that would break API 20-22 devices.
+const char* ResolveOptionalMime(const char* symbol_name) {
+  auto* symbol =
+      static_cast<const char* const*>(dlsym(RTLD_DEFAULT, symbol_name));
+  return symbol ? *symbol : nullptr;
+}
 
 OH_AVCapability* GetHardwareCapability(VideoCodec codec, bool is_encoder) {
   const char* mime = OhosMimeTypeForCodec(codec);
@@ -66,6 +75,21 @@ std::optional<VideoCodecProfile> OhosProfileToVideoCodecProfile(
       default:
         return std::nullopt;
     }
+  }
+  // Only 4:2:0 profiles are supported by our NV12/P010 output paths. Do not
+  // advertise 4:2:2/4:4:4 profiles just because the codec can decode them.
+  if (codec == VideoCodec::kVP9) {
+    switch (profile) {
+      case VP9_PROFILE_0:
+        return VP9PROFILE_PROFILE0;
+      case VP9_PROFILE_2:
+        return VP9PROFILE_PROFILE2;
+      default:
+        return std::nullopt;
+    }
+  }
+  if (codec == VideoCodec::kAV1 && profile == AV1_PROFILE_MAIN) {
+    return AV1PROFILE_PROFILE_MAIN;
   }
   return std::nullopt;
 }
@@ -123,9 +147,17 @@ const char* OhosMimeTypeForCodec(VideoCodec codec) {
       return OH_AVCODEC_MIMETYPE_VIDEO_AVC;
     case VideoCodec::kHEVC:
       return OH_AVCODEC_MIMETYPE_VIDEO_HEVC;
+    case VideoCodec::kVP9: {
+      static const char* const mime =
+          ResolveOptionalMime("OH_AVCODEC_MIMETYPE_VIDEO_VP9");
+      return mime;
+    }
+    case VideoCodec::kAV1: {
+      static const char* const mime =
+          ResolveOptionalMime("OH_AVCODEC_MIMETYPE_VIDEO_AV1");
+      return mime;
+    }
     default:
-      // VP8, VP9 and AV1 MIME types only exist from API 23, above the API 20
-      // floor this port supports; the renderer's software decoders cover them.
       return nullptr;
   }
 }
@@ -156,6 +188,12 @@ std::optional<int32_t> VideoCodecProfileToOhosProfile(
       return HEVC_PROFILE_MAIN;
     case HEVCPROFILE_MAIN10:
       return HEVC_PROFILE_MAIN_10;
+    case VP9PROFILE_PROFILE0:
+      return VP9_PROFILE_0;
+    case VP9PROFILE_PROFILE2:
+      return VP9_PROFILE_2;
+    case AV1PROFILE_PROFILE_MAIN:
+      return AV1_PROFILE_MAIN;
     default:
       return std::nullopt;
   }
@@ -163,17 +201,32 @@ std::optional<int32_t> VideoCodecProfileToOhosProfile(
 
 SupportedVideoDecoderConfigs GetOhosSupportedDecoderConfigs() {
   SupportedVideoDecoderConfigs configs;
-  for (VideoCodec codec : {VideoCodec::kH264, VideoCodec::kHEVC}) {
+  for (VideoCodec codec : {VideoCodec::kH264, VideoCodec::kHEVC,
+                           VideoCodec::kVP9, VideoCodec::kAV1}) {
+    const char* mime = OhosMimeTypeForCodec(codec);
+    if (!mime) {
+      LOG(WARNING) << "OHOS video capability: " << GetCodecName(codec)
+                   << " MIME unavailable; software fallback";
+      continue;
+    }
     OH_AVCapability* capability =
         GetHardwareCapability(codec, /*is_encoder=*/false);
     if (!capability) {
+      LOG(WARNING) << "OHOS video capability: " << mime
+                   << " no hardware decoder; software fallback if available";
       continue;
     }
     std::optional<SizeRange> sizes = GetSizeRange(capability);
     if (!sizes) {
+      LOG(WARNING) << "OHOS video capability: " << mime
+                   << " invalid size range; hardware decoder omitted";
       continue;
     }
-    for (VideoCodecProfile profile : GetProfiles(capability, codec)) {
+    const auto profiles = GetProfiles(capability, codec);
+    LOG(WARNING) << "OHOS video capability: " << mime
+                 << " hardware decoder, usable profiles=" << profiles.size()
+                 << " max=" << sizes->max.ToString();
+    for (VideoCodecProfile profile : profiles) {
       configs.emplace_back(profile, profile, sizes->min, sizes->max,
                            /*allow_encrypted=*/false,
                            /*require_encrypted=*/false);

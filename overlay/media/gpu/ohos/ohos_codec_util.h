@@ -35,7 +35,7 @@ MEDIA_GPU_EXPORT std::optional<std::string> GetOhosHardwareCodecName(
     VideoCodec codec,
     bool is_encoder);
 
-// Maps a Chromium profile to the AVCodecKit OH_AVCProfile/OH_HEVCProfile
+// Maps a supported Chromium profile to the AVCodecKit codec-specific profile
 // value, or nullopt when AVCodecKit has no equivalent.
 MEDIA_GPU_EXPORT std::optional<int32_t> VideoCodecProfileToOhosProfile(
     VideoCodecProfile profile);

@@ -79,10 +79,19 @@ void OhosVideoSurface::OnFrameAvailable(void* context) {
   static_cast<OhosVideoSurface*>(context)->frame_available_.Run();
 }
 
+void OhosVideoSurface::Retire() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  StopListening();
+  retired_ = true;
+}
+
 bool OhosVideoSurface::Acquire(OHNativeWindowBuffer** buffer,
                                base::ScopedFD* acquire_fence,
                                base::OnceClosure* release) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  if (retired_) {
+    return false;
+  }
   int fence = -1;
   *buffer = nullptr;
   const int result =
@@ -123,6 +132,15 @@ bool OhosVideoSurface::Acquire(OHNativeWindowBuffer** buffer,
 void OhosVideoSurface::ReleaseBuffer(BufferToRelease acquired) {
   OHNativeWindowBuffer* buffer = acquired.buffer;
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  if (retired_) {
+    // Codec teardown already removed the buffer from the queue's cache. The
+    // caller still waits for GPU reads before reaching here. Drop both the
+    // AcquireNativeWindowBuffer reference and our extra reference; ScopedFD
+    // closes the producer fence without transferring it to a dead queue.
+    OH_NativeWindow_NativeObjectUnreference(buffer);
+    OH_NativeWindow_NativeObjectUnreference(buffer);
+    return;
+  }
   // The caller waits the VideoFrame release token when the GPU used the frame.
   // The original producer fence also covers frames dropped before import.
   if (OH_NativeImage_ReleaseNativeWindowBuffer(
