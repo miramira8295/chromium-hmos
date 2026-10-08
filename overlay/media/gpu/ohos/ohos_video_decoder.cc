@@ -251,9 +251,10 @@ bool OhosVideoDecoder::NeedsBitstreamConversion() const {
 }
 
 bool OhosVideoDecoder::CanReadWithoutStalling() const {
-  // Surface frames hold codec buffers until the GPU finishes reading them.
-  return !surface_enabled_ ||
-         surface_frames_in_flight_ < kMaxSurfaceFramesInFlight;
+  // Surface mode uses a fixed native queue. Our in-flight limit is only an
+  // upper bound: codec DPB requirements and the producer's queue capacity may
+  // leave fewer free buffers. Do not promise a new frame during preroll.
+  return !surface_enabled_;
 }
 
 int OhosVideoDecoder::GetMaxDecodeRequests() const {

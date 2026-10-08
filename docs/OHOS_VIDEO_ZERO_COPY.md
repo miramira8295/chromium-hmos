@@ -42,6 +42,8 @@ GPU 能力检查或 Surface 初始化失败时，在**消耗压缩数据之前**
 - VideoFrame 设置 `read_lock_fences_enabled`；释放时等待 Chromium 的 GPU 完成 token，
   再在媒体序列归还 NativeWindowBuffer。提前丢弃的帧也携带原 producer fence 归还。
 - 每个解码 epoch 最多持有 4 个已取得的 Surface 帧，满额后暂停提交输出，释放后恢复。
+  对 Chromium 的 `CanReadWithoutStalling()` 保守返回 false：系统实际队列可能更小，
+  避免 preroll 为凑满帧而等待一个已经耗尽的固定缓冲池。
 - seek/reset 与 EOS 后重启使用新 codec 和新 ConsumerSurface；旧帧独立持有旧队列。
   EOS 等待已提交帧的转换和输出回调完成，但不会等待显示方释放最后一帧。
 - ConsumerSurface 和其借用的 NativeWindow 一起销毁；不单独销毁借用窗口。
