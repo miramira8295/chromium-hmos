@@ -1,5 +1,5 @@
 diff --git a/base/memory/platform_shared_memory_region_posix.cc b/base/memory/platform_shared_memory_region_posix.cc
-index c408700..baac7c8 100644
+index c408700..56620c2 100644
 --- a/base/memory/platform_shared_memory_region_posix.cc
 +++ b/base/memory/platform_shared_memory_region_posix.cc
 @@ -6,6 +6,7 @@
@@ -22,7 +22,7 @@ index c408700..baac7c8 100644
  namespace base::subtle {
  
  namespace {
-@@ -63,7 +69,7 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
+@@ -63,13 +69,70 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
    return std::nullopt;
  }
  
@@ -31,62 +31,127 @@ index c408700..baac7c8 100644
  
  // Added in Linux 6.3; not in all sysroot headers yet.
  #ifndef MFD_NOEXEC_SEAL
-@@ -106,12 +112,30 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+ #define MFD_NOEXEC_SEAL 0x0008U
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS) && !defined(F_SEAL_FUTURE_WRITE)
++#define F_SEAL_FUTURE_WRITE 0x0010
++#endif
++
++#if BUILDFLAG(IS_OHOS)
++// Isolated children cannot chmod memfds on some HarmonyOS images. Report the
++// first failed operation per process without flooding ordinary file fallback.
++void LogOhosSharedMemoryFailure(const char* operation) {
++  static std::atomic<bool> logged{false};
++  if (!logged.exchange(true, std::memory_order_relaxed)) {
++    PLOG(ERROR) << "OHOS shared memory " << operation << " failed";
++  }
++}
++
++// Writable memfds keep their seal set open until conversion. Once read-only,
++// even reopening the fd through procfs must not restore write access. Existing
++// writable mappings remain usable, as required by ReadOnlySharedMemoryRegion.
++bool FinalizeOhosSharedMemoryRegion(int fd, bool read_only) {
++  const int seals = fcntl(fd, F_GET_SEALS);
++  const int seals_errno = errno;
++  if ((seals < 0 && seals_errno == EINVAL) || seals == F_SEAL_SEAL) {
++    // The compatibility backend uses private unlinked files. Disk files do not
++    // support seals; ordinary tmpfs files start with only F_SEAL_SEAL. Neither
++    // case may silently accept a world-writable file instead of a sealed memfd.
++    struct stat info = {};
++    if (fstat(fd, &info) != 0) {
++      LogOhosSharedMemoryFailure("fallback permissions query");
++      return false;
++    }
++    if (info.st_mode & (S_IWGRP | S_IWOTH)) {
++      errno = EACCES;
++      LogOhosSharedMemoryFailure("fallback permissions validation");
++      return false;
++    }
++    return true;
++  }
++  if (seals < 0) {
++    errno = seals_errno;
++    LogOhosSharedMemoryFailure("seals query");
++    return false;
++  }
++  const int required = F_SEAL_SEAL | (read_only ? F_SEAL_FUTURE_WRITE : 0);
++  if ((seals & required) != required && fcntl(fd, F_ADD_SEALS, required) != 0) {
++    LogOhosSharedMemoryFailure(read_only ? "readonly sealing"
++                                         : "unsafe sealing");
++    return false;
++  }
++  if (read_only) {
++    static std::atomic<bool> logged{false};
++    if (!logged.exchange(true, std::memory_order_relaxed)) {
++      LOG(WARNING) << "OHOS shared memory readonly sealing active";
++    }
++  }
++  return true;
++}
++#endif
++
+ // Creates the region as an anonymous memfd instead of an unlinked file in
+ // /dev/shm. This needs two to three system calls instead of seven, no path
+ // lookup and no dentry, and no up-front fallocate(): memfd pages live on the
+@@ -106,12 +169,20 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
          syscall(__NR_memfd_create, kName, MFD_CLOEXEC | MFD_ALLOW_SEALING)));
    }
    if (!fd.is_valid()) {
 +#if BUILDFLAG(IS_OHOS)
-+    PLOG(ERROR) << "OHOS shared memory memfd_create failed";
++    LogOhosSharedMemoryFailure("memfd_create");
 +#else
      DPLOG_IF(ERROR, errno != ENOSYS) << "memfd_create";
 +#endif
      return {};
    }
  
-+#if BUILDFLAG(IS_OHOS)
-+  // memfd's default mode is world-readable/writable. Unlike Linux's seccomp
-+  // sandbox, an OHOS isolated child may access /proc/self/fd. Keep ownership
-+  // private so another UID cannot reopen a received readonly fd as writable.
-+  if (fchmod(fd.get(), S_IRUSR | S_IWUSR) != 0) {
-+    PLOG(ERROR) << "OHOS shared memory owner permissions failed";
-+    return {};
-+  }
-+#endif
-+
    if (HANDLE_EINTR(ftruncate(fd.get(), checked_cast<off_t>(size))) != 0) {
 +#if BUILDFLAG(IS_OHOS)
-+    PLOG(ERROR) << "OHOS shared memory ftruncate failed";
++    LogOhosSharedMemoryFailure("ftruncate");
 +#else
      DPLOG(ERROR) << "ftruncate";
 +#endif
      return {};
    }
  
-@@ -122,7 +146,11 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -120,9 +191,21 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+   // processes it is later shared with - can shrink the file and make other
+   // processes fault on access, or grow it. F_SEAL_SEAL keeps anyone from
    // adding write seals later, which would make future mappings fail.
-   if (fcntl(fd.get(), F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL) !=
-       0) {
+-  if (fcntl(fd.get(), F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL) !=
+-      0) {
++  int seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL;
 +#if BUILDFLAG(IS_OHOS)
-+    PLOG(ERROR) << "OHOS shared memory size sealing failed";
++  // Read-only conversion must still be able to add F_SEAL_FUTURE_WRITE.
++  // Unsafe regions are intentionally writable by every receiver and must
++  // prevent a receiver from denying future mappings by adding write seals.
++  if (mode == PlatformSharedMemoryRegion::Mode::kWritable) {
++    seals &= ~F_SEAL_SEAL;
++  }
++#endif
++  if (fcntl(fd.get(), F_ADD_SEALS, seals) != 0) {
++#if BUILDFLAG(IS_OHOS)
++    LogOhosSharedMemoryFailure("size sealing");
 +#else
      DPLOG(ERROR) << "fcntl(F_ADD_SEALS)";
 +#endif
      return {};
    }
  
-@@ -138,7 +166,11 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -138,7 +221,11 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
          StrCat({"/proc/self/fd/", NumberToString(fd.get())});
      readonly_fd.reset(HANDLE_EINTR(open(path.c_str(), O_RDONLY | O_CLOEXEC)));
      if (!readonly_fd.is_valid()) {
 +#if BUILDFLAG(IS_OHOS)
-+      PLOG(ERROR) << "OHOS shared memory readonly reopen failed";
++      LogOhosSharedMemoryFailure("readonly reopen");
 +#else
        DPLOG(ERROR) << "open(" << path << ", O_RDONLY)";
 +#endif
        return {};
      }
    }
-@@ -146,7 +178,7 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -146,7 +233,7 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
    return ScopedFDPair(std::move(fd), std::move(readonly_fd));
  }
  
@@ -95,7 +160,33 @@ index c408700..baac7c8 100644
  
  }  // namespace
  
-@@ -290,6 +322,26 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
+@@ -242,6 +329,12 @@ bool PlatformSharedMemoryRegion::ConvertToReadOnly() {
+   CHECK_EQ(mode_, Mode::kWritable)
+       << "Only writable shared memory region can be converted to read-only";
+ 
++#if BUILDFLAG(IS_OHOS)
++  if (!FinalizeOhosSharedMemoryRegion(handle_.fd.get(), /*read_only=*/true)) {
++    return false;
++  }
++#endif
++
+   handle_.fd.reset(handle_.readonly_fd.release());
+   mode_ = Mode::kReadOnly;
+   return true;
+@@ -255,6 +348,12 @@ bool PlatformSharedMemoryRegion::ConvertToUnsafe() {
+   CHECK_EQ(mode_, Mode::kWritable)
+       << "Only writable shared memory region can be converted to unsafe";
+ 
++#if BUILDFLAG(IS_OHOS)
++  if (!FinalizeOhosSharedMemoryRegion(handle_.fd.get(), /*read_only=*/false)) {
++    return false;
++  }
++#endif
++
+   handle_.readonly_fd.reset();
+   mode_ = Mode::kUnsafe;
+   return true;
+@@ -290,6 +389,27 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
    }
  #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
  
@@ -104,7 +195,8 @@ index c408700..baac7c8 100644
 +  if (anonymous_region.fd.is_valid()) {
 +    static std::atomic<bool> logged{false};
 +    if (!logged.exchange(true, std::memory_order_relaxed)) {
-+      LOG(WARNING) << "OHOS shared memory memfd active";
++      LOG(WARNING)
++          << "OHOS shared memory memfd active (conversion write seals)";
 +    }
 +    return PlatformSharedMemoryRegion(std::move(anonymous_region), mode, size,
 +                                      UnguessableToken::Create());
@@ -123,25 +215,23 @@ index c408700..baac7c8 100644
    // the temporary files we create will just go into the buffer cache
    // and be deleted before they ever make it out to disk.
 diff --git a/base/memory/platform_shared_memory_region_unittest.cc b/base/memory/platform_shared_memory_region_unittest.cc
-index d22751a..ab666c8 100644
+index d22751a..3b6422b 100644
 --- a/base/memory/platform_shared_memory_region_unittest.cc
 +++ b/base/memory/platform_shared_memory_region_unittest.cc
-@@ -17,6 +17,14 @@
+@@ -17,6 +17,12 @@
  #include "build/build_config.h"
  #include "testing/gtest/include/gtest/gtest.h"
  
 +#if BUILDFLAG(IS_OHOS)
-+#include <sys/stat.h>
-+
 +#include "base/process/launch_ohos.h"
-+#include "base/test/scoped_command_line.h"
 +#include "base/scoped_environment_variable_override.h"
++#include "base/test/scoped_command_line.h"
 +#endif
 +
  #if BUILDFLAG(IS_APPLE)
  #include <mach/vm_map.h>
  #include <sys/mman.h>
-@@ -397,7 +405,7 @@ TEST_F(PlatformSharedMemoryRegionTest, ConvertToUnsafeInvalidatesSecondHandle) {
+@@ -397,7 +403,7 @@ TEST_F(PlatformSharedMemoryRegionTest, ConvertToUnsafeInvalidatesSecondHandle) {
  }
  #endif
  
@@ -150,7 +240,7 @@ index d22751a..ab666c8 100644
  namespace {
  
  // Returns true if |fd| refers to a memfd. Regions are backed by memfd unless
-@@ -415,6 +423,28 @@ bool IsMemfd(int fd) {
+@@ -415,6 +421,25 @@ bool IsMemfd(int fd) {
  
  }  // namespace
  
@@ -167,9 +257,6 @@ index d22751a..ab666c8 100644
 +    auto region = create(kRegionSize);
 +    ASSERT_TRUE(region.IsValid());
 +    EXPECT_TRUE(IsMemfd(region.GetPlatformHandle().fd));
-+    struct stat info = {};
-+    ASSERT_EQ(0, fstat(region.GetPlatformHandle().fd, &info));
-+    EXPECT_EQ(0600, info.st_mode & 0777);
 +    auto mapping = MapForTesting(&region);
 +    ASSERT_TRUE(mapping.IsValid());
 +  }
@@ -179,11 +266,101 @@ index d22751a..ab666c8 100644
  // Tests that memfd-backed regions have their size sealed, so that no holder of
  // a descriptor can shrink or grow them, and that the set of seals is final.
  TEST_F(PlatformSharedMemoryRegionTest, MemfdRegionsAreSizeSealed) {
-@@ -479,7 +509,7 @@ TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyDescriptor) {
+@@ -428,8 +453,14 @@ TEST_F(PlatformSharedMemoryRegionTest, MemfdRegionsAreSizeSealed) {
+     }
+     const int seals = fcntl(fd, F_GET_SEALS);
+     ASSERT_NE(seals, -1);
++    int expected_seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL;
++#if BUILDFLAG(IS_OHOS)
++    if (region.GetMode() == PlatformSharedMemoryRegion::Mode::kWritable) {
++      expected_seals &= ~F_SEAL_SEAL;
++    }
++#endif
+     EXPECT_EQ(seals & (F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL),
+-              F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL);
++              expected_seals);
+     EXPECT_EQ(seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE), 0);
+     EXPECT_EQ(-1, HANDLE_EINTR(ftruncate(fd, 0)));
+     EXPECT_EQ(EPERM, errno);
+@@ -479,7 +510,81 @@ TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyDescriptor) {
    ASSERT_TRUE(ro_mapping.IsValid());
    EXPECT_EQ(0x5a, ro_mapping.GetMemoryAsSpan<const uint8_t>()[kRegionSize - 1]);
  }
 -#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
++#if BUILDFLAG(IS_OHOS)
++// Test the actual attack: a readonly receiver reopens its fd with O_RDWR.
++// Permission bits and UID separation must not be needed to prevent writes.
++TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyReopenCannotWrite) {
++  auto region = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
++  ASSERT_TRUE(region.IsValid());
++  ASSERT_TRUE(IsMemfd(region.GetPlatformHandle().fd));
++  auto writer = MapForTesting(&region);
++  ASSERT_TRUE(writer.IsValid());
++  ASSERT_TRUE(region.ConvertToReadOnly());
++  const int readonly_fd = region.GetPlatformHandle().fd;
++  const int expected =
++      F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_FUTURE_WRITE | F_SEAL_SEAL;
++  EXPECT_EQ(expected, fcntl(readonly_fd, F_GET_SEALS) & expected);
++  auto reader = MapForTesting(&region);
++  ASSERT_TRUE(reader.IsValid());
++  writer.GetMemoryAsSpan<uint8_t>()[0] = 0x5a;
++  EXPECT_EQ(0x5a, reader.GetMemoryAsSpan<const uint8_t>()[0]);
++
++  ScopedFD reopened(
++      HANDLE_EINTR(open(StringPrintf("/proc/self/fd/%d", readonly_fd).c_str(),
++                        O_RDWR | O_CLOEXEC)));
++  if (!reopened.is_valid()) {
++    EXPECT_TRUE(errno == EACCES || errno == EPERM);
++    return;
++  }
++  const uint8_t value = 0xff;
++  EXPECT_EQ(-1, pwrite(reopened.get(), &value, sizeof(value), 0));
++  EXPECT_EQ(EPERM, errno);
++  void* mapping = mmap(nullptr, kRegionSize, PROT_READ | PROT_WRITE, MAP_SHARED,
++                       reopened.get(), 0);
++  EXPECT_EQ(MAP_FAILED, mapping);
++  if (mapping != MAP_FAILED) {
++    munmap(mapping, kRegionSize);
++  }
++  mapping =
++      mmap(nullptr, kRegionSize, PROT_READ, MAP_SHARED, reopened.get(), 0);
++  ASSERT_NE(MAP_FAILED, mapping);
++  EXPECT_EQ(-1, mprotect(mapping, kRegionSize, PROT_READ | PROT_WRITE));
++  munmap(mapping, kRegionSize);
++  EXPECT_EQ(0x5a, reader.GetMemoryAsSpan<const uint8_t>()[0]);
++}
++
++TEST_F(PlatformSharedMemoryRegionTest,
++       MemfdUnsafeConversionKeepsFutureWriters) {
++  auto region = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
++  ASSERT_TRUE(region.IsValid());
++  ASSERT_TRUE(IsMemfd(region.GetPlatformHandle().fd));
++  ASSERT_TRUE(region.ConvertToUnsafe());
++  const int fd = region.GetPlatformHandle().fd;
++  EXPECT_NE(0, fcntl(fd, F_GET_SEALS) & F_SEAL_SEAL);
++  EXPECT_EQ(-1, fcntl(fd, F_ADD_SEALS, F_SEAL_FUTURE_WRITE));
++  EXPECT_EQ(EPERM, errno);
++  auto writer = MapForTesting(&region);
++  ASSERT_TRUE(writer.IsValid());
++  auto duplicate = region.Duplicate();
++  auto second_writer = MapForTesting(&duplicate);
++  ASSERT_TRUE(second_writer.IsValid());
++  writer.GetMemoryAsSpan<uint8_t>()[0] = 0x5a;
++  EXPECT_EQ(0x5a, second_writer.GetMemoryAsSpan<const uint8_t>()[0]);
++}
++
++TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyConversionFailsClosed) {
++  auto region = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
++  ASSERT_TRUE(region.IsValid());
++  ASSERT_TRUE(IsMemfd(region.GetPlatformHandle().fd));
++  ASSERT_EQ(0, fcntl(region.GetPlatformHandle().fd, F_ADD_SEALS, F_SEAL_SEAL));
++  EXPECT_FALSE(region.ConvertToReadOnly());
++  EXPECT_EQ(PlatformSharedMemoryRegion::Mode::kWritable, region.GetMode());
++  EXPECT_TRUE(region.IsValid());
++  auto writer = MapForTesting(&region);
++  EXPECT_TRUE(writer.IsValid());
++}
++#endif
 +#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_OHOS)
  
  void CheckReadOnlyMapProtection(void* addr) {

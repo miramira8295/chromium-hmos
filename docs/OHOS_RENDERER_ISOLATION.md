@@ -5,8 +5,10 @@
 2026-10-08：外壳在 Pad 模拟器 HarmonyOS 7.0.0.107 / API 26 上复测
 `5d016bcc`：原生密码页成功导入 3 条 CSV；隔离 renderer 已通过资源启动，加载
 WebUI 模板与系统字体，保持独立 UID，但创建共享内存时仍访问应用 el2 cache，
-因目录不存在而 SIGTRAP。`365333c0` 修复共享内存后端与退出状态观测，
-已通过原生编译、HAR 打包，等待外壳复测。
+因目录不存在而 SIGTRAP。`365333c0` 的设备复测确认退出回调和 pidfd 可用，
+浏览器能识别 signal 5 并显示崩溃页；memfd 创建成功，但 `fchmod(0600)` 返回
+EACCES，普通进程也遇到同样错误并频繁回退到文件后端。本轮改为在只读转换时
+添加写入封印，不再修改 memfd 权限。新方案仍需外壳复测；密码导入本轮未复测。
 **P0 未解决，默认仍关闭试验开关。**
 
 当前代码中有三种不同的边界，不能混为一谈：
@@ -99,17 +101,36 @@ FD 复制、环境、路径、FD 列表、GPU 启动参数和资源 FD 失败。
 ### 共享内存与退出状态
 
 runner 当前 `platform_shared_memory_region_posix.cc` 已有 memfd 实现，但仅对
-Linux/ChromeOS 启用。新增 `ohos-memfd-shared-memory.patch` 为 OHOS 启用该实现：
-按需分配、设置 `0600` 所有者权限、封印大小，并通过 `/proc/self/fd` 取得真正的只读 FD，保留 Chromium 的
-Writable/ReadOnly/Unsafe 句柄契约。memfd 无需应用 cache 目录，但只读 FD 重开仍
-需要访问 `/proc/self/fd`，必须在目标 SELinux 域复测。`0600` 防止其他 UID 将
-收到的只读 memfd 重新打开成可写；不能沿用内核默认的所有用户可读写权限。隔离 renderer 在 memfd 失败
-时明确报错，不回退到应用私有临时目录；普通进程保留旧文件后端的兼容回退。
+Linux/ChromeOS 启用。`ohos-memfd-shared-memory.patch` 为 OHOS 启用该实现。
+`365333c0` 的 `fchmod(0600)` 在普通应用与 isolated renderer 中都被 EACCES
+拒绝；日志尚不能单独确定是 SELinux 还是其他系统策略。本轮移除该调用，改用：
 
-每个进程首次成功会记录 `OHOS shared memory memfd active`。失败分别记录
-`memfd_create failed`、`ftruncate failed`、`size sealing failed` 或
-`readonly reopen failed`，含 errno。扩展已有 memfd 大小封印/只读映射测试至
-OHOS，并增加不存在 TMPDIR 的隔离 renderer 测试；默认构建不执行这些单元测试。
+- 创建 Writable memfd 时仅封印大小，保留添加封印的能力，通过 `/proc/self/fd`
+  取得真正的 `O_RDONLY` 配对 FD。
+- 转换为 ReadOnly 时，先添加 `F_SEAL_FUTURE_WRITE | F_SEAL_SEAL`，成功后才交出
+  只读句柄。已有的生产方可写映射继续有效；接收方即使重开为 `O_RDWR`，也不能
+  `pwrite`、创建新的共享可写映射或把新建只读映射改为可写。转换失败保留 Writable
+  状态并返回失败，不伪装为只读。
+- 创建 Unsafe 或由 Writable 转换为 Unsafe 时封闭封印集合，禁止接收方追加写入
+  封印破坏后续合法映射。Unsafe 本身允许所有接收方写入。
+- 普通进程仍保留旧文件后端。转换时识别不支持封印的磁盘文件和初始封印仅为
+  `F_SEAL_SEAL` 的普通 tmpfs 文件，并检查其没有组/其他用户写权限。
+  隔离 renderer 不回退到应用私有 cache，也不放宽沙箱。
+
+匿名性、大小封印与 `O_RDONLY` 本身不足以防止通过 procfs 恢复写入权限，不能
+只删除 `fchmod` 而不补上上述约束。此实现依赖目标内核允许 `F_SEAL_FUTURE_WRITE`
+及 procfs 只读重开；这些操作在目标 SELinux 域中仍需验证。
+
+每进程首次成功分别记录 `OHOS shared memory memfd active (conversion write seals)`
+和 `OHOS shared memory readonly sealing active`。失败的阶段与 errno 只记录一次，
+避免普通进程的文件回退刷屏；例如 `size sealing failed`、`readonly reopen failed`
+或 `readonly sealing failed`。
+
+Chromium 单元测试覆盖不存在 TMPDIR 的隔离 renderer、只读 FD 重开攻击、已有
+可写映射继续生效、Unsafe 后续映射以及只读封印失败不改变句柄状态；默认 HAR 构建
+不执行这些单元测试。Adapter CI 另运行 `scripts/check-memfd-seals.py`，用 Linux
+真实系统调用验证未加写入封印时可重开写入、加封印后拒绝写入和新可写映射；该检查
+不能替代 HarmonyOS 设备与 Chromium 单元测试。
 
 SDK 将退出回调错误 `16000050` 定义为内部错误。OpenHarmony 公开
 [`AppNativeSpawnManager::RegisterNativeChildExitNotify`](https://github.com/openharmony/ability_ability_runtime/blob/master/services/appmgr/src/app_native_spawn_manager.cpp)
@@ -211,3 +232,11 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
   `420f8562c54e47fec4662c9bb01cbc6d42ebdbc405b77589abed8c1c9030524c`。
   失败 job 日志接口返回 BlobNotFound，attempt 日志包为空，暂未取得上传失败的
   具体 stderr。以上不影响 HAR 的下载，但该版本的符号附件仍待补齐。
+
+- `365333c0` 外壳复测（Pad / HarmonyOS 7.0.0.107 / API 26）：退出回调注册成功、
+  pidfd=1；崩溃能够显示错误代码 5。独立 UID renderer 仍因 memfd `fchmod` EACCES
+  而崩溃；关闭隔离时 25 秒出现 153 次相同错误。密码导入没有重新测试。
+- 本轮基于 [runner 快照 37730232256](https://github.com/miramira8295/chromium-hmos/actions/runs/37730232256)
+  核对当前源码，快照 SHA256 以及与 `365333c0` 已应用补丁的一致性均通过。
+  新补丁首次/重复应用及从 `602d236`、`0ed2fcc`、`365333c0` 升级均已用实际
+  `apply_incremental_patch` 函数验证；尚未完成新版本编译与设备验收。

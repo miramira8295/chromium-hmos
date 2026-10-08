@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Check the Linux kernel contract used by OHOS read-only memfd conversion.
+
+This exercises real syscalls, including reopening a read-only fd as writable.
+It does not substitute for Chromium unit tests or HarmonyOS SELinux testing.
+"""
+
+import contextlib
+import ctypes
+import errno
+import fcntl
+import mmap
+import os
+
+
+FUTURE_WRITE = getattr(fcntl, "F_SEAL_FUTURE_WRITE", 0x0010)
+SIZE_SEALS = fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW
+SIZE = mmap.PAGESIZE
+
+
+def expect_denied(operation, allowed=(errno.EPERM, errno.EACCES)):
+    try:
+        result = operation()
+    except OSError as error:
+        assert error.errno in allowed, error
+        return
+    if hasattr(result, "close"):
+        result.close()
+    raise AssertionError("operation unexpectedly succeeded")
+
+
+def fd_in(stack, fd):
+    stack.callback(os.close, fd)
+    return fd
+
+
+def create_region(stack):
+    fd = fd_in(stack, os.memfd_create(
+        "ohos-seal-test", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING))
+    os.ftruncate(fd, SIZE)
+    fcntl.fcntl(fd, fcntl.F_ADD_SEALS, SIZE_SEALS)
+    return fd
+
+
+def map_shared(fd, writable=True):
+    protection = mmap.PROT_READ | (mmap.PROT_WRITE if writable else 0)
+    return mmap.mmap(fd, SIZE, flags=mmap.MAP_SHARED, prot=protection)
+
+
+def check_readonly_reopen():
+    with contextlib.ExitStack() as stack:
+        fd = create_region(stack)
+        writer = stack.enter_context(map_shared(fd))
+        readonly = fd_in(stack, os.open(f"/proc/self/fd/{fd}", os.O_RDONLY))
+
+        # Negative control: O_RDONLY plus size seals alone is insufficient.
+        reopened = fd_in(stack, os.open(f"/proc/self/fd/{readonly}", os.O_RDWR))
+        assert os.pwrite(reopened, b"A", 0) == 1
+        assert writer[0] == ord("A")
+
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS, FUTURE_WRITE | fcntl.F_SEAL_SEAL)
+        # A receiver may reopen after conversion too. Even a same-UID receiver
+        # must not recover write access; no chmod or DAC denial is involved.
+        receiver = fd_in(stack, os.open(f"/proc/self/fd/{readonly}", os.O_RDWR))
+        for handle in (reopened, receiver):
+            expect_denied(lambda: os.pwrite(handle, b"B", 0))
+            expect_denied(lambda: map_shared(handle))
+            expect_denied(lambda: os.ftruncate(handle, 0))
+            expect_denied(lambda: os.ftruncate(handle, SIZE * 2))
+
+        reader = stack.enter_context(map_shared(readonly, writable=False))
+        writer[0] = ord("C")
+        assert reader[0] == ord("C"), "existing producer mapping stopped working"
+
+        # A read-only mapping of the reopened O_RDWR fd cannot be upgraded.
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                              ctypes.c_int, ctypes.c_int, ctypes.c_long]
+        libc.mmap.restype = ctypes.c_void_p
+        libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+        libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        address = libc.mmap(None, SIZE, mmap.PROT_READ, mmap.MAP_SHARED, receiver, 0)
+        assert address != ctypes.c_void_p(-1).value, ctypes.get_errno()
+        try:
+            assert libc.mprotect(address, SIZE, mmap.PROT_READ | mmap.PROT_WRITE) == -1
+            assert ctypes.get_errno() in (errno.EACCES, errno.EPERM)
+        finally:
+            assert libc.munmap(address, SIZE) == 0
+    print("PASS: readonly reopen/write/mmap/mprotect denied; existing writer works")
+
+
+def check_unsafe_and_failed_conversion():
+    with contextlib.ExitStack() as stack:
+        fd = create_region(stack)
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS, fcntl.F_SEAL_SEAL)
+        expect_denied(lambda: fcntl.fcntl(fd, fcntl.F_ADD_SEALS, FUTURE_WRITE))
+        writer = stack.enter_context(map_shared(fd))
+        second_writer = stack.enter_context(map_shared(fd))
+        writer[0] = ord("D")
+        assert second_writer[0] == ord("D")
+        assert os.pwrite(fd, b"E", 0) == 1
+        assert writer[0] == ord("E")
+    print("PASS: Unsafe permits future writers and rejects added write seals")
+
+
+if __name__ == "__main__":
+    check_readonly_reopen()
+    check_unsafe_and_failed_conversion()

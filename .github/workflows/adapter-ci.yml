@@ -19,6 +19,8 @@ jobs:
         run: scripts/verify-public-tree.sh
       - name: Check scripts
         run: bash -n scripts/*.sh
+      - name: Check memfd write-seal contract
+        run: python3 scripts/check-memfd-seals.py
       - name: Apply adapter to pinned Chromium
         env:
           REQUIRE_COMPATIBLE: '1'
