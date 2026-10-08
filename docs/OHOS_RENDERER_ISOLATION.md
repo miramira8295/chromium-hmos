@@ -239,4 +239,16 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
 - 本轮基于 [runner 快照 37730232256](https://github.com/miramira8295/chromium-hmos/actions/runs/37730232256)
   核对当前源码，快照 SHA256 以及与 `365333c0` 已应用补丁的一致性均通过。
   新补丁首次/重复应用及从 `602d236`、`0ed2fcc`、`365333c0` 升级均已用实际
-  `apply_incremental_patch` 函数验证；尚未完成新版本编译与设备验收。
+  `apply_incremental_patch` 函数验证。
+
+- `83cd4f72` 的 [Adapter CI](https://github.com/miramira8295/chromium-hmos/actions/runs/37730732685)
+  通过，包含真实 Linux memfd 重开、写入、映射权限测试；
+  [Incremental build](https://github.com/miramira8295/chromium-hmos/actions/runs/37730732708)
+  **全部通过**，原生编译 318 步、247 秒，HAR 为 136432443 字节，ELF build-id 为
+  `22f50b7c01b7b0c232d1903a9408c54226b81fb4`。
+  [build-83cd4f72](https://github.com/miramira8295/chromium-hmos/releases/tag/build-83cd4f72)
+  的 `engine.har`、符号包和 `SHA256SUMS` 均已上传。
+  HAR SHA256：`aef3a6e61697fc88eb2d030c43f2c71497f8796d12b534f806e675c9660bb531`。
+  Chromium 新增单元测试未执行，HarmonyOS 设备复测仍交给外壳；本机未操作设备，
+  没有生成签名 HAP。重点验证隔离/普通模式的 HTTPS、内置页、崩溃恢复和密码导入，
+  同时保留 `OHOS shared memory` 的创建、只读封印及失败阶段日志。
