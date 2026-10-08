@@ -13,15 +13,18 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 
 ## 启用与回退
 
-默认关闭。外壳启动 Chromium 时，在已有 `--enable-features` 列表中追加：
+默认关闭。外壳在启动配置的 `additionalSwitches` 里加一项即可：
 
-```text
---enable-features=OhosZeroCopyVideo
+```json
+{"key": "enable-features", "value": "OhosZeroCopyVideo"}
 ```
 
-已有其他 feature 时用逗号合并，不能用第二个同名 switch 覆盖原列表。
+内核把外壳传来的 `enable-features`、`disable-features`、`enable-blink-features`、
+`disable-blink-features` 合并进自己已有的同名列表（`ohos_chrome_main_runner.cc`），
+不会覆盖内核需要的 `UseOzonePlatform`、手机选择器等 feature；值为空的这几项会被忽略。
+在此之前的内核会用外壳这一项替换整个列表，外壳只能写出完整列表，配合旧内核时须注意。
 该 feature 通过 Chromium 的 feature 配置传给 GPU 进程；无需增加外壳接口。
-删除该 feature 或加入 `--disable-features=OhosZeroCopyVideo` 后完全重启可回到默认 Buffer 模式。
+去掉这一项或加入 `disable-features=OhosZeroCopyVideo` 后完全重启可回到默认 Buffer 模式。
 
 当前范围：
 
@@ -42,7 +45,9 @@ GPU 能力检查或 Surface 初始化失败时，在**消耗压缩数据之前**
 
 VP9／AV1 与 H.264／HEVC 一样，从 AVCodecKit 查询硬件实现、profile 和尺寸范围。
 `HARDWARE` 查询之后仍检查 `OH_AVCapability_IsHardware()`，不把系统软件解码器当硬解。
-API 23 新增的 VP9／AV1 MIME 导出变量通过 `dlsym` 读取，API 20～22 缺少符号时不产生加载依赖，
+API 23 新增的 VP9／AV1 MIME 导出变量在运行时从定义它们的 `libnative_media_codecbase.so` 中 `dlsym` 读取，
+取不到再查 `RTLD_DEFAULT`。引擎以 RTLD_LOCAL 方式作为模块加载，其依赖库不一定在 `RTLD_DEFAULT` 的全局查找范围内，
+只查全局会在有硬解的设备上误报 `MIME unavailable` 而全部走软解。API 20～22 缺少符号时不产生加载依赖，
 也不虚构硬解支持。空 profile 列表不会为 VP9／AV1／HEVC 猜测默认档次。
 硬解查询本身不受 `OhosZeroCopyVideo` 开关控制；该开关只控制 Surface 输出。
 

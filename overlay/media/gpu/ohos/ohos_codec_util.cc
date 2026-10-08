@@ -31,10 +31,19 @@ constexpr std::array<VideoCodecProfile, 3> kFallbackH264Profiles = {
 
 // These data symbols were added in API 23. Resolve them at runtime instead of
 // introducing a load-time dependency that would break API 20-22 devices.
+//
+// Look them up in the library that defines them. The engine is loaded as a
+// module with RTLD_LOCAL, so its dependencies need not be in the global scope
+// that RTLD_DEFAULT searches; a miss there would hide a hardware VP9 or AV1
+// decoder the device has and send every such video to software.
 const char* ResolveOptionalMime(const char* symbol_name) {
-  auto* symbol =
-      static_cast<const char* const*>(dlsym(RTLD_DEFAULT, symbol_name));
-  return symbol ? *symbol : nullptr;
+  static void* const library =
+      dlopen("libnative_media_codecbase.so", RTLD_NOW | RTLD_LOCAL);
+  void* symbol = library ? dlsym(library, symbol_name) : nullptr;
+  if (!symbol) {
+    symbol = dlsym(RTLD_DEFAULT, symbol_name);
+  }
+  return symbol ? *static_cast<const char* const*>(symbol) : nullptr;
 }
 
 OH_AVCapability* GetHardwareCapability(VideoCodec codec, bool is_encoder) {

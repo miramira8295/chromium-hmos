@@ -491,6 +491,40 @@ TEST(NWebAuraShellTest, AdditionalSwitchesAreAppended) {
   EXPECT_FALSE(ContainsArgument(arguments, "--Bad Key=x"));
 }
 
+// A second --enable-features would replace the engine's list, so a shell's
+// feature lists are merged into it.
+TEST(NWebAuraShellTest, AdditionalFeatureListsAreMerged) {
+  AuraStartupConfig config;
+  config.headless = true;
+  config.ui_family = "mobile_phone";
+  config.additional_switches = {
+      {"enable-features", "OhosZeroCopyVideo"},
+      {"disable-features", "Foo"},
+      {"disable-features", "Bar"},
+      {"enable-blink-features", "Baz"},
+      {"enable-features", ""},
+  };
+
+  OhosChromeMainRunner runner;
+  const std::vector<std::string> arguments =
+      runner.BuildArgumentsForTesting(config);
+
+  const auto count = [&arguments](const std::string& prefix) {
+    return std::ranges::count_if(arguments, [&prefix](const std::string& a) {
+      return a.rfind(prefix, 0) == 0;
+    });
+  };
+  EXPECT_EQ(1, count("--enable-features="));
+  EXPECT_EQ(1, count("--disable-features="));
+  EXPECT_EQ(1, count("--enable-blink-features="));
+  EXPECT_TRUE(ContainsArgument(
+      arguments,
+      "--enable-features=UseOzonePlatform,OverlayScrollbar,"
+      "OhosExternalPopupMenus,TouchTextEditingRedesign,OhosZeroCopyVideo"));
+  EXPECT_TRUE(ContainsArgument(arguments, "--disable-features=Foo,Bar"));
+  EXPECT_FALSE(ContainsArgument(arguments, "--enable-features"));
+}
+
 TEST(NWebAuraShellTest, JitlessFollowsTheStartupConfig) {
   AuraStartupConfig config;
   OhosChromeMainRunner runner;

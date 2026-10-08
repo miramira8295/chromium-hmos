@@ -125,6 +125,30 @@ bool SupportsNativeChildProcess(const std::string& device_class) {
   return supported;
 }
 
+// Chromium keeps only the last value of a repeated switch, so one of these
+// lists added by the shell would replace the list built here and silently
+// turn off what the engine needs (UseOzonePlatform, the phone's own pickers).
+// They are merged instead.
+bool IsListSwitch(const std::string& key) {
+  return key == "enable-features" || key == "disable-features" ||
+         key == "enable-blink-features" || key == "disable-blink-features";
+}
+
+// Adds `value` to the --`key`= argument already in `arguments`, or appends
+// one if there is none.
+void AppendToListSwitch(std::vector<std::string>* arguments,
+                        const std::string& key,
+                        const std::string& value) {
+  const std::string prefix = "--" + key + "=";
+  for (std::string& argument : *arguments) {
+    if (argument.rfind(prefix, 0) == 0) {
+      argument += "," + value;
+      return;
+    }
+  }
+  arguments->push_back(prefix + value);
+}
+
 bool IsValidSwitchKey(const std::string& key) {
   if (key.empty() || key.front() == '-') {
     return false;
@@ -532,13 +556,7 @@ std::vector<std::string> OhosChromeMainRunner::BuildArgumentsLocked(
   if (config.skia_backend == "vulkan") {
     if (gpu_in_own_process) {
       arguments.push_back("--use-vulkan=native");
-      // Added to the one --enable-features there is: a second would replace
-      // it.
-      for (std::string& argument : arguments) {
-        if (argument.rfind("--enable-features=", 0) == 0) {
-          argument += ",Vulkan";
-        }
-      }
+      AppendToListSwitch(&arguments, "enable-features", "Vulkan");
       AURA_LOG_I("AuraShell Skia on Vulkan by config");
     } else {
       AURA_LOG_E("AuraShell ignored skiaBackend vulkan: the GPU is not in a "
@@ -550,6 +568,17 @@ std::vector<std::string> OhosChromeMainRunner::BuildArgumentsLocked(
        config.additional_switches) {
     if (!IsValidSwitchKey(additional_switch.key)) {
       AURA_LOG_E("AuraShell ignored an invalid additional switch key");
+      continue;
+    }
+    if (IsListSwitch(additional_switch.key)) {
+      // Empty, it would clear the list rather than add to it.
+      if (additional_switch.value.empty()) {
+        AURA_LOG_E("AuraShell ignored an empty --%{public}s",
+                   additional_switch.key.c_str());
+      } else {
+        AppendToListSwitch(&arguments, additional_switch.key,
+                           additional_switch.value);
+      }
       continue;
     }
     arguments.push_back(
