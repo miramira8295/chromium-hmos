@@ -33,6 +33,33 @@ jobs:
 
           root = Path(os.environ.get('CHROMIUM_SRC', '/root/chromium-154/src'))
           paths = '''
+          media/base/video_frame.h
+          media/base/video_frame.cc
+          media/gpu/BUILD.gn
+          media/gpu/mac/video_toolbox_frame_converter.h
+          media/gpu/mac/video_toolbox_frame_converter.cc
+          media/gpu/android/direct_shared_image_video_provider.cc
+          media/gpu/android/shared_image_video_provider.h
+          media/gpu/chromeos/platform_video_frame_pool.h
+          media/gpu/chromeos/platform_video_frame_pool.cc
+          media/mojo/services/BUILD.gn
+          media/mojo/services/gpu_mojo_media_client.h
+          media/mojo/services/gpu_mojo_media_client.cc
+          media/mojo/services/gpu_mojo_media_client_mac.cc
+          media/mojo/mojom/video_frame_mojom_traits.cc
+          media/mojo/services/mojo_video_decoder_service.cc
+          gpu/ipc/service/command_buffer_stub.h
+          gpu/ipc/service/shared_image_stub.h
+          gpu/command_buffer/service/shared_image/shared_image_factory.h
+          gpu/command_buffer/service/shared_image/shared_image_factory.cc
+          gpu/command_buffer/service/shared_image/ozone_image_backing_factory.cc
+          gpu/command_buffer/service/shared_image/shared_image_manager.h
+          gpu/command_buffer/service/shared_image/shared_image_representation.h
+          gpu/command_buffer/client/shared_image_interface.h
+          gpu/command_buffer/client/shared_image_interface_in_process.h
+          gpu/command_buffer/client/client_shared_image.h
+          ui/gfx/native_pixmap_handle.h
+          ui/ozone/public/surface_factory_ozone.h
           base/memory/platform_shared_memory_region_posix.cc
           base/memory/platform_shared_memory_region.h
           base/memory/platform_shared_memory_region_unittest.cc
