@@ -422,11 +422,6 @@ class OhosNativePixmap : public gfx::NativePixmap {
         });
   }
 
-  OH_NativeBuffer* NativeBuffer() const {
-    return video_buffer_ ? video_buffer_
-                         : BufferRegistry::Get().BufferForFd(fd_);
-  }
-
   uint64_t key() const { return key_; }
 
   bool AreDmaBufFdsValid() const override { return fd_ >= 0; }
