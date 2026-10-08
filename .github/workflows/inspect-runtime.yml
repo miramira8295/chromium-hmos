@@ -33,6 +33,16 @@ jobs:
 
           root = Path(os.environ.get('CHROMIUM_SRC', '/root/chromium-154/src'))
           paths = '''
+          gpu/ipc/service/gpu_channel_shared_image_interface.h
+          gpu/ipc/service/gpu_channel_shared_image_interface.cc
+          gpu/ipc/service/gpu_channel.h
+          gpu/command_buffer/service/shared_image/ozone_image_backing.h
+          gpu/command_buffer/service/shared_image/ozone_image_backing.cc
+          gpu/command_buffer/common/shared_image_info.h
+          ui/gfx/native_pixmap.h
+          ui/gfx/gpu_fence.h
+          ui/gfx/gpu_fence_handle.h
+          media/base/video_frame_metadata.h
           media/base/video_frame.h
           media/base/video_frame.cc
           media/gpu/BUILD.gn
