@@ -6,7 +6,7 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 压缩码流输入仍会复制；视频合成、Canvas/WebGL 操作仍可能产生 GPU 采样或 GPU 拷贝。
 不能把这里的“零拷贝”理解成整条媒体管线没有任何数据搬运。
 
-状态：实现已提交，CI 和外壳设备验证结果见交付记录。
+状态：`build-0e19c42c` 已通过内核／HAR 构建和 Adapter CI，待外壳设备验证。
 性能收益尚未测量；此前 renderer isolation 的验证结果不能替代本项验证。
 
 ## 启用与回退
@@ -91,3 +91,13 @@ GPU 能力检查或 Surface 初始化失败时，在**消耗压缩数据之前**
 性能对比使用同一真机、同一视频、同一亮度／窗口大小、稳定温度，关开各播放至少 60 秒，
 记录帧率、丢帧、CPU/GPU 使用率、功耗及进程内存。模拟器只验证功能，不用其功耗推算真机收益。
 测试页帧回调是显示节奏指标，不是解码 CPU 耗时或 GPU 带宽计数器。
+
+## 2026-10-08 交付记录
+
+- 内核提交：`0e19c42cf8c8b9e227f7032db2eb89c6a46b624a`。
+- [增量构建 37740779258](https://github.com/miramira8295/chromium-hmos/actions/runs/37740779258)：成功，HAR 和未剥离符号均已上传。
+- [Adapter CI 37740779085](https://github.com/miramira8295/chromium-hmos/actions/runs/37740779085)：成功，包含公开树、脚本、memfd 契约和固定 Chromium 版本适配检查。
+- [engine.har](https://github.com/miramira8295/chromium-hmos/releases/download/build-0e19c42c/engine.har)（136445801 字节），SHA-256：`c46013af179fd7164e5ae63e51d9e94a2e671c8bb1728594e8c4658460843277`。
+- 上游接线基于 runner 快照 `37736920489`，已核验快照 SHA-256、补丁首次／重复应用及最终文件一致性。
+- 测试页脚本已通过 `node --check`；页面操作和设备生命周期验证仍待外壳执行。
+- 本轮没有真机功能或性能结论，默认开关保持关闭。

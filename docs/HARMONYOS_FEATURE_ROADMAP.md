@@ -26,8 +26,8 @@
 
 已开始 `OhosZeroCopyVideo` 实验路径：8 位 H.264／HEVC Main 硬解输出经
 ConsumerSurface／NativeBuffer 直接成为 SharedImage，避开逐帧 CPU 输出拷贝。
-默认关闭，先完成 CI，再交外壳验证播放、seek、EOS、取帧和资源释放；
-尚无真机性能结论，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
+默认关闭，`build-0e19c42c` 已通过内核／HAR 构建及 Adapter CI，
+待外壳验证播放、seek、EOS、取帧和资源释放；尚无真机性能结论，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
 Safe Browsing 按维护者安排暂缓。
 
 ## WebOTP：明确不实施
