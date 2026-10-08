@@ -22,6 +22,14 @@
 | 9 | 通行密钥同步 | 当前 HUKS 平台认证器密钥不出设备，标记不可备份；已有密码同步不覆盖此项 | 待开始 | 先设计可同步凭据方案及信任模型；保留现有本机凭据的安全语义，验证跨设备注册、登录、恢复及撤销，不直接导出现有 HUKS 私钥 |
 | 10 | WebXR / AR | 未实现对应鸿蒙平台后端 | 待开始 | 先确定 SDK、设备及支持的会话类型；验证能力查询、授权、会话启动结束和跟踪渲染；普通 WebGL 不算完成 |
 
+## 当前 GPU 工作：硬解输出零拷贝
+
+已开始 `OhosZeroCopyVideo` 实验路径：8 位 H.264／HEVC Main 硬解输出经
+ConsumerSurface／NativeBuffer 直接成为 SharedImage，避开逐帧 CPU 输出拷贝。
+默认关闭，先完成 CI，再交外壳验证播放、seek、EOS、取帧和资源释放；
+尚无真机性能结论，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
+Safe Browsing 按维护者安排暂缓。
+
 ## WebOTP：明确不实施
 
 维护者已决定不开发短信验证码功能。当前适配层没有替换短信 provider，沿用 Chromium 154 的 [`content/browser/sms/sms_provider.cc` 中 `SmsProvider::Create()`](https://github.com/chromium/chromium/blob/743f26418a267dd97c3c1c71d786038ae68cfc8f/content/browser/sms/sms_provider.cc#L27)：Android 创建 `SmsProviderGms`，非 Android 分支返回 `nullptr`；鸿蒙走后者。这是明确保留的空后端，不是待实现占位任务。

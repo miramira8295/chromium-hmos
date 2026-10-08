@@ -105,7 +105,7 @@ bool OhosVideoSurface::Acquire(OHNativeWindowBuffer** buffer,
   if (acquire_fence->is_valid()) {
     producer_fence.reset(HANDLE_EINTR(dup(acquire_fence->get())));
     if (!producer_fence.is_valid()) {
-      Release(BufferToRelease{*buffer, std::move(*acquire_fence)});
+      ReleaseBuffer(BufferToRelease{*buffer, std::move(*acquire_fence)});
       *buffer = nullptr;
       return false;
     }
@@ -113,13 +113,14 @@ bool OhosVideoSurface::Acquire(OHNativeWindowBuffer** buffer,
   // ScopedClosureRunner also releases when a posted conversion task is dropped.
   auto lease = base::ScopedClosureRunner(base::BindPostTask(
       task_runner_,
-      base::BindOnce(&OhosVideoSurface::Release, base::WrapRefCounted(this),
+      base::BindOnce(&OhosVideoSurface::ReleaseBuffer,
+                     base::WrapRefCounted(this),
                      BufferToRelease{*buffer, std::move(producer_fence)})));
   *release = base::BindOnce([](base::ScopedClosureRunner) {}, std::move(lease));
   return true;
 }
 
-void OhosVideoSurface::Release(BufferToRelease acquired) {
+void OhosVideoSurface::ReleaseBuffer(BufferToRelease acquired) {
   OHNativeWindowBuffer* buffer = acquired.buffer;
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   // The caller waits the VideoFrame release token when the GPU used the frame.

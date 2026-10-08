@@ -48,7 +48,7 @@ class OhosVideoSurface
     RAW_PTR_EXCLUSION OHNativeWindowBuffer* buffer;
     base::ScopedFD producer_fence;
   };
-  void Release(BufferToRelease acquired);
+  void ReleaseBuffer(BufferToRelease acquired);
 
   const scoped_refptr<base::SequencedTaskRunner> task_runner_;
   // Immutable: the native callback may run on another thread until Destroy.

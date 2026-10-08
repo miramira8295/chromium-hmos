@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>视频 Surface 验证</title>
+<style>
+body { font: 16px system-ui; margin: 24px auto; padding: 0 16px; max-width: 1100px; color: #e7ebf3; background: #151922; }
+h1 { font-size: 24px; } button, input { font: inherit; padding: 8px; margin: 4px; }
+button { cursor: pointer; } input[type=url] { width: min(650px, 80%); }
+video { width: 100%; max-height: 55vh; background: black; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; } figure { margin: 0; flex: 1; min-width: 240px; }
+canvas { width: 100%; background: #000; } pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #222a39; padding: 12px; }
+small { color: #b6c0d2; }
+</style>
+<h1>视频 Surface 验证</h1>
+<p>选择测试片后手动播放，默认静音。比较开关关闭与开启的画面、seek、取帧及资源释放。是否进入零拷贝路径以原生日志为准。</p>
+<label>本地视频 <input id="file" type="file" accept="video/*"></label><br>
+<label>或视频 URL <input id="url" type="url" placeholder="同源测试资源或允许 CORS 的 URL"></label><button id="load">载入 URL</button>
+<video id="video" controls muted playsinline crossorigin="anonymous"></video>
+<div>
+<button id="play">播放 / 暂停</button><button id="restart">从头播放</button>
+<button id="seek">连续 seek ×10</button><button id="end">跳到结尾前 1 秒</button>
+<label><input id="loop" type="checkbox">循环播放</label>
+<button id="full">全屏</button><button id="clear">停止并清空资源</button>
+</div>
+<div>
+<button id="canvas">Canvas 取帧</button><button id="webgl">WebGL 取帧</button>
+<button id="hold">保留当前帧</button><button id="drawHeld">绘制保留帧</button><button id="release">释放保留帧</button>
+</div>
+<div class="row"><figure><figcaption>Canvas / 保留帧</figcaption><canvas id="c2" width="480" height="270"></canvas></figure><figure><figcaption>WebGL</figcaption><canvas id="cg" width="480" height="270"></canvas></figure></div>
+<pre id="stats"></pre><small>显示回调统计会在换片／清空后重置；seek 后不应拿累计帧数计算解码性能。绘制跨域视频要求 CORS。</small>
+<pre id="log" aria-live="polite"></pre>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const video = $('video');
+let objectURL = null, held = null, callbacks = 0, lastMediaTime = 0, seekEpoch = 0;
+let gl = null, program = null, texture = null, vertices = null;
+const messages = [];
+function log(text) {
+  messages.push(`${new Date().toLocaleTimeString()} ${text}`);
+  $('log').textContent = messages.slice(-40).join('\n');
+}
+function action(id, fn) {
+  $(id).onclick = async () => { try { await fn(); } catch (e) { log(`${id}: ${e.message}`); } };
+}
+function releaseHeld() { if (held) held.close(); held = null; }
+function clearGL() {
+  if (gl) { gl.deleteTexture(texture); gl.deleteProgram(program); gl.deleteBuffer(vertices); }
+  texture = program = vertices = null;
+}
+function reset() {
+  ++seekEpoch;
+  video.pause(); video.removeAttribute('src'); video.load();
+  if (objectURL) URL.revokeObjectURL(objectURL);
+  objectURL = null; releaseHeld(); clearGL(); callbacks = lastMediaTime = 0;
+  $('c2').getContext('2d').clearRect(0, 0, $('c2').width, $('c2').height);
+  if (gl) { gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+}
+function frameReady() {
+  if (video.readyState < 2 || !video.videoWidth) throw new Error('视频还没有可用帧');
+}
+function fit(canvas) {
+  canvas.width = Math.min(video.videoWidth || 480, 960);
+  canvas.height = Math.max(1, Math.round(canvas.width * video.videoHeight / video.videoWidth));
+}
+$('file').onchange = () => {
+  const file = $('file').files[0]; if (!file) return;
+  reset(); objectURL = URL.createObjectURL(file); video.src = objectURL;
+  log('已载入本地文件；点击播放');
+};
+action('load', () => {
+  const url = new URL($('url').value, location.href);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('请输入 HTTP(S) URL');
+  reset(); video.src = url.href; log('已载入 URL；点击播放');
+});
+action('play', () => video.paused ? video.play() : video.pause());
+action('restart', () => { video.currentTime = 0; return video.play(); });
+action('end', () => { if (!Number.isFinite(video.duration)) throw new Error('时长尚未就绪'); video.currentTime = Math.max(0, video.duration - 1); return video.play(); });
+$('loop').onchange = () => { video.loop = $('loop').checked; };
+action('full', () => video.requestFullscreen());
+action('clear', () => { reset(); log('媒体源、保留帧和 WebGL 对象已释放'); });
+action('canvas', () => {
+  frameReady(); fit($('c2')); const ctx = $('c2').getContext('2d');
+  ctx.drawImage(video, 0, 0, $('c2').width, $('c2').height);
+  ctx.getImageData(0, 0, 1, 1); log('Canvas 绘制与读回成功；请比对画面');
+});
+action('hold', () => {
+  frameReady(); releaseHeld(); held = new VideoFrame(video);
+  log(`保留一帧，时间 ${video.currentTime.toFixed(3)}s；继续播放或 seek 后再次绘制`);
+});
+action('drawHeld', () => {
+  if (!held) throw new Error('尚未保留帧');
+  const canvas = $('c2'); canvas.width = Math.min(held.displayWidth, 960);
+  canvas.height = Math.round(canvas.width * held.displayHeight / held.displayWidth);
+  canvas.getContext('2d').drawImage(held, 0, 0, canvas.width, canvas.height);
+  log('已绘制保留帧；应仍为保留时画面');
+});
+action('release', () => { releaseHeld(); log('保留帧已释放'); });
+function shader(type, source) {
+  const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { const error = gl.getShaderInfoLog(s); gl.deleteShader(s); throw new Error(error); }
+  return s;
+}
+action('webgl', () => {
+  frameReady(); const canvas = $('cg'); fit(canvas);
+  gl ||= canvas.getContext('webgl'); if (!gl || gl.isContextLost()) throw new Error('WebGL context 不可用');
+  if (!program) {
+    const vs = shader(gl.VERTEX_SHADER, 'attribute vec2 p; varying vec2 uv; void main(){gl_Position=vec4(p,0.,1.); uv=(p+1.)*.5;}');
+    const fs = shader(gl.FRAGMENT_SHADER, 'precision mediump float; varying vec2 uv; uniform sampler2D tex; void main(){gl_FragColor=texture2D(tex,uv);}');
+    program = gl.createProgram(); gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
+    gl.deleteShader(vs); gl.deleteShader(fs);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+    vertices = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    texture = gl.createTexture();
+  }
+  gl.useProgram(program); gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+  const p = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture); gl.uniform1i(gl.getUniformLocation(program, 'tex'), 0);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+  gl.viewport(0, 0, canvas.width, canvas.height); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  const pixel = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  const error = gl.getError(); if (error) throw new Error(`GL error 0x${error.toString(16)}`);
+  log('WebGL 绘制与读回成功；请比对颜色和方向');
+});
+function seekTo(time) {
+  return new Promise((resolve, reject) => {
+    const done = () => { cleanup(); resolve(); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error('seek 超过 8 秒')); }, 8000);
+    const cleanup = () => { clearTimeout(timer); video.removeEventListener('seeked', done); };
+    video.addEventListener('seeked', done);
+    video.currentTime = time;
+  });
+}
+action('seek', async () => {
+  if (!Number.isFinite(video.duration) || video.duration < 2) throw new Error('请载入至少 2 秒的可 seek 视频');
+  const epoch = ++seekEpoch;
+  for (let i = 0; i < 10; ++i) {
+    if (epoch !== seekEpoch) return;
+    await seekTo(video.duration * (i % 2 ? 0.15 + i * 0.02 : 0.85 - i * 0.02));
+    if (epoch !== seekEpoch) return;
+    log(`seek ${i + 1}/10: ${video.currentTime.toFixed(3)}s`);
+  }
+  log('连续 seek 完成');
+});
+for (const event of ['loadedmetadata', 'playing', 'waiting', 'stalled', 'ended', 'error']) {
+  video.addEventListener(event, () => log(`${event}${video.error ? ': ' + video.error.code + ' ' + video.error.message : ''}`));
+}
+if (video.requestVideoFrameCallback) {
+  const onFrame = (_, info) => { ++callbacks; lastMediaTime = info.mediaTime; video.requestVideoFrameCallback(onFrame); };
+  video.requestVideoFrameCallback(onFrame);
+}
+setInterval(() => {
+  const q = video.getVideoPlaybackQuality();
+  $('stats').textContent = JSON.stringify({time: video.currentTime, duration: video.duration, size: `${video.videoWidth}×${video.videoHeight}`, paused: video.paused, readyState: video.readyState, displayedCallbacks: callbacks, lastMediaTime, totalFrames: q.totalVideoFrames, droppedFrames: q.droppedVideoFrames, heldFrame: !!held}, null, 2);
+}, 500);
+window.addEventListener('pagehide', reset);
+</script>
+</html>
