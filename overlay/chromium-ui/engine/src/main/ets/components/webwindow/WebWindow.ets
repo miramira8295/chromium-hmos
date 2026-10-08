@@ -711,6 +711,16 @@ export struct WebWindow {
 
   private handleWindowAction(action: string): void {
     if (action === 'close') {
+      // A second browser window (aura_win_, e.g. incognito) is hosted in the
+      // same UIAbility as the first: ending the ability for it quit the whole
+      // app with exit code 0 whenever incognito was left. Only the window the
+      // ability exists for -- the main one, or a PWA in its own ability --
+      // ends it. The shell learns that the second window went away from its
+      // window state, as it learnt that it came.
+      if (this.xComponentId.startsWith('aura_win_')) {
+        console.info(`WebWindow: ${this.xComponentId} closed; the ability stays`);
+        return;
+      }
       const hostContext = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
       hostContext?.terminateSelf().catch((error: Error) => {
         this.reportError(error);
