@@ -395,7 +395,6 @@ class OhosNativePixmap : public gfx::NativePixmap {
   }
 
   OhosNativePixmap(OHNativeWindowBuffer* window_buffer,
-                   OH_NativeBuffer* buffer,
                    gfx::Size size,
                    viz::SharedImageFormat format,
                    base::OnceClosure release)
@@ -403,7 +402,6 @@ class OhosNativePixmap : public gfx::NativePixmap {
         size_(size),
         format_(format),
         video_window_(window_buffer),
-        video_buffer_(buffer),
         video_release_(std::move(release)) {}
 
   OHNativeWindowBuffer* WindowBuffer(const gfx::ColorSpace& color_space) const {
@@ -486,10 +484,9 @@ class OhosNativePixmap : public gfx::NativePixmap {
   const uint64_t key_;
   const gfx::Size size_;
   const viz::SharedImageFormat format_;
-  // Borrowed pointers, kept alive by video_release_. NativeBuffer conversion
-  // does not transfer ownership. Destroying the EGL binding precedes release.
+  // Borrowed pointer, kept alive by video_release_. Destroying the EGL
+  // binding precedes release back to the decoder's consumer queue.
   RAW_PTR_EXCLUSION OHNativeWindowBuffer* video_window_ = nullptr;
-  RAW_PTR_EXCLUSION OH_NativeBuffer* video_buffer_ = nullptr;
   base::ScopedClosureRunner video_release_;
   // Owned by the registry entry, which outlives this pixmap.
   int fd_ = -1;
@@ -719,7 +716,7 @@ scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
   viz::SharedImageFormat format = viz::MultiPlaneFormat::kNV12;
   format.SetPrefersExternalSampler();
   return base::MakeRefCounted<OhosNativePixmap>(
-      window, buffer, gfx::Size(config.width, config.height), format,
+      window, gfx::Size(config.width, config.height), format,
       release_on_failure.Release());
 }
 
@@ -764,7 +761,12 @@ std::unique_ptr<NativePixmapGLBinding> ImportOhosNativePixmap(
 }
 
 void* GetOhosNativeBuffer(const gfx::NativePixmap& pixmap) {
-  return static_cast<const OhosNativePixmap&>(pixmap).NativeBuffer();
+  // Decoder surface pixmaps are GPU-only and are not offered to Dawn. Keep
+  // this allocator-backed WebGPU path independent of video buffer ownership.
+  if (!pixmap.AreDmaBufFdsValid()) {
+    return nullptr;
+  }
+  return BufferRegistry::Get().BufferForFd(pixmap.GetDmaBufFd(0));
 }
 
 std::unique_ptr<gfx::ClientNativePixmapFactory>
