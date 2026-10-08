@@ -258,4 +258,23 @@ Main10 SDR／PQ／HLG（1080p、4K，均为 yuv420p10le）仍被网页 HEVC 能�
 真机上已排除可见页面（刷新、滚动无效）和后台标签页内容（清掉视频、跳转空白页无效）。
 
 修复放在 `patches/ohos-video-zero-copy.patch`：不显示的 surface 照常 prewalk（复制请求等仍需要），
-但不参与输出色彩空间的选择。播放中整窗 PQ 输出导致网页其他部分也变亮，是另一个已知问题，尚未处理。
+但不参与输出色彩空间的选择。
+
+## 待办：HDR 播放时网页也跟着变亮（已记录，暂缓）
+
+现象：播放 HDR 视频时，网页上视频以外的部分（白底、文字）也比平时亮。
+
+原因：HDR 输出用的是绝对亮度的 PQ。`ohos_screen.cc` 的 HDR 输出写死为 `CreateHDR10()`，
+`ohos_surface_factory.cc` 把整个窗口标成 Rec. 2020 PQ / HDR10，SDR 白固定在 203 尼特；
+面板进入 HDR 模式后，这通常比用户平时的 SDR 亮度高。
+
+Chromium 在安卓上的做法依赖安卓专用接口，未随 Ozone 移植过来：
+扩展范围 sRGB（SDR 白 = 1.0、HDR 高光超出 1.0）加 `ASurfaceTransaction_setExtendedRangeBrightness`
+（`ui/gfx/android/android_surface_control_compat.cc`），由屏幕当前余量设
+`SetHDRMaxLuminanceRelative`（`ui/android/display_android_manager.cc`）；视频另可提到独立 SurfaceControl 图层。
+
+计划：按安卓思路改为相对亮度。先在真机确认 RenderService 是否接受超过 1.0 的扩展范围缓冲区
+（OHOS 线性 / 扩展色彩空间），以及 `external_window.h` 的 `SET_SDR_WHITE_POINT_BRIGHTNESS`、
+`SET_HDR_WHITE_POINT_BRIGHTNESS`（API 12，取值 0～1，含义文档未写明）的实际效果；
+再改 HDR 输出、设置白点、按系统可得的屏幕余量设置相对 HDR 亮度。
+退路：设置项"HDR 视频"关闭时色调映射为 SDR。长期：视频走独立系统图层（直出），工作量以周计。
