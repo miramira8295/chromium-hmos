@@ -1,5 +1,5 @@
 diff --git a/base/memory/platform_shared_memory_region_posix.cc b/base/memory/platform_shared_memory_region_posix.cc
-index c408700..ebd959b 100644
+index c408700..9638485 100644
 --- a/base/memory/platform_shared_memory_region_posix.cc
 +++ b/base/memory/platform_shared_memory_region_posix.cc
 @@ -6,6 +6,7 @@
@@ -26,7 +26,7 @@ index c408700..ebd959b 100644
  namespace base::subtle {
  
  namespace {
-@@ -47,6 +57,35 @@ enum class FDAccessModeError {
+@@ -47,6 +57,51 @@ enum class FDAccessModeError {
    kMismatch,
  };
  
@@ -40,29 +40,45 @@ index c408700..ebd959b 100644
 +  return seals >= 0 && (seals & required) == required;
 +}
 +
-+// When procfs reopen is forbidden, the paired descriptor is a dup of the
-+// writable memfd until conversion. Accept only the same size-sealed inode,
-+// still open for adding write seals; never accept an arbitrary O_RDWR pair.
-+bool IsOhosWritableMemfdPair(FDPair handle) {
-+  const int seals = fcntl(handle.fd, F_GET_SEALS);
++// A writable memfd must retain the ability to add write seals at conversion.
++// F_GET_SEALS establishes this without a separate file-attribute permission.
++bool IsOhosConvertibleMemfd(int fd) {
++  const int seals = fcntl(fd, F_GET_SEALS);
 +  constexpr int size_seals = F_SEAL_SHRINK | F_SEAL_GROW;
 +  constexpr int final_seals = F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE;
-+  if (seals < 0 || (seals & size_seals) != size_seals ||
-+      (seals & final_seals) != 0) {
-+    return false;
++  return seals >= 0 && (seals & size_seals) == size_seals &&
++         (seals & final_seals) == 0;
++}
++
++void LogOhosSharedMemoryImportFailure(
++    FDPair handle,
++    PlatformSharedMemoryRegion::Mode mode,
++    size_t size,
++    PlatformSharedMemoryRegion::TakeError error) {
++  static std::atomic<bool> logged{false};
++  if (logged.exchange(true, std::memory_order_relaxed)) {
++    return;
 +  }
-+  struct stat primary = {};
-+  struct stat paired = {};
-+  return fstat(handle.fd, &primary) == 0 &&
-+         fstat(handle.readonly_fd, &paired) == 0 && S_ISREG(primary.st_mode) &&
-+         primary.st_dev == paired.st_dev && primary.st_ino == paired.st_ino;
++  const int flags = fcntl(handle.fd, F_GETFL);
++  const int flags_errno = flags < 0 ? errno : 0;
++  const int seals = fcntl(handle.fd, F_GET_SEALS);
++  const int seals_errno = seals < 0 ? errno : 0;
++  const int paired_flags = fcntl(handle.readonly_fd, F_GETFL);
++  const int paired_errno = paired_flags < 0 ? errno : 0;
++  LOG(ERROR) << "OHOS shared memory import rejected mode="
++             << static_cast<int>(mode) << " size=" << size
++             << " error=" << static_cast<int>(error) << " flags=" << flags
++             << " flags_errno=" << flags_errno << " seals=" << seals
++             << " seals_errno=" << seals_errno
++             << " paired_flags=" << paired_flags
++             << " paired_errno=" << paired_errno;
 +}
 +#endif
 +
  std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
    int fd_status = fcntl(fd, F_GETFL);
    if (fd_status == -1) {
-@@ -56,6 +95,19 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
+@@ -56,6 +111,19 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
    }
  
    int mode = fd_status & O_ACCMODE;
@@ -82,7 +98,7 @@ index c408700..ebd959b 100644
    if (mode != expected_mode) {
      return FDAccessModeError::kMismatch;
    }
-@@ -63,13 +115,66 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
+@@ -63,13 +131,66 @@ std::optional<FDAccessModeError> CheckFDAccessMode(int fd, int expected_mode) {
    return std::nullopt;
  }
  
@@ -150,7 +166,7 @@ index c408700..ebd959b 100644
  // Creates the region as an anonymous memfd instead of an unlinked file in
  // /dev/shm. This needs two to three system calls instead of seven, no path
  // lookup and no dentry, and no up-front fallocate(): memfd pages live on the
-@@ -106,12 +211,20 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -106,12 +227,20 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
          syscall(__NR_memfd_create, kName, MFD_CLOEXEC | MFD_ALLOW_SEALING)));
    }
    if (!fd.is_valid()) {
@@ -171,7 +187,7 @@ index c408700..ebd959b 100644
      return {};
    }
  
-@@ -120,9 +233,21 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -120,9 +249,21 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
    // processes it is later shared with - can shrink the file and make other
    // processes fault on access, or grow it. F_SEAL_SEAL keeps anyone from
    // adding write seals later, which would make future mappings fail.
@@ -195,7 +211,7 @@ index c408700..ebd959b 100644
      return {};
    }
  
-@@ -133,20 +258,37 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
+@@ -133,20 +274,37 @@ ScopedFDPair CreateAnonymousRegion(PlatformSharedMemoryRegion::Mode mode,
      // file (see ConvertToReadOnly() and
      // CheckPlatformHandlePermissionsCorrespondToMode()). A memfd has no name,
      // but procfs can reopen it. This is the only step that needs filesystem
@@ -235,7 +251,49 @@ index c408700..ebd959b 100644
  
  }  // namespace
  
-@@ -242,6 +384,15 @@ bool PlatformSharedMemoryRegion::ConvertToReadOnly() {
+@@ -168,9 +326,39 @@ PlatformSharedMemoryRegion::TakeOrFail(ScopedFDPair handle,
+     return {};
+   }
+ 
+-  expected<void, TakeError> result =
+-      CheckPlatformHandlePermissionsCorrespondToMode(handle.get(), mode, size);
++  expected<void, TakeError> result = ok();
++#if BUILDFLAG(IS_OHOS)
++  // Never rely on fstat/getattr access to compare a received memfd pair.
++  // Validate the primary's access and seals, then rebuild the conversion FD
++  // from that primary. This also discards a substituted second inode instead
++  // of ever exposing it after read-only conversion. Both descriptors remain
++  // owned by this Writable region until conversion applies the write seals.
++  if (mode == Mode::kWritable && handle.readonly_fd.is_valid() &&
++      IsOhosConvertibleMemfd(handle.fd.get()) &&
++      !CheckFDAccessMode(handle.fd.get(), O_RDWR).has_value()) {
++    ScopedFD conversion_fd(
++        HANDLE_EINTR(fcntl(handle.fd.get(), F_DUPFD_CLOEXEC, 0)));
++    if (!conversion_fd.is_valid()) {
++      LogOhosSharedMemoryFailure("import conversion fd duplication");
++      result = unexpected(TakeError::kFcntlFailed);
++    } else {
++      handle.readonly_fd = std::move(conversion_fd);
++      static std::atomic<bool> logged{false};
++      if (!logged.exchange(true, std::memory_order_relaxed)) {
++        LOG(WARNING) << "OHOS shared memory writable import rebuilt "
++                        "conversion fd";
++      }
++    }
++  } else
++#endif
++  {
++    result = CheckPlatformHandlePermissionsCorrespondToMode(handle.get(), mode,
++                                                            size);
++  }
+   if (!result.has_value()) {
++#if BUILDFLAG(IS_OHOS)
++    LogOhosSharedMemoryImportFailure(handle.get(), mode, size, result.error());
++#endif
+     return unexpected(result.error());
+   }
+ 
+@@ -242,6 +430,15 @@ bool PlatformSharedMemoryRegion::ConvertToReadOnly() {
    CHECK_EQ(mode_, Mode::kWritable)
        << "Only writable shared memory region can be converted to read-only";
  
@@ -251,7 +309,7 @@ index c408700..ebd959b 100644
    handle_.fd.reset(handle_.readonly_fd.release());
    mode_ = Mode::kReadOnly;
    return true;
-@@ -255,6 +406,12 @@ bool PlatformSharedMemoryRegion::ConvertToUnsafe() {
+@@ -255,6 +452,12 @@ bool PlatformSharedMemoryRegion::ConvertToUnsafe() {
    CHECK_EQ(mode_, Mode::kWritable)
        << "Only writable shared memory region can be converted to unsafe";
  
@@ -264,7 +322,7 @@ index c408700..ebd959b 100644
    handle_.readonly_fd.reset();
    mode_ = Mode::kUnsafe;
    return true;
-@@ -290,6 +447,27 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
+@@ -290,6 +493,27 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
    }
  #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
  
@@ -292,24 +350,8 @@ index c408700..ebd959b 100644
    // This function theoretically can block on the disk, but realistically
    // the temporary files we create will just go into the buffer cache
    // and be deleted before they ever make it out to disk.
-@@ -389,6 +567,15 @@ PlatformSharedMemoryRegion::CheckPlatformHandlePermissionsCorrespondToMode(
-   }
- 
-   if (mode == Mode::kWritable) {
-+#if BUILDFLAG(IS_OHOS)
-+    const int paired_status = fcntl(handle.readonly_fd, F_GETFL);
-+    if (paired_status >= 0 && (paired_status & O_ACCMODE) == O_RDWR) {
-+      if (!IsOhosWritableMemfdPair(handle)) {
-+        return unexpected(TakeError::kReadOnlyFdNotReadOnly);
-+      }
-+      return ok();
-+    }
-+#endif
-     if (auto result = CheckFDAccessMode(handle.readonly_fd, O_RDONLY);
-         result.has_value()) {
-       switch (*result) {
 diff --git a/base/memory/platform_shared_memory_region_unittest.cc b/base/memory/platform_shared_memory_region_unittest.cc
-index d22751a..7a0a2e8 100644
+index d22751a..b34afe3 100644
 --- a/base/memory/platform_shared_memory_region_unittest.cc
 +++ b/base/memory/platform_shared_memory_region_unittest.cc
 @@ -17,6 +17,12 @@
@@ -433,7 +475,7 @@ index d22751a..7a0a2e8 100644
    auto read_only_region = PlatformSharedMemoryRegion::TakeOrFail(
        region.PassPlatformHandle(), PlatformSharedMemoryRegion::Mode::kReadOnly,
        kRegionSize, UnguessableToken::Create());
-@@ -479,7 +522,186 @@ TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyDescriptor) {
+@@ -479,7 +522,216 @@ TEST_F(PlatformSharedMemoryRegionTest, MemfdReadOnlyDescriptor) {
    ASSERT_TRUE(ro_mapping.IsValid());
    EXPECT_EQ(0x5a, ro_mapping.GetMemoryAsSpan<const uint8_t>()[kRegionSize - 1]);
  }
@@ -489,20 +531,50 @@ index d22751a..7a0a2e8 100644
 +      ErrorIs(PlatformSharedMemoryRegion::TakeError::kExpectedWritableButNot));
 +}
 +
-+TEST_F(PlatformSharedMemoryRegionTest, MemfdDupPairRejectsDifferentInodes) {
++TEST_F(PlatformSharedMemoryRegionTest, MemfdWritableImportRebuildsSecondInode) {
 +  auto first = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
 +  auto second = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
 +  ASSERT_TRUE(first.IsValid());
 +  ASSERT_TRUE(second.IsValid());
++  auto first_writer = MapForTesting(&first);
++  auto second_writer = MapForTesting(&second);
++  ASSERT_TRUE(first_writer.IsValid());
++  ASSERT_TRUE(second_writer.IsValid());
++  first_writer.GetMemoryAsSpan<uint8_t>()[0] = 0x5a;
++  second_writer.GetMemoryAsSpan<uint8_t>()[0] = 0xff;
 +  auto handles = first.PassPlatformHandle();
 +  handles.readonly_fd.reset(
 +      HANDLE_EINTR(fcntl(second.GetPlatformHandle().fd, F_DUPFD_CLOEXEC, 0)));
 +  auto result = PlatformSharedMemoryRegion::TakeOrFail(
 +      std::move(handles), PlatformSharedMemoryRegion::Mode::kWritable,
 +      kRegionSize, UnguessableToken::Create());
++  ASSERT_THAT(result, HasValue());
++  // The untrusted second inode is discarded, never used for conversion.
++  ASSERT_TRUE(result->ConvertToReadOnly());
++  auto reader = MapForTesting(&result.value());
++  ASSERT_TRUE(reader.IsValid());
++  EXPECT_EQ(0x5a, reader.GetMemoryAsSpan<const uint8_t>()[0]);
++  first_writer.GetMemoryAsSpan<uint8_t>()[0] = 0x6b;
++  EXPECT_EQ(0x6b, reader.GetMemoryAsSpan<const uint8_t>()[0]);
++  EXPECT_EQ(0, fcntl(second.GetPlatformHandle().fd, F_GET_SEALS) &
++                   (F_SEAL_FUTURE_WRITE | F_SEAL_SEAL));
++}
++
++TEST_F(PlatformSharedMemoryRegionTest,
++       MemfdWritableImportRejectsSealedPrimary) {
++  auto region = PlatformSharedMemoryRegion::CreateWritable(kRegionSize);
++  ASSERT_TRUE(region.IsValid());
++  auto handles = region.PassPlatformHandle();
++  handles.readonly_fd.reset(
++      HANDLE_EINTR(fcntl(handles.fd.get(), F_DUPFD_CLOEXEC, 0)));
++  ASSERT_EQ(0, fcntl(handles.fd.get(), F_ADD_SEALS,
++                     F_SEAL_FUTURE_WRITE | F_SEAL_SEAL));
++  auto result = PlatformSharedMemoryRegion::TakeOrFail(
++      std::move(handles), PlatformSharedMemoryRegion::Mode::kWritable,
++      kRegionSize, UnguessableToken::Create());
 +  EXPECT_THAT(
 +      result,
-+      ErrorIs(PlatformSharedMemoryRegion::TakeError::kReadOnlyFdNotReadOnly));
++      ErrorIs(PlatformSharedMemoryRegion::TakeError::kExpectedWritableButNot));
 +}
 +
 +TEST_F(PlatformSharedMemoryRegionTest, MemfdDupPairFailsClosed) {

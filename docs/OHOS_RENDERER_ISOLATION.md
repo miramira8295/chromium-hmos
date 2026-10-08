@@ -115,8 +115,10 @@ Linux/ChromeOS 启用。`ohos-memfd-shared-memory.patch` 为 OHOS 启用该实�
   状态并返回失败，不伪装为只读。
 - 使用重复 FD 的路径在转换后仍显示 `O_RDWR`，但内核写入封印禁止新的写入。
   接收端仅在大小封印、未来写入封印和封印锁全部存在时接受它为 ReadOnly；
-  不接受未封印的 `O_RDWR`。Writable 配对 FD 则必须指向同一个 inode，具有大小
-  封印且仍可追加写入封印。已封印为只读的 FD 不能重新导入为 Writable/Unsafe。
+  不接受未封印的 `O_RDWR`。导入 Writable memfd 时验证主 FD 的读写权限、大小
+  封印和仍可追加写入封印的状态，再从主 FD 重建转换 FD，丢弃传来的第二个 FD。
+  这样由 `F_DUPFD_CLOEXEC` 保证同一内存，不依赖额外的 `fstat/getattr` 权限。
+  已封印为只读的 FD 不能重新导入为 Writable/Unsafe。
 - 创建 Unsafe 或由 Writable 转换为 Unsafe 时封闭封印集合，禁止接收方追加写入
   封印破坏后续合法映射。Unsafe 本身允许所有接收方写入。
 - 普通进程仍保留旧文件后端。转换时识别不支持封印的磁盘文件和初始封印仅为
@@ -155,8 +157,13 @@ Chromium 单元测试覆盖不存在 TMPDIR 的隔离 renderer、只读 FD 重�
 不能替代 HarmonyOS 设备与 Chromium 单元测试。新增检查不使用 procfs 创建配对 FD，
 通过独立 Python 子进程接收封印后的重复 FD，验证读取成功、写入/新可写映射/
 只读映射升级/扩缩容均失败，生产方已有映射仍可写。新增 Chromium 单元测试覆盖
-重复 FD 的转换与导入、不同 inode 拒绝、未封印只读导入拒绝以及转换失败关闭路径；
+重复 FD 的转换与导入、第二个 inode 被替换、已封印主 FD 拒绝 Writable 导入、
+未封印只读导入拒绝以及转换失败关闭路径；
 默认 HAR 构建仍不执行这些 Chromium 单元测试。
+
+新增 Linux 合同测试在独立接收进程中使用 seccomp 强制让属性查询返回 EACCES，
+验证从主 FD 重建转换 FD、旧生产方映射继续写入和只读读取，同时确认传入的
+不相关第二个 inode 未被读取或封印。这模拟权限边界，不代表真实设备上的拒绝原因已确认。
 
 SDK 将退出回调错误 `16000050` 定义为内部错误。OpenHarmony 公开
 [`AppNativeSpawnManager::RegisterNativeChildExitNotify`](https://github.com/openharmony/ability_ability_runtime/blob/master/services/appmgr/src/app_native_spawn_manager.cpp)
@@ -295,3 +302,17 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
     错误只记录一次，相较旧版 25 秒 153 条错误已明显减少。
   - 真机 Pad、2in1 和原生层对抗性边界测试未覆盖。本轮只更新验证记录，继续使用
     `build-83cd4f72` 作为复测包。
+
+- `3a1baca8` 外壳反馈回归：Mate 70 Pro+ 单进程打开标签页总览必现 SIGTRAP，
+  外部链接冷启动 3/3 崩溃；Pad 模拟器多进程加隔离也出现两次。
+  符号包 build-id `c287e1d9b3963be89d5c40555870ed368ed57fa3` 已核验。
+  `PlatformSharedMemoryRegion::Take` 的反汇编确认 x22 保存 Mode，值 1 对应
+  Writable；当前证据不能将其归为 ReadOnly/O_RDWR 拒绝。runner 快照
+  `37772039250` 已校验全部 80 个文件哈希，共享内存实现与该提交一致。
+  本轮移除 Writable memfd 导入对 `fstat`/inode 比较的依赖，改从已校验主 FD
+  重建转换 FD；未关闭权限校验或 `Take` 的 CHECK。失败时记录
+  `OHOS shared memory import rejected mode=... size=... error=... flags=...`
+  及 seals、各查询的 errno，便于区分封印、访问模式和 FD 失效。
+  首次成功导入记录 `writable import rebuilt conversion fd`。
+  具体旧版拒绝分支仍待确认；必须复测手机总览、外链冷启动及 Pad 隔离模式，
+  不能仅凭 Linux 封印测试通过认定本次设备崩溃已消失。
