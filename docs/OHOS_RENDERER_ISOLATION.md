@@ -106,12 +106,17 @@ Linux/ChromeOS 启用。`ohos-memfd-shared-memory.patch` 为 OHOS 启用该实�
 `365333c0` 的 `fchmod(0600)` 在普通应用与 isolated renderer 中都被 EACCES
 拒绝；日志尚不能单独确定是 SELinux 还是其他系统策略。本轮移除该调用，改用：
 
-- 创建 Writable memfd 时仅封印大小，保留添加封印的能力，通过 `/proc/self/fd`
-  取得真正的 `O_RDONLY` 配对 FD。
+- 创建 Writable memfd 时仅封印大小，保留添加封印的能力。先通过 `/proc/self/fd`
+  取得 `O_RDONLY` 配对 FD；若重开被拒绝，更新后的共享内存补丁使用
+  `F_DUPFD_CLOEXEC` 保留配对 FD，此时仍是 Writable，尚不能当作只读句柄传递。
 - 转换为 ReadOnly 时，先添加 `F_SEAL_FUTURE_WRITE | F_SEAL_SEAL`，成功后才交出
   只读句柄。已有的生产方可写映射继续有效；接收方即使重开为 `O_RDWR`，也不能
   `pwrite`、创建新的共享可写映射或把新建只读映射改为可写。转换失败保留 Writable
   状态并返回失败，不伪装为只读。
+- 使用重复 FD 的路径在转换后仍显示 `O_RDWR`，但内核写入封印禁止新的写入。
+  接收端仅在大小封印、未来写入封印和封印锁全部存在时接受它为 ReadOnly；
+  不接受未封印的 `O_RDWR`。Writable 配对 FD 则必须指向同一个 inode，具有大小
+  封印且仍可追加写入封印。已封印为只读的 FD 不能重新导入为 Writable/Unsafe。
 - 创建 Unsafe 或由 Writable 转换为 Unsafe 时封闭封印集合，禁止接收方追加写入
   封印破坏后续合法映射。Unsafe 本身允许所有接收方写入。
 - 普通进程仍保留旧文件后端。转换时识别不支持封印的磁盘文件和初始封印仅为
@@ -119,26 +124,39 @@ Linux/ChromeOS 启用。`ohos-memfd-shared-memory.patch` 为 OHOS 启用该实�
   隔离 renderer 不回退到应用私有 cache，也不放宽沙箱。
 
 匿名性、大小封印与 `O_RDONLY` 本身不足以防止通过 procfs 恢复写入权限，不能
-只删除 `fchmod` 而不补上上述约束。此实现依赖目标内核允许 `F_SEAL_FUTURE_WRITE`
-及 procfs 只读重开。`83cd4f72` 的 Pad 模拟器基础运行已通过，但反馈未包含
+只删除 `fchmod` 而不补上上述约束。此实现依赖目标内核允许 `F_SEAL_FUTURE_WRITE`；
+新增重复 FD 路径移除了对 procfs 只读重开的硬依赖。
+`83cd4f72` 的 Pad 模拟器基础运行已通过，但反馈未包含
 `readonly sealing active`，不能据此确认只读封印路径及攻击测试在目标域中通过。
 
 每进程首次成功分别记录 `OHOS shared memory memfd active (conversion write seals)`
 和 `OHOS shared memory readonly sealing active`。失败的阶段与 errno 只记录一次，
-避免普通进程的文件回退刷屏；例如 `size sealing failed`、`readonly reopen failed`
+避免普通进程的文件回退刷屏；例如 `size sealing failed`、`conversion fd duplication failed`
 或 `readonly sealing failed`。
 
-`83cd4f72` 反馈中，浏览器先出现 `readonly reopen failed: EACCES`，后又出现
-`memfd active`。源码中前者会使当前 Writable 分配退出 memfd 路径；普通进程随后
+旧版 `83cd4f72` 反馈中，浏览器先出现 `readonly reopen failed: EACCES`，后又出现
+`memfd active`。旧版源码中前者会使当前 Writable 分配退出 memfd 路径；普通进程随后
 尝试旧文件后端，隔离 renderer 则返回失败。后续 `memfd active` 只说明另一笔分配
 成功使用 memfd，可能是无需重开的 Unsafe 内存，不表示先前失败的分配靠写入封印
-恢复成功，也不能证明所有共享内存均走 memfd。本轮没有观察到这一错误阻塞网页。
+恢复成功，也不能证明所有共享内存均走 memfd。该轮基础测试没有观察到这一错误阻塞网页。
+
+后续收到 `readonly reopen failed` → `isolated shared memory unavailable` →
+`CreateSharedImage: Could not get SHM for data upload` → Compositor SIGTRAP 的反馈。
+这覆盖了隔离 renderer 中必须创建 Writable 共享内存的场景，证实旧版重开失败
+会导致分配失败。新增补丁在成功复制 FD 后继续分配，并每进程仅记录一次
+`OHOS shared memory procfs reopen unavailable; using sealed-fd conversion`。
+随后应出现 `readonly sealing active`；仍需在实际触发设备上复测 SharedImage 上传、
+Canvas/WebGL、普通网页及隔离开关两种模式。设备型号、系统版本及 build 待补充。
 
 Chromium 单元测试覆盖不存在 TMPDIR 的隔离 renderer、只读 FD 重开攻击、已有
 可写映射继续生效、Unsafe 后续映射以及只读封印失败不改变句柄状态；默认 HAR 构建
 不执行这些单元测试。Adapter CI 另运行 `scripts/check-memfd-seals.py`，用 Linux
 真实系统调用验证未加写入封印时可重开写入、加封印后拒绝写入和新可写映射；该检查
-不能替代 HarmonyOS 设备与 Chromium 单元测试。
+不能替代 HarmonyOS 设备与 Chromium 单元测试。新增检查不使用 procfs 创建配对 FD，
+通过独立 Python 子进程接收封印后的重复 FD，验证读取成功、写入/新可写映射/
+只读映射升级/扩缩容均失败，生产方已有映射仍可写。新增 Chromium 单元测试覆盖
+重复 FD 的转换与导入、不同 inode 拒绝、未封印只读导入拒绝以及转换失败关闭路径；
+默认 HAR 构建仍不执行这些 Chromium 单元测试。
 
 SDK 将退出回调错误 `16000050` 定义为内部错误。OpenHarmony 公开
 [`AppNativeSpawnManager::RegisterNativeChildExitNotify`](https://github.com/openharmony/ability_ability_runtime/blob/master/services/appmgr/src/app_native_spawn_manager.cpp)

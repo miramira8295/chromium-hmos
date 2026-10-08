@@ -11,6 +11,8 @@ import errno
 import fcntl
 import mmap
 import os
+import subprocess
+import sys
 
 
 FUTURE_WRITE = getattr(fcntl, "F_SEAL_FUTURE_WRITE", 0x0010)
@@ -103,6 +105,55 @@ def check_unsafe_and_failed_conversion():
     print("PASS: Unsafe permits future writers and rejects added write seals")
 
 
+def check_sealed_receiver(fd):
+    # Executed in a fresh process with only the FD, not the producer mapping.
+    assert fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDWR
+    required = SIZE_SEALS | FUTURE_WRITE | fcntl.F_SEAL_SEAL
+    assert fcntl.fcntl(fd, fcntl.F_GET_SEALS) & required == required
+    with map_shared(fd, writable=False) as reader:
+        assert reader[0] == ord("P")
+    expect_denied(lambda: os.pwrite(fd, b"X", 0))
+    expect_denied(lambda: map_shared(fd))
+    expect_denied(lambda: os.ftruncate(fd, 0))
+    expect_denied(lambda: os.ftruncate(fd, SIZE * 2))
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                         ctypes.c_int, ctypes.c_int, ctypes.c_long]
+    libc.mmap.restype = ctypes.c_void_p
+    libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+    address = libc.mmap(None, SIZE, mmap.PROT_READ, mmap.MAP_SHARED, fd, 0)
+    assert address != ctypes.c_void_p(-1).value, ctypes.get_errno()
+    try:
+        assert libc.mprotect(address, SIZE, mmap.PROT_READ | mmap.PROT_WRITE) == -1
+        assert ctypes.get_errno() in (errno.EACCES, errno.EPERM)
+    finally:
+        assert libc.munmap(address, SIZE) == 0
+
+
+def check_no_procfs_conversion():
+    with contextlib.ExitStack() as stack:
+        fd = create_region(stack)
+        paired = fd_in(stack, fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 0))
+        assert not os.get_inheritable(paired)
+        # The duplicate is writable before conversion; it must never be
+        # accepted as a read-only handle in this state.
+        assert os.pwrite(paired, b"W", 0) == 1
+        writer = stack.enter_context(map_shared(fd))
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS, FUTURE_WRITE | fcntl.F_SEAL_SEAL)
+        writer[0] = ord("P")
+        subprocess.run([sys.executable, __file__, "--sealed-receiver", str(paired)],
+                       pass_fds=(paired,), check=True, timeout=20)
+        writer[0] = ord("Q")
+        with map_shared(paired, writable=False) as reader:
+            assert reader[0] == ord("Q")
+    print("PASS: no-procfs dup conversion; receiver cannot write; producer still can")
+
+
 if __name__ == "__main__":
-    check_readonly_reopen()
-    check_unsafe_and_failed_conversion()
+    if len(sys.argv) == 3 and sys.argv[1] == "--sealed-receiver":
+        check_sealed_receiver(int(sys.argv[2]))
+    else:
+        check_readonly_reopen()
+        check_unsafe_and_failed_conversion()
+        check_no_procfs_conversion()
