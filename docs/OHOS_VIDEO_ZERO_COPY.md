@@ -245,3 +245,17 @@ Main10 SDR／PQ／HLG（1080p、4K，均为 yuv420p10le）仍被网页 HEVC 能�
 
 `3a1baca8` 已收到标签页截图和外链冷启动的共享内存导入崩溃反馈，不能作为稳定验收包；
 修复进展见 [渲染隔离记录](OHOS_RENDERER_ISOLATION.md)。媒体复测应使用后续修复构建。
+
+## 切换标签后屏幕停在 HDR 亮度（2026-10-08）
+
+现象：手机播放 YouTube HDR（PQ）视频后切到别的标签页，屏幕一直保持 HDR 亮度，
+普通网页的白底显示成灰色。日志里窗口在播放时被标成 `Rec. 2020 PQ, HDR10`，
+切换后再没有改回 sRGB；同一标签页内从视频页跳到别的页面则能正常改回。
+
+原因在 viz：`SurfaceAggregator` 汇总一帧时，会对"被引用但不显示"的 surface 也做 prewalk，
+并把它们的 `content_color_usage` 一并取最大值。被隐藏的标签页不再出新帧，浏览器仍引用它最后那个 HDR 帧，
+于是整帧输出一直选 PQ，`ohos_surface_factory.cc` 也就一直没收到改回 sRGB 的 Resize。
+真机上已排除可见页面（刷新、滚动无效）和后台标签页内容（清掉视频、跳转空白页无效）。
+
+修复放在 `patches/ohos-video-zero-copy.patch`：不显示的 surface 照常 prewalk（复制请求等仍需要），
+但不参与输出色彩空间的选择。播放中整窗 PQ 输出导致网页其他部分也变亮，是另一个已知问题，尚未处理。

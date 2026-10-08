@@ -118,3 +118,23 @@ index ae41656..3ef8343 100644
        "native_media_codecbase",
        "native_media_core",
        "native_media_vdec",
+diff --git a/components/viz/service/display/surface_aggregator.cc b/components/viz/service/display/surface_aggregator.cc
+--- a/components/viz/service/display/surface_aggregator.cc
++++ b/components/viz/service/display/surface_aggregator.cc
+@@ -2069,8 +2069,16 @@
+       result.undrawn_surfaces.insert(surface_id);
+       ResolvedFrameData* undrawn_surface = GetResolvedFrame(surface_id);
+       if (undrawn_surface) {
++        // An undrawn surface adds no pixels, so it must not pick the output
++        // colour space either. A hidden tab that last showed HDR video stays
++        // referenced with that frame; counting it kept the whole display in
++        // PQ after switching to a plain page, which on HarmonyOS keeps the
++        // panel in HDR brightness and shows SDR content washed out.
++        const gfx::ContentColorUsage drawn_content_color_usage =
++            result.content_color_usage;
+         PrewalkSurface(*undrawn_surface, /*parent_pass=*/nullptr, gfx::Rect(),
+                        result);
++        result.content_color_usage = drawn_content_color_usage;
+       }
+     }
+   }
