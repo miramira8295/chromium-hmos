@@ -33,6 +33,15 @@ jobs:
 
           root = Path(os.environ.get('CHROMIUM_SRC', '/root/chromium-154/src'))
           paths = '''
+          out/ohos_arm64/args.gn
+          out/ohos_arm64/gen/media/media_buildflags.h
+          media/media_options.gni
+          media/base/supported_types.cc
+          media/base/mime_util_internal.cc
+          media/base/video_codecs.cc
+          media/filters/decoder_selector.cc
+          media/renderers/default_decoder_factory.cc
+          third_party/libyuv/include/libyuv/planar_functions.h
           gpu/ipc/service/gpu_channel_shared_image_interface.h
           gpu/ipc/service/gpu_channel_shared_image_interface.cc
           gpu/ipc/service/gpu_channel.h
