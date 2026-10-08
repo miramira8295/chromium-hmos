@@ -1,0 +1,135 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#include "media/gpu/ohos/ohos_video_surface.h"
+
+#include <native_buffer/native_buffer.h>
+#include <native_window/external_window.h>
+
+#include <unistd.h>
+
+#include <utility>
+
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/logging.h"
+#include "base/posix/eintr_wrapper.h"
+#include "base/task/bind_post_task.h"
+
+namespace media {
+
+OhosVideoSurface::OhosVideoSurface(
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    base::RepeatingClosure frame_available)
+    : base::RefCountedDeleteOnSequence<OhosVideoSurface>(task_runner),
+      task_runner_(std::move(task_runner)),
+      frame_available_(std::move(frame_available)) {}
+
+OhosVideoSurface::~OhosVideoSurface() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  StopListening();
+  if (image_) {
+    OH_NativeImage_Destroy(&image_);
+  }
+  window_ = nullptr;
+}
+
+scoped_refptr<OhosVideoSurface> OhosVideoSurface::Create(
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    const gfx::Size& size,
+    base::RepeatingClosure frame_available) {
+  DCHECK(task_runner->RunsTasksInCurrentSequence());
+  auto surface = base::WrapRefCounted(
+      new OhosVideoSurface(std::move(task_runner), std::move(frame_available)));
+  surface->image_ = OH_ConsumerSurface_Create();
+  if (!surface->image_) {
+    return nullptr;
+  }
+  // GPU sampling only: never CPU-map the decoded surface (it may use HEBC).
+  if (OH_ConsumerSurface_SetDefaultUsage(surface->image_,
+                                         NATIVEBUFFER_USAGE_HW_TEXTURE) != 0 ||
+      OH_ConsumerSurface_SetDefaultSize(surface->image_, size.width(),
+                                        size.height()) != 0) {
+    return nullptr;
+  }
+  surface->window_ = OH_NativeImage_AcquireNativeWindow(surface->image_);
+  if (!surface->window_) {
+    return nullptr;
+  }
+  OH_OnFrameAvailableListener listener = {surface.get(), &OnFrameAvailable};
+  if (OH_NativeImage_SetOnFrameAvailableListener(surface->image_, listener) !=
+      0) {
+    return nullptr;
+  }
+  surface->listening_ = true;
+  return surface;
+}
+
+void OhosVideoSurface::StopListening() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  if (listening_) {
+    OH_NativeImage_UnsetOnFrameAvailableListener(image_);
+    listening_ = false;
+  }
+}
+
+void OhosVideoSurface::OnFrameAvailable(void* context) {
+  // This callback only posts; all NativeImage operations run on task_runner_.
+  static_cast<OhosVideoSurface*>(context)->frame_available_.Run();
+}
+
+bool OhosVideoSurface::Acquire(OHNativeWindowBuffer** buffer,
+                               base::ScopedFD* acquire_fence,
+                               base::OnceClosure* release) {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  int fence = -1;
+  *buffer = nullptr;
+  const int result =
+      OH_NativeImage_AcquireNativeWindowBuffer(image_, buffer, &fence);
+  acquire_fence->reset(fence);
+  if (result != 0 || !*buffer) {
+    return false;
+  }
+  if (OH_NativeWindow_NativeObjectReference(*buffer) != 0) {
+    if (OH_NativeImage_ReleaseNativeWindowBuffer(
+            image_, *buffer, acquire_fence->release()) != 0) {
+      OH_NativeWindow_NativeObjectUnreference(*buffer);
+    }
+    *buffer = nullptr;
+    return false;
+  }
+  // Preserve the producer fence even if conversion is cancelled before GPU
+  // import. Returning an unfinished decode buffer with fence=-1 is unsafe.
+  base::ScopedFD producer_fence;
+  if (acquire_fence->is_valid()) {
+    producer_fence.reset(HANDLE_EINTR(dup(acquire_fence->get())));
+    if (!producer_fence.is_valid()) {
+      Release(BufferToRelease{*buffer, std::move(*acquire_fence)});
+      *buffer = nullptr;
+      return false;
+    }
+  }
+  // ScopedClosureRunner also releases when a posted conversion task is dropped.
+  auto lease = base::ScopedClosureRunner(base::BindPostTask(
+      task_runner_,
+      base::BindOnce(&OhosVideoSurface::Release, base::WrapRefCounted(this),
+                     BufferToRelease{*buffer, std::move(producer_fence)})));
+  *release = base::BindOnce([](base::ScopedClosureRunner) {}, std::move(lease));
+  return true;
+}
+
+void OhosVideoSurface::Release(BufferToRelease acquired) {
+  OHNativeWindowBuffer* buffer = acquired.buffer;
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  // The caller waits the VideoFrame release token when the GPU used the frame.
+  // The original producer fence also covers frames dropped before import.
+  if (OH_NativeImage_ReleaseNativeWindowBuffer(
+          image_, buffer, acquired.producer_fence.release()) != 0) {
+    LOG(ERROR) << "OHOS video zero-copy: surface release failed";
+    OH_NativeWindow_NativeObjectUnreference(buffer);
+  }
+  OH_NativeWindow_NativeObjectUnreference(buffer);
+}
+
+}  // namespace media

@@ -16,8 +16,10 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
+#include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/numerics/checked_math.h"
@@ -32,6 +34,7 @@
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/ozone/platform/ohos/ohos_native_pixmap.h"
 
 namespace media {
 
@@ -40,6 +43,11 @@ namespace {
 // Decode callbacks complete as soon as a buffer is inside the codec, so this
 // only bounds how far the demuxer can run ahead of free codec input slots.
 constexpr int kMaxDecodeRequests = 4;
+constexpr size_t kMaxSurfaceFramesInFlight = 4;
+
+BASE_FEATURE(kOhosZeroCopyVideo,
+             "OhosZeroCopyVideo",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 int32_t ReadIntOr(OH_AVFormat* format, const char* key, int32_t fallback) {
   int32_t value = 0;
@@ -88,10 +96,18 @@ void OhosVideoDecoder::CodecDeleter::operator()(OH_AVCodec* codec) const {
 OhosVideoDecoder::OhosVideoDecoder(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
     std::unique_ptr<MediaLog> media_log,
-    SupportedVideoDecoderConfigs supported_configs)
+    SupportedVideoDecoderConfigs supported_configs,
+    scoped_refptr<base::SequencedTaskRunner> gpu_task_runner,
+    OhosVideoFrameConverter::GetCommandBufferStubCB get_stub_cb,
+    const gpu::GpuDriverBugWorkarounds& workarounds)
     : task_runner_(std::move(task_runner)),
       media_log_(std::move(media_log)),
-      supported_configs_(std::move(supported_configs)) {
+      supported_configs_(std::move(supported_configs)),
+      gpu_task_runner_(std::move(gpu_task_runner)),
+      frame_converter_(
+          base::MakeRefCounted<OhosVideoFrameConverter>(gpu_task_runner_,
+                                                        std::move(get_stub_cb),
+                                                        workarounds)) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
@@ -136,17 +152,66 @@ void OhosVideoDecoder::Initialize(const VideoDecoderConfig& config,
   output_cb_ = output_cb;
   output_layout_.reset();
 
+  state_ = State::kUninitialized;
+  surface_enabled_ = false;
+  const bool eligible = (config_.codec() == VideoCodec::kH264 ||
+                         config_.profile() == HEVCPROFILE_MAIN) &&
+                        !config_.color_space_info().ToGfxColorSpace().IsHDR();
+  if (base::FeatureList::IsEnabled(kOhosZeroCopyVideo) && eligible) {
+    gpu_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &OhosVideoFrameConverter::Initialize, frame_converter_,
+            base::BindPostTask(
+                task_runner_,
+                base::BindOnce(&OhosVideoDecoder::OnGpuInitialized,
+                               weak_factory_.GetWeakPtr(), generation_,
+                               std::move(bound_init_cb)))));
+    return;
+  }
+  if (base::FeatureList::IsEnabled(kOhosZeroCopyVideo)) {
+    LOG(WARNING) << "OHOS video zero-copy: profile/HDR ineligible; buffer mode";
+  }
+  FinishInitialize(std::move(bound_init_cb));
+}
+
+void OhosVideoDecoder::OnGpuInitialized(uint32_t generation,
+                                        InitCB init_cb,
+                                        bool supported) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (generation != generation_) {
+    std::move(init_cb).Run(DecoderStatus::Codes::kAborted);
+    return;
+  }
+  surface_enabled_ = supported;
+  if (!supported) {
+    LOG(WARNING)
+        << "OHOS video zero-copy: GPU import/fences unavailable; buffer mode";
+  }
+  FinishInitialize(std::move(init_cb));
+}
+
+void OhosVideoDecoder::FinishInitialize(InitCB init_cb) {
   DecoderStatus status = CreateCodec();
+  if (!status.is_ok() && surface_enabled_) {
+    // No compressed input has been consumed; retry safely with the old path.
+    LOG(WARNING)
+        << "OHOS video zero-copy: surface initialization failed; buffer mode: "
+        << status.message();
+    DestroyCodec();
+    surface_enabled_ = false;
+    status = CreateCodec();
+  }
   if (!status.is_ok()) {
     MEDIA_LOG(ERROR, media_log_)
         << "AVCodecKit decoder creation failed: " << status.message();
     DestroyCodec();
     state_ = State::kUninitialized;
-    std::move(bound_init_cb).Run(std::move(status));
+    std::move(init_cb).Run(std::move(status));
     return;
   }
   state_ = State::kDecoding;
-  std::move(bound_init_cb).Run(DecoderStatus::Codes::kOk);
+  std::move(init_cb).Run(DecoderStatus::Codes::kOk);
 }
 
 void OhosVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
@@ -186,9 +251,9 @@ bool OhosVideoDecoder::NeedsBitstreamConversion() const {
 }
 
 bool OhosVideoDecoder::CanReadWithoutStalling() const {
-  // Output is copied out and returned to the codec at once, so no decoded
-  // picture is ever held against the renderer.
-  return true;
+  // Surface frames hold codec buffers until the GPU finishes reading them.
+  return !surface_enabled_ ||
+         surface_frames_in_flight_ < kMaxSurfaceFramesInFlight;
 }
 
 int OhosVideoDecoder::GetMaxDecodeRequests() const {
@@ -296,12 +361,46 @@ void OhosVideoDecoder::OnNewOutputBuffer(uint32_t generation,
 
   if (attr.flags & AVCODEC_BUFFER_FLAGS_EOS) {
     OH_VideoDecoder_FreeOutputBuffer(codec_.get(), output.index);
-    OnDrainComplete();
+    if (surface_enabled_) {
+      surface_eos_ = true;
+      MaybeCompleteSurfaceDrain();
+    } else {
+      OnDrainComplete();
+    }
     return;
   }
 
   if (state_ == State::kError) {
     OH_VideoDecoder_FreeOutputBuffer(codec_.get(), output.index);
+    return;
+  }
+
+  if (surface_enabled_) {
+    // Surface callbacks contain metadata, not mapped pixel data: size=0 is
+    // valid. Codec-data-only output, if supplied, is not a picture.
+    if (attr.flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA) {
+      OH_VideoDecoder_FreeOutputBuffer(codec_.get(), output.index);
+      return;
+    }
+    if ((!output_layout_ && !UpdateOutputLayout()) ||
+        surface_outputs_.size() >= 64) {
+      OH_VideoDecoder_FreeOutputBuffer(codec_.get(), output.index);
+      EnterErrorState("invalid surface layout or excessive output queue");
+      return;
+    }
+    const gfx::Size picture_size(output_layout_->width, output_layout_->height);
+    gfx::Rect visible_rect(picture_size);
+    if (picture_size == config_.coded_size()) {
+      visible_rect = config_.visible_rect();
+    }
+    gfx::ColorSpace color_space = config_.color_space_info().ToGfxColorSpace();
+    if (!color_space.IsValid()) {
+      color_space = gfx::ColorSpace::CreateREC709();
+    }
+    surface_outputs_.push_back(SurfaceOutput{
+        output.index, base::Microseconds(attr.pts), visible_rect,
+        config_.aspect_ratio().GetNaturalSize(visible_rect), color_space});
+    RenderNextSurfaceOutput();
     return;
   }
 
@@ -363,6 +462,19 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
             "OH_VideoDecoder_Configure failed: " +
                 base::NumberToString(static_cast<int>(result))};
   }
+  if (surface_enabled_) {
+    surface_ = OhosVideoSurface::Create(
+        task_runner_, coded_size,
+        base::BindPostTask(
+            task_runner_,
+            base::BindRepeating(&OhosVideoDecoder::OnSurfaceFrameAvailable,
+                                weak_factory_.GetWeakPtr(), generation_)));
+    if (!surface_ || OH_VideoDecoder_SetSurface(
+                         codec_.get(), surface_->window()) != AV_ERR_OK) {
+      return {DecoderStatus::Codes::kFailedToCreateDecoder,
+              "consumer surface/SetSurface failed"};
+    }
+  }
   if (OH_VideoDecoder_Prepare(codec_.get()) != AV_ERR_OK ||
       OH_VideoDecoder_Start(codec_.get()) != AV_ERR_OK) {
     return {DecoderStatus::Codes::kFailedToCreateDecoder,
@@ -375,14 +487,31 @@ void OhosVideoDecoder::DestroyCodec() {
   // Invalidate before destroying so that callbacks already posted by this
   // codec are ignored even if a new codec reuses their indices.
   ++generation_;
+  surface_timeout_.Stop();
   free_inputs_.clear();
+  surface_outputs_.clear();
+  rendered_output_.reset();
+  surface_frames_in_flight_ = 0;
+  pending_conversions_ = 0;
+  surface_eos_ = false;
+  if (surface_) {
+    surface_->StopListening();
+  }
   codec_.reset();
   relay_.reset();
+  surface_.reset();
+  output_layout_.reset();
 }
 
 bool OhosVideoDecoder::FlushAndRestartCodec() {
   if (!codec_) {
     return false;
+  }
+  if (surface_enabled_) {
+    // A fresh consumer queue prevents late pre-seek frames from being paired
+    // with new timestamps. Outstanding GPU frames keep the old queue alive.
+    DestroyCodec();
+    return CreateCodec().is_ok();
   }
   // No callback fires between Flush() and Start(), so bumping the generation
   // in between cleanly separates pre-flush callbacks from post-flush ones.
@@ -466,7 +595,8 @@ bool OhosVideoDecoder::UpdateOutputLayout() {
   const int32_t stride = ReadIntOr(format.get(), OH_MD_KEY_VIDEO_STRIDE, width);
   const int32_t slice_height =
       ReadIntOr(format.get(), OH_MD_KEY_VIDEO_SLICE_HEIGHT, height);
-  if (width <= 0 || height <= 0 || stride < width || slice_height < height) {
+  if (width <= 0 || height <= 0 ||
+      (!surface_enabled_ && (stride < width || slice_height < height))) {
     MEDIA_LOG(ERROR, media_log_)
         << "Unusable decoder output layout " << width << "x" << height
         << " stride " << stride << " slice height " << slice_height;
@@ -481,7 +611,8 @@ bool OhosVideoDecoder::UpdateOutputLayout() {
   LOG(WARNING) << "OHOS video decoder output: "
                << GetProfileName(config_.profile()) << ", pixel format "
                << ReadIntOrMissing(format.get(), OH_MD_KEY_PIXEL_FORMAT)
-               << ", range " << ReadIntOrMissing(format.get(), OH_MD_KEY_RANGE_FLAG)
+               << ", range "
+               << ReadIntOrMissing(format.get(), OH_MD_KEY_RANGE_FLAG)
                << ", primaries "
                << ReadIntOrMissing(format.get(), OH_MD_KEY_COLOR_PRIMARIES)
                << ", transfer "
@@ -564,6 +695,114 @@ scoped_refptr<VideoFrame> OhosVideoDecoder::CopyOutput(
   return frame;
 }
 
+void OhosVideoDecoder::RenderNextSurfaceOutput() {
+  if (!surface_ || rendered_output_ || surface_outputs_.empty() ||
+      surface_frames_in_flight_ >= kMaxSurfaceFramesInFlight ||
+      state_ == State::kError) {
+    return;
+  }
+  rendered_output_ = std::move(surface_outputs_.front());
+  surface_outputs_.pop_front();
+  if (OH_VideoDecoder_RenderOutputBuffer(
+          codec_.get(), rendered_output_->index) != AV_ERR_OK) {
+    EnterErrorState("RenderOutputBuffer failed");
+    return;
+  }
+  surface_timeout_.Start(FROM_HERE, base::Seconds(10),
+                         base::BindOnce(&OhosVideoDecoder::EnterErrorState,
+                                        weak_factory_.GetWeakPtr(),
+                                        "surface frame arrival timed out"));
+}
+
+void OhosVideoDecoder::OnSurfaceFrameAvailable(uint32_t generation) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (generation != generation_ || !surface_ || !rendered_output_) {
+    return;
+  }
+  OHNativeWindowBuffer* buffer = nullptr;
+  base::ScopedFD acquire_fence;
+  base::OnceClosure release;
+  if (!surface_->Acquire(&buffer, &acquire_fence, &release)) {
+    EnterErrorState("could not acquire surface buffer");
+    return;
+  }
+  surface_timeout_.Stop();
+  SurfaceOutput output = std::move(*rendered_output_);
+  rendered_output_.reset();
+  ++surface_frames_in_flight_;
+  auto released = base::BindPostTask(
+      task_runner_, base::BindOnce(&OhosVideoDecoder::OnSurfaceFrameReleased,
+                                   weak_factory_.GetWeakPtr(), generation));
+  // Both callbacks run even if conversion is cancelled before import.
+  auto pixmap = ui::CreateOhosVideoNativePixmap(
+      buffer,
+      base::BindOnce(
+          [](base::ScopedClosureRunner lease, base::ScopedClosureRunner done) {
+            lease.RunAndReset();
+            done.RunAndReset();
+          },
+          base::ScopedClosureRunner(std::move(release)),
+          base::ScopedClosureRunner(std::move(released))));
+  if (!pixmap) {
+    EnterErrorState("unsupported decoder NativeBuffer");
+    return;
+  }
+  ++pending_conversions_;
+  gfx::GpuFenceHandle fence;
+  fence.Adopt(std::move(acquire_fence));
+  gpu_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &OhosVideoFrameConverter::Convert, frame_converter_,
+          std::move(pixmap), std::move(fence), output.visible_rect,
+          output.natural_size, output.color_space, output.timestamp,
+          base::BindPostTask(
+              task_runner_,
+              base::BindOnce(&OhosVideoDecoder::OnSurfaceFrameConverted,
+                             weak_factory_.GetWeakPtr(), generation))));
+  RenderNextSurfaceOutput();
+}
+
+void OhosVideoDecoder::OnSurfaceFrameConverted(
+    uint32_t generation,
+    scoped_refptr<VideoFrame> frame) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (generation != generation_) {
+    return;
+  }
+  --pending_conversions_;
+  if (!frame) {
+    EnterErrorState("surface SharedImage conversion failed");
+    return;
+  }
+  if (++surface_frame_count_ == 1) {
+    LOG(WARNING) << "OHOS video zero-copy: first SharedImage frame "
+                 << frame->coded_size().ToString() << "; CPU output copies=0";
+  }
+  auto weak_this = weak_factory_.GetWeakPtr();
+  output_cb_.Run(std::move(frame));
+  if (weak_this) {
+    MaybeCompleteSurfaceDrain();
+  }
+}
+
+void OhosVideoDecoder::OnSurfaceFrameReleased(uint32_t generation) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (generation != generation_) {
+    return;
+  }
+  DCHECK_GT(surface_frames_in_flight_, 0u);
+  --surface_frames_in_flight_;
+  RenderNextSurfaceOutput();
+}
+
+void OhosVideoDecoder::MaybeCompleteSurfaceDrain() {
+  if (surface_eos_ && surface_outputs_.empty() && !rendered_output_ &&
+      pending_conversions_ == 0) {
+    OnDrainComplete();
+  }
+}
+
 void OhosVideoDecoder::OnDrainComplete() {
   if (state_ != State::kDraining) {
     return;
@@ -580,9 +819,10 @@ void OhosVideoDecoder::OnDrainComplete() {
 }
 
 void OhosVideoDecoder::EnterErrorState(const char* reason) {
-  DVLOG(1) << "OhosVideoDecoder error: " << reason;
+  LOG(ERROR) << "OhosVideoDecoder error: " << reason;
   MEDIA_LOG(ERROR, media_log_) << "OhosVideoDecoder: " << reason;
   state_ = State::kError;
+  DestroyCodec();
   AbortPendingDecodes(DecoderStatus::Codes::kPlatformDecodeFailure);
 }
 

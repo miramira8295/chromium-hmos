@@ -29,7 +29,8 @@ class GpuMojoMediaClientOhos final : public GpuMojoMediaClient {
     // its config against the same capability snapshot the renderer saw.
     return std::make_unique<OhosVideoDecoder>(
         traits.task_runner, std::move(traits.media_log),
-        traits.get_cached_configs_cb.Run());
+        traits.get_cached_configs_cb.Run(), gpu_task_runner_,
+        traits.get_command_buffer_stub_cb, gpu_workarounds_);
   }
 
   std::optional<SupportedVideoDecoderConfigs>

@@ -1,0 +1,120 @@
+OHOS: register decoder-owned NativeBuffers as GPU-only SharedImages.
+
+Generated against runner snapshot 37736920489 (Chromium 743f26418a26),
+with the adapter and existing incremental patches applied. Pair with the
+media/gpu/ohos and ui/ozone/platform/ohos overlay implementations.
+
+diff --git a/gpu/ipc/service/gpu_channel_shared_image_interface.cc b/gpu/ipc/service/gpu_channel_shared_image_interface.cc
+index ba03f27..02ce784 100644
+--- a/gpu/ipc/service/gpu_channel_shared_image_interface.cc
++++ b/gpu/ipc/service/gpu_channel_shared_image_interface.cc
+@@ -23,6 +23,12 @@
+ #include "gpu/command_buffer/service/stream_texture_shared_image_interface.h"
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "gpu/command_buffer/service/shared_image/ozone_image_backing.h"
++#include "ui/gfx/gpu_fence.h"
++#include "ui/gl/gl_fence.h"
++#endif
++
+ namespace gpu {
+ 
+ namespace {
+@@ -145,6 +151,40 @@ GpuChannelSharedImageInterface::CreateSharedImageForD3D11Video(
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++scoped_refptr<ClientSharedImage>
++GpuChannelSharedImageInterface::CreateSharedImageForOhosVideo(
++    const SharedImageInfo& si_info,
++    scoped_refptr<gfx::NativePixmap> pixmap,
++    gfx::GpuFenceHandle acquire_fence,
++    const GpuDriverBugWorkarounds& workarounds) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(gpu_sequence_checker_);
++  if (!shared_image_stub_ || !pixmap ||
++      !shared_image_stub_->MakeContextCurrent(/*needs_gl=*/true)) {
++    return nullptr;
++  }
++  auto context = shared_image_stub_->shared_context_state();
++  if (context->context_lost() ||
++      context->gr_context_type() != GrContextType::kGL ||
++      !gl::GLFence::IsGpuFenceSupported()) {
++    return nullptr;
++  }
++  const auto mailbox = Mailbox::Generate();
++  auto backing = std::make_unique<OzoneImageBacking>(
++      mailbox, si_info, context, std::move(pixmap), workarounds);
++  backing->SetCleared();
++  if (!acquire_fence.is_null()) {
++    backing->Update(std::make_unique<gfx::GpuFence>(std::move(acquire_fence)));
++  }
++  if (!shared_image_stub_->factory()->RegisterBacking(std::move(backing))) {
++    return nullptr;
++  }
++  return base::WrapRefCounted<ClientSharedImage>(
++      new ClientSharedImage(mailbox, si_info, GenVerifiedSyncToken(), holder_,
++                            GL_TEXTURE_EXTERNAL_OES));
++}
++#endif
++
+ SharedImageFactory*
+ GpuChannelSharedImageInterface::GetSharedImageFactoryOnGpuThread() {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(gpu_sequence_checker_);
+diff --git a/gpu/ipc/service/gpu_channel_shared_image_interface.h b/gpu/ipc/service/gpu_channel_shared_image_interface.h
+index 0e28cdd..58da046 100644
+--- a/gpu/ipc/service/gpu_channel_shared_image_interface.h
++++ b/gpu/ipc/service/gpu_channel_shared_image_interface.h
+@@ -19,6 +19,12 @@
+ #include "gpu/ipc/service/shared_image_stub.h"
+ #include "ui/gfx/gpu_memory_buffer_handle.h"
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "gpu/config/gpu_driver_bug_workarounds.h"
++#include "ui/gfx/gpu_fence_handle.h"
++#include "ui/gfx/native_pixmap.h"
++#endif
++
+ #if BUILDFLAG(IS_WIN)
+ #include <d3d11.h>
+ #include <wrl/client.h>
+@@ -63,6 +69,16 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelSharedImageInterface
+       const bool is_thread_safe);
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  // GPU-sequence only. Keeps a decoder-owned, GPU-only pixmap in this process;
++  // clients receive a mailbox, never a decoder pointer or synthetic dma-buf.
++  scoped_refptr<ClientSharedImage> CreateSharedImageForOhosVideo(
++      const SharedImageInfo& si_info,
++      scoped_refptr<gfx::NativePixmap> pixmap,
++      gfx::GpuFenceHandle acquire_fence,
++      const GpuDriverBugWorkarounds& workarounds);
++#endif
++
+   SequenceId sequence() { return sequence_; }
+ 
+  protected:
+diff --git a/media/gpu/BUILD.gn b/media/gpu/BUILD.gn
+index ae41656..3ef8343 100644
+--- a/media/gpu/BUILD.gn
++++ b/media/gpu/BUILD.gn
+@@ -203,10 +203,17 @@ component("gpu") {
+       "ohos/ohos_codec_util.h",
+       "ohos/ohos_video_decoder.cc",
+       "ohos/ohos_video_decoder.h",
++      "ohos/ohos_video_frame_converter.cc",
++      "ohos/ohos_video_frame_converter.h",
++      "ohos/ohos_video_surface.cc",
++      "ohos/ohos_video_surface.h",
+       "ohos/ohos_video_encode_accelerator.cc",
+       "ohos/ohos_video_encode_accelerator.h",
+     ]
+     libs += [
++      "native_buffer",
++      "native_image",
++      "native_window",
+       "native_media_codecbase",
+       "native_media_core",
+       "native_media_vdec",

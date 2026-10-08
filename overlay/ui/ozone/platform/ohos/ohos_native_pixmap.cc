@@ -20,8 +20,10 @@
 #include <vector>
 
 #include "base/files/scoped_file.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/no_destructor.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
@@ -376,6 +378,9 @@ class BufferRegistry {
   std::map<uint64_t, std::unique_ptr<BufferEntry>> entries_ GUARDED_BY(lock_);
 };
 
+OH_NativeBuffer_ColorSpace OhosColorSpaceFor(
+    const gfx::ColorSpace& color_space);
+
 class OhosNativePixmap : public gfx::NativePixmap {
  public:
   OhosNativePixmap(uint64_t key, gfx::Size size, viz::SharedImageFormat format)
@@ -387,6 +392,41 @@ class OhosNativePixmap : public gfx::NativePixmap {
       }
       return 0;
     });
+  }
+
+  OhosNativePixmap(OHNativeWindowBuffer* window_buffer,
+                   OH_NativeBuffer* buffer,
+                   gfx::Size size,
+                   viz::SharedImageFormat format,
+                   base::OnceClosure release)
+      : key_(0),
+        size_(size),
+        format_(format),
+        video_window_(window_buffer),
+        video_buffer_(buffer),
+        video_release_(std::move(release)) {}
+
+  OHNativeWindowBuffer* WindowBuffer(const gfx::ColorSpace& color_space) const {
+    if (video_window_) {
+      // The decoder owns color-space metadata on this buffer. Do not mutate it.
+      return video_window_;
+    }
+    return BufferRegistry::Get().With(
+        key_, [&color_space](BufferEntry* entry) -> OHNativeWindowBuffer* {
+          if (!entry || !entry->window_buffer) {
+            return nullptr;
+          }
+          if (entry->planes.size() > 1) {
+            OH_NativeBuffer_SetColorSpace(entry->buffer,
+                                          OhosColorSpaceFor(color_space));
+          }
+          return entry->window_buffer;
+        });
+  }
+
+  OH_NativeBuffer* NativeBuffer() const {
+    return video_buffer_ ? video_buffer_
+                         : BufferRegistry::Get().BufferForFd(fd_);
   }
 
   uint64_t key() const { return key_; }
@@ -437,11 +477,20 @@ class OhosNativePixmap : public gfx::NativePixmap {
   }
 
  private:
-  ~OhosNativePixmap() override { BufferRegistry::Get().Unuse(key_); }
+  ~OhosNativePixmap() override {
+    if (key_) {
+      BufferRegistry::Get().Unuse(key_);
+    }
+  }
 
   const uint64_t key_;
   const gfx::Size size_;
   const viz::SharedImageFormat format_;
+  // Borrowed pointers, kept alive by video_release_. NativeBuffer conversion
+  // does not transfer ownership. Destroying the EGL binding precedes release.
+  RAW_PTR_EXCLUSION OHNativeWindowBuffer* video_window_ = nullptr;
+  RAW_PTR_EXCLUSION OH_NativeBuffer* video_buffer_ = nullptr;
+  base::ScopedClosureRunner video_release_;
   // Owned by the registry entry, which outlives this pixmap.
   int fd_ = -1;
   std::vector<PlaneLayout> planes_;
@@ -646,6 +695,34 @@ scoped_refptr<gfx::NativePixmap> CreateOhosNativePixmapFromHandle(
   return base::MakeRefCounted<OhosNativePixmap>(*key, size, format);
 }
 
+scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
+    void* window_buffer,
+    base::OnceClosure release) {
+  base::ScopedClosureRunner release_on_failure(std::move(release));
+  auto* window = static_cast<OHNativeWindowBuffer*>(window_buffer);
+  OH_NativeBuffer* buffer = nullptr;
+  if (!window || OH_NativeBuffer_FromNativeWindowBuffer(window, &buffer) != 0 ||
+      !buffer) {
+    return nullptr;
+  }
+  OH_NativeBuffer_Config config = {};
+  OH_NativeBuffer_GetConfig(buffer, &config);
+  if (config.width <= 0 || config.height <= 0) {
+    return nullptr;
+  }
+  // Start with 8-bit NV12. Do not mislabel NV21, P010 or proprietary formats.
+  if (config.format != NATIVEBUFFER_PIXEL_FMT_YCBCR_420_SP) {
+    LOG(ERROR) << "OHOS video zero-copy: unsupported native format "
+               << config.format;
+    return nullptr;
+  }
+  viz::SharedImageFormat format = viz::MultiPlaneFormat::kNV12;
+  format.SetPrefersExternalSampler();
+  return base::MakeRefCounted<OhosNativePixmap>(
+      window, buffer, gfx::Size(config.width, config.height), format,
+      release_on_failure.Release());
+}
+
 std::unique_ptr<NativePixmapGLBinding> ImportOhosNativePixmap(
     scoped_refptr<gfx::NativePixmap> pixmap,
     const gfx::ColorSpace& color_space,
@@ -654,19 +731,8 @@ std::unique_ptr<NativePixmapGLBinding> ImportOhosNativePixmap(
   if (!pixmap || !IsOhosNativePixmapFormat(pixmap->GetSharedImageFormat())) {
     return nullptr;
   }
-  const uint64_t key = static_cast<OhosNativePixmap*>(pixmap.get())->key();
-  OHNativeWindowBuffer* window_buffer = BufferRegistry::Get().With(
-      key, [&color_space](BufferEntry* entry) -> OHNativeWindowBuffer* {
-        if (!entry || !entry->window_buffer) {
-          return nullptr;
-        }
-        // How the driver converts YUV; an RGB buffer has nothing to convert.
-        if (entry->planes.size() > 1) {
-          OH_NativeBuffer_SetColorSpace(entry->buffer,
-                                        OhosColorSpaceFor(color_space));
-        }
-        return entry->window_buffer;
-      });
+  OHNativeWindowBuffer* window_buffer =
+      static_cast<OhosNativePixmap*>(pixmap.get())->WindowBuffer(color_space);
   if (!window_buffer) {
     LOG(ERROR) << "OHOS native pixmap: nothing to import";
     return nullptr;
@@ -698,10 +764,7 @@ std::unique_ptr<NativePixmapGLBinding> ImportOhosNativePixmap(
 }
 
 void* GetOhosNativeBuffer(const gfx::NativePixmap& pixmap) {
-  if (!pixmap.AreDmaBufFdsValid()) {
-    return nullptr;
-  }
-  return BufferRegistry::Get().BufferForFd(pixmap.GetDmaBufFd(0));
+  return static_cast<const OhosNativePixmap&>(pixmap).NativeBuffer();
 }
 
 std::unique_ptr<gfx::ClientNativePixmapFactory>

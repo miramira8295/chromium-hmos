@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 
+#include "base/functional/callback.h"
 #include "components/viz/common/resources/shared_image_format.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/client_native_pixmap_factory.h"
@@ -55,6 +56,14 @@ scoped_refptr<gfx::NativePixmap> CreateOhosNativePixmapFromHandle(
     gfx::Size size,
     viz::SharedImageFormat format,
     gfx::NativePixmapHandle handle);
+
+// Wraps an acquired decoder surface buffer in the GPU process. The caller
+// transfers a release closure that owns the buffer/consumer queue. No mapping,
+// pixel copy, writable tag, or cross-process dma-buf re-identification is used.
+// The returned pixmap is GPU-only; only its SharedImage mailbox is exported.
+scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
+    void* window_buffer,
+    base::OnceClosure release);
 
 // Imports `pixmap` as an EGLImage through EGL_NATIVE_BUFFER_OHOS, tagged with
 // `color_space` so the driver converts YUV with the right matrix and range,
