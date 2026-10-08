@@ -136,6 +136,16 @@ HDR10+／Dolby Vision／HDR Vivid 的专有动态元数据不新增解析支持�
 不代表已测得的整机带宽差值或功耗降幅。CPU 拷贝减少有望改善发热、续航和带宽受限时的掉帧，
 不会增加视频分辨率或保证帧率翻倍。
 
+## 2026-10-08 Main10／P010 交付记录
+
+- 内核提交：`47c09559b2fa2decfbdeeb3c5549842fca21b60f`，产物标签：`build-47c09559`。
+- [增量构建 37745445847](https://github.com/miramira8295/chromium-hmos/actions/runs/37745445847)：成功，HAR 和未剥离符号均已上传。
+- [Adapter CI 37745445835](https://github.com/miramira8295/chromium-hmos/actions/runs/37745445835)：成功。
+- [engine.har](https://github.com/miramira8295/chromium-hmos/releases/download/build-47c09559/engine.har)（136454453 字节），发布资产 SHA-256：`cc0ad405f45c42ce1b4cb4c92195b90bb99b7b2ed3c0c619860256ec594b7bb7`。
+- 继续使用 `--enable-features=OhosZeroCopyVideo`；默认关闭，外壳无需新增接口。
+- 本轮完成 10 位输出格式和色彩／HDR 元数据传递，待外壳按上述矩阵验证实际 P010 输出、画面及生命周期。
+- 尚无设备功能、功耗或性能实测结论；屏幕端全链路 10 位 HDR 需另行验证。
+
 ## 2026-10-08 首版（8 位）交付记录
 
 - 内核提交：`0e19c42cf8c8b9e227f7032db2eb89c6a46b624a`。
