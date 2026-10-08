@@ -394,9 +394,15 @@ bool FailedOnTheDestination(const DownloadItem& item) {
 }
 
 void RetryDownload(DownloadsWatcher& watcher, DownloadItem& item) {
-  // A finished download whose file was deleted: fetch it again.
+  // A finished download whose file was deleted: fetch it again. The new
+  // download is a record of its own, so the old one, which only says the file
+  // is gone, would sit beside it as a duplicate; drop it where history may be
+  // deleted.
   if (IsFileMissing(item)) {
     Redownload(*watcher.manager(), item);
+    if (IsDeletingHistoryAllowed(watcher.profile())) {
+      item.Remove();
+    }
     return;
   }
   if (item.CanResume() && !FailedOnTheDestination(item)) {

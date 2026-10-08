@@ -694,7 +694,7 @@ Chromium 首次访问时重新抓。这是一直如此，不是偶尔。
 
 **下载**
 
-下载开始、进度变化（每个下载约 500ms 最多一次）、状态变化、被删除时，引擎推送 `downloadUpdated`，字段见 `DownloadItem`：`id`、`url`、`fileName`、`filePath`、`mimeType`、`receivedBytes`、`totalBytes`、`state`（`'inProgress' | 'paused' | 'completed' | 'cancelled' | 'failed'`）、`failReason`、`canResume`、`fileMissing`、`dangerous`、`dangerType`、`startTime`、`endTime`，被删除时另带 `removed: true`。`fileMissing` 为 true 表示已完成的下载文件已在浏览器外被删除或移走：每次 `listDownloads` 时引擎检查一遍，查到后另推一条 `downloadUpdated`；这时 `retry` 会重新下载这个网址。旧引擎没有这个字段，按 false 处理。
+下载开始、进度变化（每个下载约 500ms 最多一次）、状态变化、被删除时，引擎推送 `downloadUpdated`，字段见 `DownloadItem`：`id`、`url`、`fileName`、`filePath`、`mimeType`、`receivedBytes`、`totalBytes`、`state`（`'inProgress' | 'paused' | 'completed' | 'cancelled' | 'failed'`）、`failReason`、`canResume`、`fileMissing`、`dangerous`、`dangerType`、`startTime`、`endTime`，被删除时另带 `removed: true`。`fileMissing` 为 true 表示已完成的下载文件已在浏览器外被删除或移走：每次 `listDownloads` 时引擎检查一遍，查到后另推一条 `downloadUpdated`；这时 `retry` 会重新下载这个网址，并删掉这条旧记录。旧引擎没有这个字段，按 false 处理。
 
 **危险文件**：`dangerous` 为 true 的下载会停在 `inProgress`，等用户决定。外壳必须给出"仍然保留"和"丢弃"两个选项，分别发 `keepDangerous` 和 `discardDangerous`，否则这个下载会一直停在那里。
 
@@ -702,7 +702,7 @@ Chromium 首次访问时重新抓。这是一直如此，不是偶尔。
 |---|---|---|
 | `listDownloads` | `requestId` | `downloadList { requestId, items }`，最新的在前 |
 | `setDownloadDirectory` | `uri` | 设定下载目录，见下文"保存位置" |
-| `downloadAction` | `id`, `action`: `'pause' \| 'resume' \| 'cancel' \| 'retry' \| 'remove' \| 'removeAndDeleteFile' \| 'keepDangerous' \| 'discardDangerous'` | `remove` 只删记录，`removeAndDeleteFile` 连文件一起删；`retry` 对失败或已取消的下载续传或重下，对 `fileMissing` 的已完成下载重新下载 |
+| `downloadAction` | `id`, `action`: `'pause' \| 'resume' \| 'cancel' \| 'retry' \| 'remove' \| 'removeAndDeleteFile' \| 'keepDangerous' \| 'discardDangerous'` | `remove` 只删记录，`removeAndDeleteFile` 连文件一起删；`retry` 对失败或已取消的下载续传或重下，对 `fileMissing` 的已完成下载重新下载，并删掉这条旧记录（引擎另推 `removed: true`） |
 
 - **保存位置**：
   - 外壳页面出现后调用 HAR 的 `ShellDownloadDirectory.prepare(context)`。它用 `DocumentViewPicker` 的下载模式取到 `Download/<包名>` 目录，不弹界面，授权长期有效。
