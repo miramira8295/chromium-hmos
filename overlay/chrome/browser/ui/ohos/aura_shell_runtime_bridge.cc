@@ -1838,7 +1838,12 @@ constexpr size_t kMaxCachedThumbnails = 12;
 
 // Wide enough to look right on the grid without paying for the whole screen.
 constexpr int kMaxThumbnailWidthPx = 720;
+// Width over height of the picture, unless the shell asks for another shape
+// (getTabThumbnails "aspect"): a portrait card wants more of the page. The
+// range keeps a bad value from asking for a sliver or a whole long page.
 constexpr double kThumbnailAspect = 4.0 / 3.0;
+constexpr double kMinThumbnailAspect = 0.4;
+constexpr double kMaxThumbnailAspect = 2.5;
 
 base::LRUCache<std::string, std::string>& ThumbnailCache() {
   static base::NoDestructor<base::LRUCache<std::string, std::string>> cache(
@@ -1864,18 +1869,18 @@ std::string EncodeThumbnail(const SkBitmap& bitmap) {
 
 gfx::Size ThumbnailSizeFor(content::RenderWidgetHostView* view,
                            double width_vp,
-                           float scale) {
+                           float scale,
+                           double aspect) {
   const int width = std::clamp(
       static_cast<int>(width_vp * scale), 64, kMaxThumbnailWidthPx);
-  return gfx::Size(width, static_cast<int>(width / kThumbnailAspect));
+  return gfx::Size(width, static_cast<int>(width / aspect));
 }
 
 // The top of the page, cropped to the card's shape rather than squashed into
 // it: a squashed screenshot reads as a broken image.
-gfx::Rect ThumbnailSourceRect(const gfx::Size& view_size) {
+gfx::Rect ThumbnailSourceRect(const gfx::Size& view_size, double aspect) {
   const int height = std::min(
-      view_size.height(),
-      static_cast<int>(view_size.width() / kThumbnailAspect));
+      view_size.height(), static_cast<int>(view_size.width() / aspect));
   return gfx::Rect(0, 0, view_size.width(), std::max(height, 1));
 }
 
@@ -1970,6 +1975,9 @@ void SendTabThumbnails(gfx::AcceleratedWidget widget,
                        const base::DictValue& command) {
   const int request_id = command.FindInt("requestId").value_or(0);
   const double width_vp = command.FindDouble("widthVp").value_or(170.0);
+  const double aspect =
+      std::clamp(command.FindDouble("aspect").value_or(kThumbnailAspect),
+                 kMinThumbnailAspect, kMaxThumbnailAspect);
   const base::ListValue* ids = command.FindList("ids");
   std::vector<std::pair<std::string, content::WebContents*>> wanted;
   if (ids) {
@@ -2006,8 +2014,8 @@ void SendTabThumbnails(gfx::AcceleratedWidget widget,
       continue;
     }
     view->CopyFromSurface(
-        ThumbnailSourceRect(view->GetVisibleViewportSize()),
-        ThumbnailSizeFor(view, width_vp, scale), base::Seconds(2),
+        ThumbnailSourceRect(view->GetVisibleViewportSize(), aspect),
+        ThumbnailSizeFor(view, width_vp, scale, aspect), base::Seconds(2),
         base::BindOnce(&OnThumbnailCaptured, batch, contents->GetWeakPtr(),
                        id));
   }

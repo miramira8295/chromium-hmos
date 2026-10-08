@@ -370,7 +370,7 @@ Chromium 自己的安装确认框,用户确认后才装。
 | `setTabMuted` | `id?`, `muted` | 不传 `id` 时作用于当前标签 |
 | `setZoom` | `percent?` | 25–500,不传表示回到 100 |
 | `toggleReaderMode` | | 进入 / 退出阅读模式 |
-| `getTabThumbnails` | `requestId`, `ids`, `widthVp` | `tabThumbnails { requestId, items }` |
+| `getTabThumbnails` | `requestId`, `ids`, `widthVp`，可选 `aspect`（卡片宽高比，默认 4/3，范围 0.4～2.5） | `tabThumbnails { requestId, items }`；截网页顶部这个比例的一块，`aspect` 越小截得越多 |
 | `getRecentlyClosed` | `requestId`, `maxCount` | `recentlyClosed { requestId, items }` |
 | `restoreRecentlyClosed` | `id?` | 不传 `id` 时恢复最近一项 |
 | `removeTopSite` | `url` | 加入 top sites 黑名单 |

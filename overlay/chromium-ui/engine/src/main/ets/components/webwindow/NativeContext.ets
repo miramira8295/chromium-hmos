@@ -542,6 +542,10 @@ export interface BrowserCommandPayload {
   // getTabThumbnails: how wide the grid's cards are, so the capture is not
   // bigger than it needs to be.
   widthVp?: number;
+  // getTabThumbnails: the card's width over its height. The picture is the
+  // top of the page in that shape: 2/3 shows twice as much of the page as
+  // the default 4/3. Kept within 0.4..2.5.
+  aspect?: number;
   // setAnchorRects: where the shell drew the buttons Chromium's bubbles point
   // at, in this window's coordinates.
   anchors?: ShellAnchorRect[];
