@@ -153,6 +153,10 @@ HDR10+／Dolby Vision／HDR Vivid 的专有动态元数据不新增解析支持�
    若后续设备报告硬解，分别测试 VP9 Profile 0／2、AV1 Main 8／10 位的 Buffer 与 Surface 模式；
    结合实际解码器日志与首帧格式确认选择结果，不以 `canPlayType()` 单独认定硬解。
 10. HEVC 用完整 RFC 6381 codec 字符串测试 `canPlayType()`／MSE，再实际播放 Main 和 Main10；
+    可用于 profile 探测的完整示例为 `hvc1.1.6.L153.B0`、`hvc1.2.4.L153.B0`、`hev1.2.4.L153.B0`，
+    实际 MSE／MediaCapabilities 配置需使用与素材匹配的 level 等字段。
+    `hvc1.1.6`、`hvc1.2.4`、`hev1.2.4` 缺少 tier／level，Chromium 解析器要求至少四段，
+    这些缩写即使在支持 HEVC 的构建上也会返回空，不能用作 HEVC 能力验收。
     硬件能力查询为空时返回不支持是正确结果。有能力时应能看到视频画面和所选硬解日志。
     H.264 重复 seek、清空视频、重播及保留帧，确认旧队列的 `41210000`／`surface release failed` 不再刷屏。
 
@@ -224,3 +228,15 @@ Main10 SDR／PQ／HLG（1080p、4K，均为 yuv420p10le）仍被网页 HEVC 能�
 只有音轨、`videoWidth=0`，没有进入解码器。系统已有 HEVC 解码能力，不能据此认定设备无硬解。
 该版仍出现旧 Surface 归还错误（1080p 一轮 68 条，4K 一轮 32 条）。
 本轮修复针对这两个已确认问题；P010、PQ／HLG 色彩和格式切换仍待新构建补测。
+
+## 构建开关核验（32ccb220 之后）
+
+`32ccb220` 的 VP9／AV1 动态硬解、HEVC 前端开关、Surface 退役和 Range 服务已进入
+后续 `3a1baca8` 构建。runner 源码快照 `37772039250` 已逐文件校验哈希：
+`ENABLE_PLATFORM_HEVC`、`ENABLE_HEVC_PARSER_AND_HW_DECODER` 和
+`PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT` 均为 1；
+`ENABLE_LIBVPX`、`ENABLE_DAV1D_DECODER` 和 `ENABLE_AV1_DECODER` 仍为 1。
+这证明功能已编入，不等同于 HEVC／Main10／VP9／AV1 真机路径验收。
+
+`3a1baca8` 已收到标签页截图和外链冷启动的共享内存导入崩溃反馈，不能作为稳定验收包；
+修复进展见 [渲染隔离记录](OHOS_RENDERER_ISOLATION.md)。媒体复测应使用后续修复构建。

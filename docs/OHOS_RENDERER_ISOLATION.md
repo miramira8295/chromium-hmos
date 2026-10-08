@@ -316,3 +316,16 @@ SSH 不可达，因此通过只读 CI 快照任务取得 runner 实际源码。�
   首次成功导入记录 `writable import rebuilt conversion fd`。
   具体旧版拒绝分支仍待确认；必须复测手机总览、外链冷启动及 Pad 隔离模式，
   不能仅凭 Linux 封印测试通过认定本次设备崩溃已消失。
+
+- `a743b865` 已交付用于上述回归复测：
+  [Adapter CI](https://github.com/miramira8295/chromium-hmos/actions/runs/37773582895)
+  与 [原生构建](https://github.com/miramira8295/chromium-hmos/actions/runs/37773582909)
+  均成功。Linux 封印、重复 FD 跨进程权限和强制拒绝 getattr 的测试全部通过；
+  干净树、`83cd4f72`、`3a1baca8` 的补丁升级及重复应用已验证。
+  原生编译 318 步、251 秒，ELF build-id：
+  `d7d9c9f0273d60357da9a3b8d8dfe85431c0690c`。
+  [build-a743b865](https://github.com/miramira8295/chromium-hmos/releases/tag/build-a743b865)
+  的 HAR、符号包和 SHA256SUMS 均已上传，清单与 GitHub 资产 digest 一致。
+  HAR 大小 136504889 字节，SHA256：
+  `3c6815a95a2d117f668905c0e8ff5d1448386974e5fe5e03dc08f57ce4d28b40`。
+  未执行 OHOS Chromium 单元测试或操作设备；手机和 Pad 的崩溃是否消失仍待外壳确认。
