@@ -91,6 +91,7 @@ class MEDIA_GPU_EXPORT OhosVideoDecoder final : public VideoDecoder {
     int32_t height;
     int32_t stride;
     int32_t slice_height;
+    gfx::ColorSpace color_space;
   };
 
   struct SurfaceOutput {
@@ -99,6 +100,7 @@ class MEDIA_GPU_EXPORT OhosVideoDecoder final : public VideoDecoder {
     gfx::Rect visible_rect;
     gfx::Size natural_size;
     gfx::ColorSpace color_space;
+    gfx::HDRMetadata hdr_metadata;
   };
 
   enum class State {

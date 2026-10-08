@@ -151,17 +151,21 @@ void OhosVideoDecoder::Initialize(const VideoDecoderConfig& config,
   config_ = config;
   output_cb_ = output_cb;
   output_layout_.reset();
+  surface_frame_count_ = 0;
 
   state_ = State::kUninitialized;
   surface_enabled_ = false;
-  const bool eligible = (config_.codec() == VideoCodec::kH264 ||
-                         config_.profile() == HEVCPROFILE_MAIN) &&
-                        !config_.color_space_info().ToGfxColorSpace().IsHDR();
+  const bool eligible = config_.codec() == VideoCodec::kH264 ||
+                        config_.profile() == HEVCPROFILE_MAIN ||
+                        config_.profile() == HEVCPROFILE_MAIN10;
   if (base::FeatureList::IsEnabled(kOhosZeroCopyVideo) && eligible) {
     gpu_task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(
             &OhosVideoFrameConverter::Initialize, frame_converter_,
+            config_.profile() == HEVCPROFILE_MAIN10
+                ? viz::MultiPlaneFormat::kP010
+                : viz::MultiPlaneFormat::kNV12,
             base::BindPostTask(
                 task_runner_,
                 base::BindOnce(&OhosVideoDecoder::OnGpuInitialized,
@@ -170,7 +174,7 @@ void OhosVideoDecoder::Initialize(const VideoDecoderConfig& config,
     return;
   }
   if (base::FeatureList::IsEnabled(kOhosZeroCopyVideo)) {
-    LOG(WARNING) << "OHOS video zero-copy: profile/HDR ineligible; buffer mode";
+    LOG(WARNING) << "OHOS video zero-copy: profile ineligible; buffer mode";
   }
   FinishInitialize(std::move(bound_init_cb));
 }
@@ -394,13 +398,14 @@ void OhosVideoDecoder::OnNewOutputBuffer(uint32_t generation,
     if (picture_size == config_.coded_size()) {
       visible_rect = config_.visible_rect();
     }
-    gfx::ColorSpace color_space = config_.color_space_info().ToGfxColorSpace();
+    gfx::ColorSpace color_space = output_layout_->color_space;
     if (!color_space.IsValid()) {
       color_space = gfx::ColorSpace::CreateREC709();
     }
-    surface_outputs_.push_back(SurfaceOutput{
-        output.index, base::Microseconds(attr.pts), visible_rect,
-        config_.aspect_ratio().GetNaturalSize(visible_rect), color_space});
+    surface_outputs_.push_back(
+        SurfaceOutput{output.index, base::Microseconds(attr.pts), visible_rect,
+                      config_.aspect_ratio().GetNaturalSize(visible_rect),
+                      color_space, config_.hdr_metadata()});
     RenderNextSurfaceOutput();
     return;
   }
@@ -454,6 +459,9 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
   const gfx::Size& coded_size = config_.coded_size();
   OH_AVFormat_SetIntValue(format.get(), OH_MD_KEY_WIDTH, coded_size.width());
   OH_AVFormat_SetIntValue(format.get(), OH_MD_KEY_HEIGHT, coded_size.height());
+  // AVCodec's NV12 enum also describes its 10-bit P010 output (UV order).
+  // The codec updates the native graphic format after parsing the stream.
+  // Never infer output precision from this AV enum; validate the NativeBuffer.
   OH_AVFormat_SetIntValue(format.get(), OH_MD_KEY_PIXEL_FORMAT,
                           AV_PIXEL_FORMAT_NV12);
 
@@ -603,26 +611,35 @@ bool OhosVideoDecoder::UpdateOutputLayout() {
         << " stride " << stride << " slice height " << slice_height;
     return false;
   }
-  output_layout_ = OutputLayout{width, height, stride, slice_height};
-  // What the hardware decoder says it hands back, beside what the stream's
-  // config says the pictures are -- the frames are labelled with the
-  // latter. A 10-bit video played washed out on a tablet; a decoder that
-  // tone-maps or changes range on its way to NV12 would look like that.
+  const int32_t range = ReadIntOrMissing(format.get(), OH_MD_KEY_RANGE_FLAG);
+  const auto output_color_space =
+      VideoColorSpace(
+          ReadIntOrMissing(format.get(), OH_MD_KEY_COLOR_PRIMARIES),
+          ReadIntOrMissing(format.get(), OH_MD_KEY_TRANSFER_CHARACTERISTICS),
+          ReadIntOrMissing(format.get(), OH_MD_KEY_MATRIX_COEFFICIENTS),
+          range == 0 ? gfx::ColorSpace::RangeID::LIMITED
+                     : (range == 1 ? gfx::ColorSpace::RangeID::FULL
+                                   : gfx::ColorSpace::RangeID::INVALID))
+          .ToGfxColorSpace();
+  output_layout_ =
+      OutputLayout{width, height, stride, slice_height,
+                   output_color_space.IsValid()
+                       ? output_color_space
+                       : config_.color_space_info().ToGfxColorSpace()};
+  // Surface frames use output colorimetry, then per-buffer metadata when
+  // available. The compatibility Buffer path retains its existing labels.
   // -1 is a key the decoder did not report; range 1 is full, 0 limited.
-  LOG(WARNING) << "OHOS video decoder output: "
-               << GetProfileName(config_.profile()) << ", pixel format "
-               << ReadIntOrMissing(format.get(), OH_MD_KEY_PIXEL_FORMAT)
-               << ", range "
-               << ReadIntOrMissing(format.get(), OH_MD_KEY_RANGE_FLAG)
-               << ", primaries "
-               << ReadIntOrMissing(format.get(), OH_MD_KEY_COLOR_PRIMARIES)
-               << ", transfer "
-               << ReadIntOrMissing(format.get(),
-                                   OH_MD_KEY_TRANSFER_CHARACTERISTICS)
-               << ", matrix "
-               << ReadIntOrMissing(format.get(), OH_MD_KEY_MATRIX_COEFFICIENTS)
-               << "; frames labelled "
-               << config_.color_space_info().ToGfxColorSpace().ToString();
+  LOG(WARNING)
+      << "OHOS video decoder output: " << GetProfileName(config_.profile())
+      << ", pixel format "
+      << ReadIntOrMissing(format.get(), OH_MD_KEY_PIXEL_FORMAT) << ", range "
+      << ReadIntOrMissing(format.get(), OH_MD_KEY_RANGE_FLAG) << ", primaries "
+      << ReadIntOrMissing(format.get(), OH_MD_KEY_COLOR_PRIMARIES)
+      << ", transfer "
+      << ReadIntOrMissing(format.get(), OH_MD_KEY_TRANSFER_CHARACTERISTICS)
+      << ", matrix "
+      << ReadIntOrMissing(format.get(), OH_MD_KEY_MATRIX_COEFFICIENTS)
+      << "; surface color space " << output_layout_->color_space.ToString();
   return true;
 }
 
@@ -736,7 +753,7 @@ void OhosVideoDecoder::OnSurfaceFrameAvailable(uint32_t generation) {
                                    weak_factory_.GetWeakPtr(), generation));
   // Both callbacks run even if conversion is cancelled before import.
   auto pixmap = ui::CreateOhosVideoNativePixmap(
-      buffer,
+      buffer, &output.color_space,
       base::BindOnce(
           [](base::ScopedClosureRunner lease, base::ScopedClosureRunner done) {
             lease.RunAndReset();
@@ -748,6 +765,15 @@ void OhosVideoDecoder::OnSurfaceFrameAvailable(uint32_t generation) {
     EnterErrorState("unsupported decoder NativeBuffer");
     return;
   }
+  auto native_format = pixmap->GetSharedImageFormat();
+  native_format.ClearPrefersExternalSampler();
+  if (config_.profile() == HEVCPROFILE_MAIN10 &&
+      native_format != viz::MultiPlaneFormat::kP010) {
+    LOG(ERROR) << "OHOS video zero-copy: Main10 requires P010 but received "
+               << native_format.ToString();
+    EnterErrorState("decoder did not preserve Main10 output precision");
+    return;
+  }
   ++pending_conversions_;
   gfx::GpuFenceHandle fence;
   fence.Adopt(std::move(acquire_fence));
@@ -756,7 +782,8 @@ void OhosVideoDecoder::OnSurfaceFrameAvailable(uint32_t generation) {
       base::BindOnce(
           &OhosVideoFrameConverter::Convert, frame_converter_,
           std::move(pixmap), std::move(fence), output.visible_rect,
-          output.natural_size, output.color_space, output.timestamp,
+          output.natural_size, output.color_space, output.hdr_metadata,
+          output.timestamp,
           base::BindPostTask(
               task_runner_,
               base::BindOnce(&OhosVideoDecoder::OnSurfaceFrameConverted,
@@ -778,7 +805,11 @@ void OhosVideoDecoder::OnSurfaceFrameConverted(
   }
   if (++surface_frame_count_ == 1) {
     LOG(WARNING) << "OHOS video zero-copy: first SharedImage frame "
-                 << frame->coded_size().ToString() << "; CPU output copies=0";
+                 << frame->coded_size().ToString()
+                 << " format=" << VideoPixelFormatToString(frame->format())
+                 << " color_space=" << frame->ColorSpace().ToString()
+                 << " hdr_metadata=" << !frame->hdr_metadata().IsEmpty()
+                 << "; CPU output copies=0";
   }
   auto weak_this = weak_factory_.GetWeakPtr();
   output_cb_.Run(std::move(frame));

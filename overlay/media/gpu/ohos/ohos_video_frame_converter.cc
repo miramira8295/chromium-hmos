@@ -21,6 +21,7 @@
 #include "gpu/ipc/service/gpu_channel.h"
 #include "gpu/ipc/service/gpu_channel_shared_image_interface.h"
 #include "gpu/ipc/service/shared_image_stub.h"
+#include "media/base/format_utils.h"
 #include "media/base/video_types.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_fence.h"
@@ -44,7 +45,8 @@ OhosVideoFrameConverter::~OhosVideoFrameConverter() {
   DestroyStub();
 }
 
-void OhosVideoFrameConverter::Initialize(base::OnceCallback<void(bool)> done) {
+void OhosVideoFrameConverter::Initialize(viz::SharedImageFormat format,
+                                         base::OnceCallback<void(bool)> done) {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
   if (!initialized_) {
     initialized_ = true;
@@ -64,7 +66,7 @@ void OhosVideoFrameConverter::Initialize(base::OnceCallback<void(bool)> done) {
                    sis_->shared_context_state()->gr_context_type() ==
                        gpu::GrContextType::kGL &&
                    gl::GLFence::IsGpuFenceSupported() &&
-                   ui::IsOhosNativePixmapFormat(viz::MultiPlaneFormat::kNV12);
+                   ui::IsOhosNativePixmapFormat(format);
   if (supported) {
     auto* display = gl::GLSurfaceEGL::GetGLDisplayEGL();
     const char* extensions =
@@ -96,10 +98,21 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
                                       const gfx::Rect& visible_rect,
                                       const gfx::Size& natural_size,
                                       const gfx::ColorSpace& color_space,
+                                      const gfx::HDRMetadata& hdr_metadata,
                                       base::TimeDelta timestamp,
                                       OutputCB output_cb) {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
   if (!sis_ || !gfx::Rect(pixmap->GetBufferSize()).Contains(visible_rect)) {
+    std::move(output_cb).Run(nullptr);
+    return;
+  }
+  // External sampling is a SharedImage detail. Select the VideoFrame format
+  // from the actual native allocation, not the codec profile or a fixed NV12.
+  auto format = pixmap->GetSharedImageFormat();
+  format.ClearPrefersExternalSampler();
+  auto pixel_format = SharedImageFormatToVideoPixelFormat(format);
+  if (!pixel_format || (*pixel_format != PIXEL_FORMAT_NV12 &&
+                        *pixel_format != PIXEL_FORMAT_P010LE)) {
     std::move(output_cb).Run(nullptr);
     return;
   }
@@ -125,10 +138,13 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
                      base::WrapRefCounted(this), shared_image,
                      std::move(pixmap)));
   auto frame = VideoFrame::WrapSharedImage(
-      PIXEL_FORMAT_NV12, shared_image, shared_image->creation_sync_token(),
+      *pixel_format, shared_image, shared_image->creation_sync_token(),
       std::move(release_cb), visible_rect, natural_size, timestamp);
   if (frame) {
     frame->set_color_space(color_space);
+    if (color_space.IsHDR()) {
+      frame->set_hdr_metadata(hdr_metadata);
+    }
     frame->metadata().read_lock_fences_enabled = true;
     frame->metadata().power_efficient = true;
   }

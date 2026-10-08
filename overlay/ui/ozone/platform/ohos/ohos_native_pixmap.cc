@@ -611,6 +611,48 @@ OH_NativeBuffer_ColorSpace OhosColorSpaceFor(const gfx::ColorSpace& space) {
   }
 }
 
+// Colorimetry reported by the decoder's actual output takes precedence over
+// container metadata (e.g. a platform decoder may perform color conversion).
+// Unknown/absent metadata leaves the stream color space intact.
+std::optional<gfx::ColorSpace> OhosVideoColorSpace(
+    OH_NativeBuffer_ColorSpace space) {
+  using Primary = gfx::ColorSpace::PrimaryID;
+  using Transfer = gfx::ColorSpace::TransferID;
+  using Matrix = gfx::ColorSpace::MatrixID;
+  using Range = gfx::ColorSpace::RangeID;
+  switch (space) {
+    case OH_COLORSPACE_BT709_FULL:
+    case OH_COLORSPACE_BT709_LIMIT:
+      return gfx::ColorSpace(
+          Primary::BT709, Transfer::BT709, Matrix::BT709,
+          space == OH_COLORSPACE_BT709_FULL ? Range::FULL : Range::LIMITED);
+    case OH_COLORSPACE_BT601_EBU_FULL:
+    case OH_COLORSPACE_BT601_EBU_LIMIT:
+      return gfx::ColorSpace(
+          Primary::BT470BG, Transfer::BT709, Matrix::BT470BG,
+          space == OH_COLORSPACE_BT601_EBU_FULL ? Range::FULL : Range::LIMITED);
+    case OH_COLORSPACE_BT601_SMPTE_C_FULL:
+    case OH_COLORSPACE_BT601_SMPTE_C_LIMIT:
+      return gfx::ColorSpace(
+          Primary::SMPTE170M, Transfer::BT709, Matrix::SMPTE170M,
+          space == OH_COLORSPACE_BT601_SMPTE_C_FULL ? Range::FULL
+                                                    : Range::LIMITED);
+    case OH_COLORSPACE_BT2020_HLG_FULL:
+    case OH_COLORSPACE_BT2020_HLG_LIMIT:
+      return gfx::ColorSpace(Primary::BT2020, Transfer::HLG, Matrix::BT2020_NCL,
+                             space == OH_COLORSPACE_BT2020_HLG_FULL
+                                 ? Range::FULL
+                                 : Range::LIMITED);
+    case OH_COLORSPACE_BT2020_PQ_FULL:
+    case OH_COLORSPACE_BT2020_PQ_LIMIT:
+      return gfx::ColorSpace(
+          Primary::BT2020, Transfer::PQ, Matrix::BT2020_NCL,
+          space == OH_COLORSPACE_BT2020_PQ_FULL ? Range::FULL : Range::LIMITED);
+    default:
+      return std::nullopt;
+  }
+}
+
 class OhosNativePixmapGLBinding : public NativePixmapGLBinding {
  public:
   OhosNativePixmapGLBinding(scoped_refptr<gfx::NativePixmap> pixmap,
@@ -689,6 +731,7 @@ scoped_refptr<gfx::NativePixmap> CreateOhosNativePixmapFromHandle(
 
 scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
     void* window_buffer,
+    gfx::ColorSpace* color_space,
     base::OnceClosure release) {
   base::ScopedClosureRunner release_on_failure(std::move(release));
   auto* window = static_cast<OHNativeWindowBuffer*>(window_buffer);
@@ -702,13 +745,26 @@ scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
   if (config.width <= 0 || config.height <= 0) {
     return nullptr;
   }
-  // Start with 8-bit NV12. Do not mislabel NV21, P010 or proprietary formats.
-  if (config.format != NATIVEBUFFER_PIXEL_FMT_YCBCR_420_SP) {
-    LOG(ERROR) << "OHOS video zero-copy: unsupported native format "
-               << config.format;
-    return nullptr;
+  viz::SharedImageFormat format;
+  switch (config.format) {
+    case NATIVEBUFFER_PIXEL_FMT_YCBCR_420_SP:
+      format = viz::MultiPlaneFormat::kNV12;
+      break;
+    case NATIVEBUFFER_PIXEL_FMT_YCBCR_P010:
+      format = viz::MultiPlaneFormat::kP010;
+      break;
+    default:
+      // Do not infer precision or chroma order from the compressed profile.
+      LOG(ERROR) << "OHOS video zero-copy: unsupported native format "
+                 << config.format;
+      return nullptr;
   }
-  viz::SharedImageFormat format = viz::MultiPlaneFormat::kNV12;
+  OH_NativeBuffer_ColorSpace native_space = OH_COLORSPACE_NONE;
+  if (OH_NativeBuffer_GetColorSpace(buffer, &native_space) == 0) {
+    if (auto decoded_space = OhosVideoColorSpace(native_space)) {
+      *color_space = *decoded_space;
+    }
+  }
   format.SetPrefersExternalSampler();
   return base::MakeRefCounted<OhosNativePixmap>(
       window, gfx::Size(config.width, config.height), format,

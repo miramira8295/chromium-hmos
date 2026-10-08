@@ -41,12 +41,14 @@ class OhosVideoFrameConverter
       const gpu::GpuDriverBugWorkarounds& workarounds);
 
   // All public methods run on the GPU sequence; construction may run elsewhere.
-  void Initialize(base::OnceCallback<void(bool)> done);
+  void Initialize(viz::SharedImageFormat format,
+                  base::OnceCallback<void(bool)> done);
   void Convert(scoped_refptr<gfx::NativePixmap> pixmap,
                gfx::GpuFenceHandle acquire_fence,
                const gfx::Rect& visible_rect,
                const gfx::Size& natural_size,
                const gfx::ColorSpace& color_space,
+               const gfx::HDRMetadata& hdr_metadata,
                base::TimeDelta timestamp,
                OutputCB output_cb);
 

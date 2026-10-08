@@ -61,8 +61,11 @@ scoped_refptr<gfx::NativePixmap> CreateOhosNativePixmapFromHandle(
 // transfers a release closure that owns the buffer/consumer queue. No mapping,
 // pixel copy, writable tag, or cross-process dma-buf re-identification is used.
 // The returned pixmap is GPU-only; only its SharedImage mailbox is exported.
+// If the decoder supplies a known buffer color space, replace *color_space;
+// otherwise preserve the caller's stream color space. Call before GPU import.
 scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
     void* window_buffer,
+    gfx::ColorSpace* color_space,
     base::OnceClosure release);
 
 // Imports `pixmap` as an EGLImage through EGL_NATIVE_BUFFER_OHOS, tagged with
