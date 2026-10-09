@@ -31,8 +31,8 @@ namespace media {
 
 class VideoFrame;
 
-// AVCodecKit hardware decoding. Buffer mode is the compatibility default;
-// OhosZeroCopyVideo opts eligible streams into decoder Surface -> SharedImage.
+// AVCodecKit hardware decoding. Eligible streams use Surface -> SharedImage by
+// default, with Buffer mode as the compatibility fallback during initialization.
 class MEDIA_GPU_EXPORT OhosVideoDecoder final : public VideoDecoder {
  public:
   OhosVideoDecoder(scoped_refptr<base::SequencedTaskRunner> task_runner,

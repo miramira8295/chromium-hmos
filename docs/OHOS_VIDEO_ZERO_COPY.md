@@ -1,4 +1,4 @@
-# OHOS Surface 视频零拷贝（实验）
+# OHOS Surface 视频零拷贝
 
 本路径去掉 **8／10 位硬解输出 → Chromium 视频帧** 之间的逐帧 CPU
 `CopyOutput()` 像素拷贝。解码器写入 ConsumerSurface 的 NativeBuffer，
@@ -13,18 +13,11 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 
 ## 启用与回退
 
-默认关闭。外壳在启动配置的 `additionalSwitches` 里加一项即可：
-
-```json
-{"key": "enable-features", "value": "OhosZeroCopyVideo"}
-```
-
-内核把外壳传来的 `enable-features`、`disable-features`、`enable-blink-features`、
-`disable-blink-features` 合并进自己已有的同名列表（`ohos_chrome_main_runner.cc`），
-不会覆盖内核需要的 `UseOzonePlatform`、手机选择器等 feature；值为空的这几项会被忽略。
-在此之前的内核会用外壳这一项替换整个列表，外壳只能写出完整列表，配合旧内核时须注意。
-该 feature 通过 Chromium 的 feature 配置传给 GPU 进程；无需增加外壳接口。
-去掉这一项或加入 `disable-features=OhosZeroCopyVideo` 后完全重启可回到默认 Buffer 模式。
+视频零拷贝和 SharedImage／EGLImage 导入复用默认开启，外壳正常启动即可，
+无需 TESTSWITCH 或额外的 `enable-features` 参数。之前显式开启的参数可以移除；
+如曾设置 `disable-features=OhosZeroCopyVideo`，需移除该项才能使用默认路径。
+出现回归时回退内核版本。能力检查和初始化失败时的自动兼容回退继续保留。
+文末旧版本交付记录中的“默认关闭”仅描述当时版本。
 
 当前范围：
 
@@ -54,7 +47,7 @@ API 23 新增的 VP9／AV1 MIME 导出变量在运行时从定义它们的 `libn
 系统不支持、档次／尺寸不匹配或硬解初始化失败时，由 Chromium 解码器选择器继续尝试软件实现。
 保留 Chromium 自身的选择策略（包括部分低分辨率视频的软解优先策略）。VP9 使用 libvpx，AV1 使用 dav1d；
 解码中途失败不承诺无缝回退。VP9 包和 AV1 OBU 不执行 H.264／HEVC 的 Annex B 转换。
-默认 Buffer 路径也读取原生格式：NV12／P010 按实际字节宽度复制，保留 P010 样本、输出色彩和已知 HDR 元数据，
+兼容 Buffer 路径也读取原生格式：NV12／P010 按实际字节宽度复制，保留 P010 样本、输出色彩和已知 HDR 元数据，
 无法确认高位深格式或遇到其他原生格式时明确失败，不按 8 位伪造输出。
 
 `build-0e19c42c` 和 `build-47c09559` 的 runner 构建实际上关闭了 HEVC 解析／解封装，
@@ -262,9 +255,9 @@ Main10 SDR／PQ／HLG（1080p、4K，均为 yuv420p10le）仍被网页 HEVC 能�
 
 ## SharedImage / EGLImage 导入复用
 
-开启 `OhosZeroCopyVideo` 时，`OhosVideoSharedImageReuse` 默认启用。它减少同一解码
-NativeBuffer 循环使用时的 SharedImage 创建；Ozone backing 已有的每 context 纹理缓存
-随之保留 EGLImage。没有默认打开 `OhosZeroCopyVideo`，也没有改变视频位深或 HDR 输出。
+导入复用随默认零拷贝路径生效，不设独立测试开关。它减少同一解码 NativeBuffer
+循环使用时的 SharedImage 创建；Ozone backing 已有的每 context 纹理缓存
+随之保留 EGLImage。视频位深和 HDR 输出规则不变。
 
 生命周期约束：
 
@@ -281,21 +274,15 @@ NativeBuffer 循环使用时的 SharedImage 创建；Ozone backing 已有的每 
   10 秒没有新的可缓存归还时清空空闲项。活跃/保留帧不计入这个空闲预算，不会被强制释放。
 - 独立 wrapper 创建失败时，该帧继续使用原来不缓存的导入路径。
 
-外壳可用同一构建对照：
+外壳正常启动即可验证。需要查看复用计数时，可选加日志参数：
 
 ```text
-# A：零拷贝 + 导入复用
---enable-features=OhosZeroCopyVideo
---vmodule=ohos_video_frame_converter=1
-
-# B：零拷贝，但每帧重新创建导入
---enable-features=OhosZeroCopyVideo
---disable-features=OhosVideoSharedImageReuse
 --vmodule=ohos_video_frame_converter=1
 ```
 
-每次修改参数后完全重启应用。若使用启动配置的参数数组，应合并已有的 enable/disable
-列表。不要带上一轮软解上传回收测试的 `--disable-accelerated-video-decode`。
+该参数只控制诊断日志，不控制功能。修改参数后完全重启应用；不要带上一轮软解上传
+回收测试的 `--disable-accelerated-video-decode`。性能对照使用复用实现之前的构建，
+并确认两版实际都走零拷贝、使用相同媒体和运行条件。
 
 首次命中应出现 `OHOS video zero-copy: SharedImage reuse active`。
 每 300 帧、解码代次结束和空闲清理前，在 VLOG(1) 输出：
@@ -304,11 +291,11 @@ NativeBuffer 循环使用时的 SharedImage 创建；Ozone backing 已有的每 
 OHOS video SharedImage cache: generation=... created=... reused=... uncached=... idle=... estimated_bytes=...
 ```
 
-`created/reused/uncached` 是当前解码代次内累计计数。持续播放、尺寸和颜色不变时，A 的
-`reused` 应持续增长，`created` 通常应明显少于总帧数；B 的 `reused` 应为 0。
+`created/reused/uncached` 是当前解码代次内累计计数。持续播放、尺寸和颜色不变时，
+`reused` 应持续增长，`created` 通常应明显少于总帧数。
 队列缓冲数量、预算淘汰和长暂停可能带来额外创建，不能要求始终只创建某个固定数量。
 `created` 统计 SharedImage 创建，不是驱动内部 EGLImage 调用次数；EGLImage 的实际
-复用取决于 Ozone context 纹理缓存，需结合 trace 验证。两组都应保持 CPU output copies=0。
+复用取决于 Ozone context 纹理缓存，需结合 trace 验证。应保持 CPU output copies=0。
 
 设备回归沿用前述矩阵：H.264 1080p60/4K、HEVC Main10 的 SDR/PQ/HLG；重点覆盖
 持续播放、连续 seek、8/10 位切换、暂停超过 10 秒再恢复、Canvas/WebGL 保留旧帧后

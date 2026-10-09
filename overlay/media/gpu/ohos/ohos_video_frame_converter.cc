@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/task/bind_post_task.h"
@@ -32,11 +31,6 @@
 namespace media {
 namespace {
 
-// Only reached by the opt-in OhosZeroCopyVideo path. Independently switchable
-// for same-build A/B measurements and driver-specific regressions.
-BASE_FEATURE(kOhosVideoSharedImageReuse,
-             "OhosVideoSharedImageReuse",
-             base::FEATURE_ENABLED_BY_DEFAULT);
 constexpr base::TimeDelta kIdleImportCacheTimeout = base::Seconds(10);
 
 }  // namespace
@@ -154,10 +148,8 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
                                       gpu::SHARED_IMAGE_USAGE_RASTER_READ |
                                       gpu::SHARED_IMAGE_USAGE_GLES2_READ,
                                   "OhosVideoDecoder");
-  std::optional<uint32_t> reusable_buffer_id;
-  if (base::FeatureList::IsEnabled(kOhosVideoSharedImageReuse)) {
-    reusable_buffer_id = ui::GetOhosVideoNativePixmapId(*pixmap);
-  }
+  const std::optional<uint32_t> reusable_buffer_id =
+      ui::GetOhosVideoNativePixmapId(*pixmap);
   scoped_refptr<gpu::ClientSharedImage> shared_image;
   gpu::SyncToken ready_token;
   if (reusable_buffer_id) {

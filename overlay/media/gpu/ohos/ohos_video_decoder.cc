@@ -49,7 +49,7 @@ constexpr size_t kMaxSurfaceFramesInFlight = 4;
 
 BASE_FEATURE(kOhosZeroCopyVideo,
              "OhosZeroCopyVideo",
-             base::FEATURE_DISABLED_BY_DEFAULT);
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 int32_t ReadIntOr(OH_AVFormat* format, const char* key, int32_t fallback) {
   int32_t value = 0;
