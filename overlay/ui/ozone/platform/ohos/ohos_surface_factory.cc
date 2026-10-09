@@ -658,6 +658,13 @@ OhosSurfaceFactory::CreateVulkanImplementation(bool use_swiftshader,
           surface = WaitForOhosNativeSurface(widget, kNativeSurfaceWaitTimeout);
         }
         return surface ? surface->window : nullptr;
+      }),
+      // The same NativeVSync the GL path gives its surface: timing for the
+      // swap chain's feedback, and where the content frame rate goes.
+      base::BindRepeating([](gfx::AcceleratedWidget widget)
+                              -> std::unique_ptr<gfx::VSyncProvider> {
+        return std::make_unique<OhosVSyncProvider>(
+            GetOhosApplicationWindowIdForWidget(widget));
       }));
 }
 #endif  // BUILDFLAG(ENABLE_VULKAN)

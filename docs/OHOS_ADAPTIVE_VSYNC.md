@@ -8,8 +8,15 @@ MISSED 重投配对，不能直接当作视频掉帧或 SharedImage 同步阻塞
 ## 策略
 
 使用 Chromium `FrameIntervalDecider` 对实际参与合成的 Surface 进行判断，
-沿 Display → Skia GPU → GL VSyncProvider 把请求传给
+沿 Display → Skia GPU → VSyncProvider 把请求传给
 `OH_NativeVSync_SetExpectedFrameRateRange`。手机单进程与 Pad 多进程走相同链路。
+
+GL 与 Vulkan 两条后端都接入：GL 由 `OhosNativeViewGLSurfaceEGL` 持有
+`OhosVSyncProvider`；Vulkan 由 ozone 在创建 `VulkanImplementationOhos` 时传入
+同一 provider 工厂，`VulkanSurface` 持有它，`SkiaOutputDeviceVulkan` 转发帧率请求。
+此前 Vulkan 用固定 60 Hz 假设驱动 BeginFrame，也不提交帧率请求。
+Vulkan 的呈现反馈按 GL 的做法对齐到下一个 VSync，并带 `kVSync`/`kHWClock`，
+否则 viz 会因时间早于绘制而丢弃反馈，BeginFrame 无法跟随实际周期。
 
 | 场景 | 期望请求 |
 | --- | --- |
@@ -35,7 +42,12 @@ MISSED 重投配对，不能直接当作视频掉帧或 SharedImage 同步阻塞
 实际 BeginFrame 周期仍来自 `OH_NativeVSync_GetPeriod`，不使用视频请求值覆盖
 测得的周期。请求变化后 1 秒内每次回调复查实际周期，稳定后每秒复查一次。
 现有 DVSync 与 2 ms BeginFrame 相位偏移保持原策略。
-原生请求失败时只警告一次、尝试恢复旧的 `{60,120,120}` 请求，并停止该实例的动态请求重试。
+原生请求返回参数错误（40001000）时视为本机不支持，尝试恢复旧的 `{60,120,120}`
+请求并停止该实例的动态请求；其他错误视为暂时失败，1 秒后的下一帧重试，
+日志前 3 次及之后每 100 次输出一条。
+
+NativeVSync 回调不再直接持有 provider 裸指针：每次请求帧时给一个引用计数的
+回调目标加引用，回调释放；provider 析构先断开目标，晚到的回调不会访问已释放对象。
 
 SDR、PQ、HLG 使用相同决策；本轮不改变 HDR 色调映射、亮度、像素格式、
 SharedImage/EGLImage 缓存或 fence。预期收益是纯视频场景减少不必要的调度唤醒，
@@ -45,6 +57,8 @@ SharedImage/EGLImage 缓存或 fence。预期收益是纯视频场景减少不�
 
 默认启动配置，不加测试开关。与 `build-010f7882` 对照，保持系统刷新率设置、
 亮度、温度和电源状态一致；优先在 Mate 70 Pro+，再覆盖 Pad 多进程与渲染沙箱。
+Vulkan 后端（若当前配置启用）需另测一遍第 1、3、4 项，确认日志同样出现
+`requested rate=`，且 BeginFrame 间隔随实际周期变化，而非固定 16.7 ms。
 
 1. 同帧率的 Main10 SDR/PQ/HLG 各稳定播放 15 秒，先测 1080p30，再测 60 fps。
    视频控件消失后，确认都有 `requested rate=60`，并分别记录实际 interval。

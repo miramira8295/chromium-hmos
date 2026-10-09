@@ -1,12 +1,10 @@
 diff --git a/components/viz/service/display/frame_interval_decider_unittest.cc b/components/viz/service/display/frame_interval_decider_unittest.cc
 --- a/components/viz/service/display/frame_interval_decider_unittest.cc
 +++ b/components/viz/service/display/frame_interval_decider_unittest.cc
-@@ -147,6 +147,21 @@
-       static_cast<SurfaceObserver*>(&scoped_aggregate)
-           ->OnSurfaceWillBeDrawn(surface);
+@@ -149,6 +149,21 @@ class FrameIntervalDeciderTest : public testing::Test,
      }
-+  }
-+
+   }
+ 
 +  void InitializeOhosVideoDecider() {
 +    ContinuousRangeSettings range;
 +    range.min_interval = base::Hertz(120) - base::Microseconds(50);
@@ -20,10 +18,12 @@ diff --git a/components/viz/service/display/frame_interval_decider_unittest.cc b
 +    matchers.push_back(std::make_unique<InputBoostMatcher>());
 +    matchers.push_back(std::make_unique<OnlyVideoMatcher>());
 +    decider_->UpdateSettings(settings_, std::move(matchers));
-   }
- 
++  }
++
    void InitializeDecider() {
-@@ -208,6 +223,102 @@
+     frame_.metadata.frame_interval_inputs.frame_time = kNow;
+ 
+@@ -208,6 +223,102 @@ class FrameIntervalDeciderTest : public testing::Test,
    std::optional<FrameIntervalMatcherType> matcher_type_;
  };
  
@@ -129,18 +129,18 @@ diff --git a/components/viz/service/display/frame_interval_decider_unittest.cc b
 diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
 --- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
 +++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
-@@ -683,6 +683,10 @@
+@@ -682,6 +682,10 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
+       !display_->OutputSurfaceSupportsSetFrameRate();
  #elif BUILDFLAG(IS_IOS)
    interval_decider_use_fixed_intervals_ = false;
- #endif
++#endif
 +#if BUILDFLAG(IS_OHOS)
 +  // Do not replace measured VSync timing with a requested content interval.
 +  use_preferred_interval_ = false;
-+#endif
+ #endif
    UpdateFrameIntervalDeciderSettings();
  }
- 
-@@ -713,7 +717,7 @@
+@@ -713,7 +717,7 @@ void RootCompositorFrameSinkImpl::UpdateFrameIntervalDeciderSettings() {
      matchers.push_back(
          std::make_unique<OnlyScrollBarFadeOutAnimationMatcher>());
    }
@@ -149,7 +149,7 @@ diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.
    matchers.push_back(std::make_unique<OnlyVideoMatcher>());
  #else
    if (base::FeatureList::IsEnabled(features::kSingleVideoFrameRateThrottling)) {
-@@ -727,6 +731,19 @@
+@@ -727,6 +731,19 @@ void RootCompositorFrameSinkImpl::UpdateFrameIntervalDeciderSettings() {
    }
  
    FrameIntervalDecider::Settings settings = decider->settings();
@@ -169,7 +169,7 @@ diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.
    if (interval_decider_use_fixed_intervals_) {
      FrameIntervalMatcher::FixedIntervalSettings fixed_interval_settings;
      fixed_interval_settings.supported_intervals = GetSupportedFrameIntervals();
-@@ -750,6 +767,7 @@
+@@ -750,6 +767,7 @@ void RootCompositorFrameSinkImpl::UpdateFrameIntervalDeciderSettings() {
    } else {
      settings.interval_settings = {};
    }
@@ -177,7 +177,7 @@ diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.
  
    // Unretained is safe since this owns Display which owns FrameIntervalDecider.
    settings.result_callback = base::BindRepeating(
-@@ -830,7 +848,11 @@
+@@ -830,7 +848,11 @@ void RootCompositorFrameSinkImpl::FrameIntervalDeciderResultCallback(
      return;
    }
  #endif
@@ -192,7 +192,7 @@ diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.
 diff --git a/components/viz/service/display/display.h b/components/viz/service/display/display.h
 --- a/components/viz/service/display/display.h
 +++ b/components/viz/service/display/display.h
-@@ -193,6 +193,10 @@
+@@ -193,6 +193,10 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
    void SetFrameIntervalOnOutputSurface(gfx::SurfaceControlFrameRate frame_rate);
  #endif
  
@@ -206,7 +206,7 @@ diff --git a/components/viz/service/display/display.h b/components/viz/service/d
 diff --git a/components/viz/service/display/display.cc b/components/viz/service/display/display.cc
 --- a/components/viz/service/display/display.cc
 +++ b/components/viz/service/display/display.cc
-@@ -1455,6 +1455,12 @@
+@@ -1455,6 +1455,12 @@ base::ScopedClosureRunner Display::GetCacheBackBufferCb() {
  }
  #endif
  
@@ -222,7 +222,7 @@ diff --git a/components/viz/service/display/display.cc b/components/viz/service/
 diff --git a/components/viz/service/display/output_surface.h b/components/viz/service/display/output_surface.h
 --- a/components/viz/service/display/output_surface.h
 +++ b/components/viz/service/display/output_surface.h
-@@ -284,6 +284,10 @@
+@@ -284,6 +284,10 @@ class VIZ_SERVICE_EXPORT OutputSurface {
    // Notifies the OutputSurface of rate of content updates in frames per second.
    virtual void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate) {}
  #endif
@@ -236,20 +236,20 @@ diff --git a/components/viz/service/display/output_surface.h b/components/viz/se
 diff --git a/components/viz/service/display_embedder/skia_output_surface_impl.h b/components/viz/service/display_embedder/skia_output_surface_impl.h
 --- a/components/viz/service/display_embedder/skia_output_surface_impl.h
 +++ b/components/viz/service/display_embedder/skia_output_surface_impl.h
-@@ -117,6 +117,9 @@
+@@ -116,6 +116,9 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
+   gfx::Rect GetCurrentFramebufferDamage() const override;
  #if BUILDFLAG(IS_ANDROID)
    void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate) override;
- #endif
++#endif
 +#if BUILDFLAG(IS_OHOS)
 +  void SetPreferredFrameInterval(base::TimeDelta interval) override;
-+#endif
+ #endif
    void SetNeedsMeasureNextDrawLatency() override;
  
-   // SkiaOutputSurface implementation:
 diff --git a/components/viz/service/display_embedder/skia_output_surface_impl.cc b/components/viz/service/display_embedder/skia_output_surface_impl.cc
 --- a/components/viz/service/display_embedder/skia_output_surface_impl.cc
 +++ b/components/viz/service/display_embedder/skia_output_surface_impl.cc
-@@ -1060,6 +1060,17 @@
+@@ -1060,6 +1060,17 @@ void SkiaOutputSurfaceImpl::SetFrameRate(
  }
  #endif
  
@@ -270,7 +270,7 @@ diff --git a/components/viz/service/display_embedder/skia_output_surface_impl.cc
 diff --git a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
 --- a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
 +++ b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
-@@ -220,6 +220,10 @@
+@@ -220,6 +220,10 @@ class SkiaOutputSurfaceImplOnGpu
    void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate);
  #endif
  
@@ -294,14 +294,10 @@ diff --git a/components/viz/service/display_embedder/skia_output_surface_impl_on
  #include "ui/gl/presenter.h"
  #include "ui/gl/progress_reporter.h"
  #include "url/gurl.h"
-@@ -1921,6 +1924,18 @@
-     gfx::SurfaceControlFrameRate frame_rate) {
-   if (presenter_) {
-     presenter_->SetFrameRate(frame_rate);
-+  }
-+}
-+#endif
-+
+@@ -1925,6 +1928,21 @@ void SkiaOutputSurfaceImplOnGpu::SetFrameRate(
+ }
+ #endif
+ 
 +#if BUILDFLAG(IS_OHOS)
 +void SkiaOutputSurfaceImplOnGpu::SetPreferredFrameInterval(
 +    base::TimeDelta interval) {
@@ -310,13 +306,70 @@ diff --git a/components/viz/service/display_embedder/skia_output_surface_impl_on
 +    if (auto* provider = gl_surface_->GetVSyncProvider()) {
 +      provider->SetPreferredFrameInterval(interval);
 +    }
-   }
++  } else if (output_device_) {
++    // Skia on Vulkan: the device's VulkanSurface holds the provider.
++    output_device_->SetPreferredFrameInterval(interval);
++  }
++}
++#endif
++
+ void SkiaOutputSurfaceImplOnGpu::SetCapabilitiesForTesting(
+     const OutputSurface::Capabilities& capabilities) {
+   // Check that we're using an offscreen surface.
+diff --git a/components/viz/service/display_embedder/skia_output_device.h b/components/viz/service/display_embedder/skia_output_device.h
+--- a/components/viz/service/display_embedder/skia_output_device.h
++++ b/components/viz/service/display_embedder/skia_output_device.h
+@@ -152,6 +152,12 @@ class VIZ_SERVICE_EXPORT SkiaOutputDevice {
+ 
+   virtual void SetVSyncDisplayID(int64_t display_id, bool force_update) {}
+ 
++#if BUILDFLAG(IS_OHOS)
++  // A content frame rate for the platform, from a device that has a VSync
++  // provider of its own rather than through a GLSurface. A hint only.
++  virtual void SetPreferredFrameInterval(base::TimeDelta interval) {}
++#endif
++
+   // Schedule overlays which will be on screen when SwapBuffers() or
+   // PostSubBuffer() is called.
+   virtual void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays);
+diff --git a/components/viz/service/display_embedder/skia_output_device_vulkan.h b/components/viz/service/display_embedder/skia_output_device_vulkan.h
+--- a/components/viz/service/display_embedder/skia_output_device_vulkan.h
++++ b/components/viz/service/display_embedder/skia_output_device_vulkan.h
+@@ -59,6 +59,9 @@ class SkiaOutputDeviceVulkan final : public SkiaOutputDevice {
+   SkSurface* BeginPaint(
+       std::vector<GrBackendSemaphore>* end_semaphores) override;
+   void EndPaint() override;
++#if BUILDFLAG(IS_OHOS)
++  void SetPreferredFrameInterval(base::TimeDelta interval) override;
++#endif
+ 
+  private:
+   struct SkSurfaceSizePair {
+diff --git a/components/viz/service/display_embedder/skia_output_device_vulkan.cc b/components/viz/service/display_embedder/skia_output_device_vulkan.cc
+--- a/components/viz/service/display_embedder/skia_output_device_vulkan.cc
++++ b/components/viz/service/display_embedder/skia_output_device_vulkan.cc
+@@ -99,6 +99,17 @@ gpu::SurfaceHandle SkiaOutputDeviceVulkan::GetChildSurfaceHandle() {
  }
  #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++void SkiaOutputDeviceVulkan::SetPreferredFrameInterval(
++    base::TimeDelta interval) {
++  if (vulkan_surface_) {
++    if (gfx::VSyncProvider* provider = vulkan_surface_->vsync_provider()) {
++      provider->SetPreferredFrameInterval(interval);
++    }
++  }
++}
++#endif
++
+ bool SkiaOutputDeviceVulkan::Reshape(const ReshapeParams& params) {
+   DCHECK(!scoped_write_);
+ 
 diff --git a/ui/gfx/vsync_provider.h b/ui/gfx/vsync_provider.h
 --- a/ui/gfx/vsync_provider.h
 +++ b/ui/gfx/vsync_provider.h
-@@ -37,6 +37,10 @@
+@@ -37,6 +37,10 @@ class COMPONENT_EXPORT(GFX) VSyncProvider {
  
    // Returns true, if VSyncProvider gets VSync timebase from HW.
    virtual bool IsHWClock() const = 0;
@@ -327,3 +380,121 @@ diff --git a/ui/gfx/vsync_provider.h b/ui/gfx/vsync_provider.h
  };
  
  // Provides a constant timebase and interval.
+diff --git a/gpu/vulkan/vulkan_surface.h b/gpu/vulkan/vulkan_surface.h
+--- a/gpu/vulkan/vulkan_surface.h
++++ b/gpu/vulkan/vulkan_surface.h
+@@ -88,6 +88,11 @@ class COMPONENT_EXPORT(VULKAN) VulkanSurface {
+   VkImageUsageFlags image_usage_flags() const { return image_usage_flags_; }
+   gfx::OverlayTransform transform() const { return transform_; }
+   VkSurfaceFormatKHR surface_format() const { return surface_format_; }
++#if BUILDFLAG(IS_OHOS)
++  // Where a content frame rate is handed to the platform; see
++  // gfx::VSyncProvider::SetPreferredFrameInterval().
++  gfx::VSyncProvider* vsync_provider() const { return vsync_provider_.get(); }
++#endif
+ 
+  private:
+   bool CreateSwapChain(const gfx::Size& size, gfx::OverlayTransform transform);
+diff --git a/gpu/vulkan/vulkan_surface.cc b/gpu/vulkan/vulkan_surface.cc
+--- a/gpu/vulkan/vulkan_surface.cc
++++ b/gpu/vulkan/vulkan_surface.cc
+@@ -356,9 +356,30 @@ void VulkanSurface::PostSubBufferCompleted(
+     base::TimeTicks timestamp;
+     base::TimeDelta interval;
+     vsync_provider_->GetVSyncParametersIfAvailable(&timestamp, &interval);
++#if BUILDFLAG(IS_OHOS)
++    // A real VSync provider gives the phase and period of the panel, not
++    // the time of this frame: its timebase is a VSync that has already
++    // passed, earlier than the frame was drawn, and the display rejects
++    // such feedback. The frame goes out on the next VSync, so say that, as
++    // GLSurfacePresentationHelper does for GL.
++    if (!timestamp.is_null() && interval.is_positive()) {
++      const base::TimeTicks now = base::TimeTicks::Now();
++      feedback = gfx::PresentationFeedback(
++          now.SnappedToNextTick(timestamp, interval), interval,
++          gfx::PresentationFeedback::kVSync |
++              (vsync_provider_->IsHWClock()
++                   ? gfx::PresentationFeedback::kHWClock
++                   : 0));
++    } else {
++      feedback = gfx::PresentationFeedback(
++          timestamp.is_null() ? base::TimeTicks::Now() : timestamp, interval,
++          /*flags=*/0);
++    }
++#else
+     if (timestamp.is_null())
+       timestamp = base::TimeTicks::Now();
+     feedback = gfx::PresentationFeedback(timestamp, interval, /*flags=*/0);
++#endif
+   }
+ 
+   if (base::SingleThreadTaskRunner::HasCurrentDefault()) {
+diff --git a/gpu/vulkan/ohos/vulkan_implementation_ohos.h b/gpu/vulkan/ohos/vulkan_implementation_ohos.h
+--- a/gpu/vulkan/ohos/vulkan_implementation_ohos.h
++++ b/gpu/vulkan/ohos/vulkan_implementation_ohos.h
+@@ -12,6 +12,7 @@
+ #include "base/functional/callback.h"
+ #include "gpu/vulkan/vulkan_implementation.h"
+ #include "gpu/vulkan/vulkan_instance.h"
++#include "ui/gfx/vsync_provider.h"
+ 
+ namespace gpu {
+ 
+@@ -25,7 +26,16 @@ class COMPONENT_EXPORT(VULKAN_OHOS) VulkanImplementationOhos
+   using WindowResolver =
+       base::RepeatingCallback<void*(gfx::AcceleratedWidget)>;
+ 
+-  VulkanImplementationOhos(bool force_native, WindowResolver resolve_window);
++  // The display timing for a widget's surface: HarmonyOS's NativeVSync,
++  // which lives in ozone like the windows do. Null, or a factory that
++  // returns null, leaves VulkanSurface's fixed 60 Hz guess.
++  using VSyncProviderFactory =
++      base::RepeatingCallback<std::unique_ptr<gfx::VSyncProvider>(
++          gfx::AcceleratedWidget)>;
++
++  VulkanImplementationOhos(bool force_native,
++                           WindowResolver resolve_window,
++                           VSyncProviderFactory create_vsync_provider = {});
+ 
+   VulkanImplementationOhos(const VulkanImplementationOhos&) = delete;
+   VulkanImplementationOhos& operator=(const VulkanImplementationOhos&) = delete;
+@@ -62,6 +72,7 @@ class COMPONENT_EXPORT(VULKAN_OHOS) VulkanImplementationOhos
+  private:
+   VulkanInstance vulkan_instance_;
+   const WindowResolver resolve_window_;
++  const VSyncProviderFactory create_vsync_provider_;
+ };
+ 
+ }  // namespace gpu
+diff --git a/gpu/vulkan/ohos/vulkan_implementation_ohos.cc b/gpu/vulkan/ohos/vulkan_implementation_ohos.cc
+--- a/gpu/vulkan/ohos/vulkan_implementation_ohos.cc
++++ b/gpu/vulkan/ohos/vulkan_implementation_ohos.cc
+@@ -20,10 +20,12 @@ namespace gpu {
+ 
+ VulkanImplementationOhos::VulkanImplementationOhos(
+     bool force_native,
+-    WindowResolver resolve_window)
++    WindowResolver resolve_window,
++    VSyncProviderFactory create_vsync_provider)
+     : VulkanImplementation(false, false, force_native),
+       vulkan_instance_(force_native),
+-      resolve_window_(std::move(resolve_window)) {}
++      resolve_window_(std::move(resolve_window)),
++      create_vsync_provider_(std::move(create_vsync_provider)) {}
+ 
+ VulkanImplementationOhos::~VulkanImplementationOhos() = default;
+ 
+@@ -100,7 +102,12 @@ std::unique_ptr<VulkanSurface> VulkanImplementationOhos::CreateViewSurface(
+   }
+   LOG(ERROR) << "OHOS Vulkan: surface created for widget " << window;
+ 
+-  return std::make_unique<VulkanSurface>(instance, window, surface);
++  // The panel's own timing, as the GL surface has: without it the
++  // compositor ran on a fixed 60 Hz guess on a 120 Hz panel, and a content
++  // frame rate it chose never reached the system.
++  return std::make_unique<VulkanSurface>(
++      instance, window, surface, /*acquire_next_image_timeout_ns=*/UINT64_MAX,
++      create_vsync_provider_ ? create_vsync_provider_.Run(window) : nullptr);
+ }
+ 
+ bool VulkanImplementationOhos::GetPhysicalDevicePresentationSupport(

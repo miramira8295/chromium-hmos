@@ -11,6 +11,9 @@
 
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/synchronization/lock.h"
 #include "base/task/bind_post_task.h"
 #include "base/trace_event/trace_event.h"
 
@@ -51,10 +54,51 @@ constexpr base::TimeDelta kBeginFramePhaseOffset = base::Milliseconds(2);
 constexpr int32_t kMinFrameRate = 60;
 constexpr int32_t kMaxFrameRate = 120;
 
+// NATIVE_ERROR_INVALID_ARGUMENTS from native_window/graphic_error_code.h:
+// the range itself was rejected, and asking again will not change that.
+// Any other failure -- an IPC that did not get through -- may pass next
+// time.
+constexpr int kNativeErrorInvalidArguments = 40001000;
+
+// How long to wait before retrying a request that failed for a reason other
+// than its range. The rate is asked for on every frame, and a failing IPC
+// should not be repeated -- or logged -- that often.
+constexpr base::TimeDelta kTransientFailureRetryAfter = base::Seconds(1);
+
 }  // namespace
 
+class OhosVSyncProvider::CallbackTarget
+    : public base::RefCountedThreadSafe<CallbackTarget> {
+ public:
+  explicit CallbackTarget(OhosVSyncProvider* provider) : provider_(provider) {}
+  CallbackTarget(const CallbackTarget&) = delete;
+  CallbackTarget& operator=(const CallbackTarget&) = delete;
+
+  // Holds the lock for the whole callback, so Detach() cannot return while
+  // one is still using the provider.
+  void Run(base::TimeTicks timebase) {
+    base::AutoLock lock(lock_);
+    if (provider_) {
+      provider_->OnVSyncOnAnyThread(timebase);
+    }
+  }
+
+  void Detach() {
+    base::AutoLock lock(lock_);
+    provider_ = nullptr;
+  }
+
+ private:
+  friend class base::RefCountedThreadSafe<CallbackTarget>;
+  ~CallbackTarget() = default;
+
+  base::Lock lock_;
+  raw_ptr<OhosVSyncProvider> provider_ GUARDED_BY(lock_);
+};
+
 OhosVSyncProvider::OhosVSyncProvider(int32_t window_id)
-    : interval_(kFallbackInterval) {
+    : callback_target_(base::MakeRefCounted<CallbackTarget>(this)),
+      interval_(kFallbackInterval) {
   idle_callback_ = base::BindPostTaskToCurrentDefault(base::BindRepeating(
       &OhosVSyncProvider::ReleaseFrameRateIfIdle, weak_factory_.GetWeakPtr()));
   // A connection bound to the window is what lets the system apply the
@@ -89,6 +133,11 @@ OhosVSyncProvider::OhosVSyncProvider(int32_t window_id)
 
 OhosVSyncProvider::~OhosVSyncProvider() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // First, so a callback already running finishes before anything here goes
+  // away, and any that come later do nothing. A request that never fires
+  // after OH_NativeVSync_Destroy keeps the small target alive; that is the
+  // price of not knowing whether the system drops or delivers it.
+  callback_target_->Detach();
   weak_factory_.InvalidateWeakPtrs();
   if (native_vsync_) {
     OH_NativeVSync_Destroy(native_vsync_);
@@ -155,13 +204,31 @@ void OhosVSyncProvider::ApplyFrameRate(int32_t expected) {
   if (!native_vsync_ || rate_control_failed_ || expected == applied_frame_rate_) {
     return;
   }
+  const base::TimeTicks now = base::TimeTicks::Now();
+  if (!last_transient_failure_.is_null() &&
+      now - last_transient_failure_ < kTransientFailureRetryAfter) {
+    return;
+  }
   OH_NativeVSync_ExpectedRateRange range = {
       expected ? kMinFrameRate : 0, expected ? kMaxFrameRate : 0, expected};
   const int result =
       OH_NativeVSync_SetExpectedFrameRateRange(native_vsync_, &range);
+  if (result != 0 && result != kNativeErrorInvalidArguments) {
+    // Not a verdict on the request: leave it unapplied and try again a
+    // little later, when the next frame asks.
+    last_transient_failure_ = now;
+    if (++transient_failures_ <= 3 || transient_failures_ % 100 == 0) {
+      LOG(WARNING) << "OHOS VSync: rate request failed expected=" << expected
+                   << " result=" << result << "; retrying ("
+                   << transient_failures_ << ")";
+    }
+    return;
+  }
+  last_transient_failure_ = base::TimeTicks();
   if (result != 0) {
-    // Stop retrying an unsupported API/range every frame. Keep the previous
-    // high-rate policy as the compatibility fallback for this provider.
+    // The range was rejected: this system does not take it. Stop asking
+    // every frame and keep the previous high-rate policy as the
+    // compatibility fallback for this provider.
     rate_control_failed_ = true;
     OH_NativeVSync_ExpectedRateRange fallback = {
         kMinFrameRate, kMaxFrameRate, kMaxFrameRate};
@@ -199,9 +266,11 @@ void OhosVSyncProvider::ReleaseFrameRateIfIdle() {
 
 // static
 void OhosVSyncProvider::OnVSync(long long timestamp_ns, void* data) {
+  auto* const target = static_cast<CallbackTarget*>(data);
   // The timestamp shares CLOCK_MONOTONIC with base::TimeTicks.
-  static_cast<OhosVSyncProvider*>(data)->OnVSyncOnAnyThread(
-      base::TimeTicks() + base::Nanoseconds(timestamp_ns));
+  target->Run(base::TimeTicks() + base::Nanoseconds(timestamp_ns));
+  // Drops the reference RequestFrameIfIdle() took for this request.
+  target->Release();
 }
 
 void OhosVSyncProvider::OnVSyncOnAnyThread(base::TimeTicks timebase) {
@@ -256,8 +325,12 @@ void OhosVSyncProvider::RequestFrameIfIdle() {
     }
     frame_requested_ = true;
   }
+  // One reference per pending request, handed to OnVSync().
+  CallbackTarget* const target = callback_target_.get();
+  target->AddRef();
   if (OH_NativeVSync_RequestFrame(native_vsync_, &OhosVSyncProvider::OnVSync,
-                                  this) != 0) {
+                                  target) != 0) {
+    target->Release();
     base::AutoLock lock(lock_);
     frame_requested_ = false;
   }
