@@ -8,7 +8,8 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 
 状态：`build-010f7882` 已通过 Mate 70 Pro+ 单进程、默认配置的 H.264、HEVC Main／
 Main10 SDR/PQ/HLG 零拷贝与导入复用功能验收（具体片源和范围见文末）。HLG 1080p
-单轮丢帧 14/123，单列为性能待复测项。Pad 多进程、4K PQ/HLG 及 VP9／AV1 硬解
+完整操作场景曾单轮丢帧 14/123，后续纯播放及 10 秒 trace 样本未丢帧，操作阶段待复现。
+Pad 多进程、4K PQ/HLG 及 VP9／AV1 硬解
 尚未由本轮覆盖，功耗／CPU 对照收益也尚未测量。
 
 ## 启用与回退
@@ -368,7 +369,7 @@ HLG 代码检查（基于固定 Chromium `743f26418a267dd97c3c1c71d786038ae68cfc
   多一次渲染 pass，或认定丢帧由 HLG shader 引起。
 - 上游 `ui/gfx/color_space.cc` 会在未指定参数时显示上述 HLG 默认值；1000 nits 是
   色彩转换的默认峰值参数，不代表测得手机面板峰值，也不是异常或旧 PQ 元数据残留。
-- 当前只有一次短样本，尚不能区分首播 shader 编译、解码供应、GPU/fence 等待、
+- 首轮只有一次短样本，尚不能区分首播 shader 编译、解码供应、GPU/fence 等待、
   调度、设备温度和 seek／Canvas/WebGL 操作造成的开销。保持现有色彩和复用逻辑。
 
 复测无需功能开关：使用同源且分辨率、帧率和编码设置尽量一致的 Main10 SDR/PQ/HLG
@@ -377,6 +378,62 @@ HLG 代码检查（基于固定 Chromium `743f26418a267dd97c3c1c71d786038ae68cfc
 `getVideoPlaybackQuality()` 总帧／丢帧增量（每秒采样），把 seek、取帧测试另记。
 若热身后 HLG 仍稳定丢帧，再采集同时间段 media/viz/gpu trace 和系统 GPU 数据，
 区分解码输出迟到、GPU 队列／fence 等待与合成耗时，不能把 CPU 提交耗时当 GPU 执行时间。
+
+### build-010f7882 HLG／SDR trace 复测
+
+外壳继续使用同一 Mate 70 Pro+、单进程、默认配置，分别采集 HLG 和 SDR 1080p 的
+Chromium trace（GPU/viz/media/cc，各 10 秒）及系统 hitrace（graphic/ace/app/sched/freq）。
+以下数值来自回传摘要，尚未在内核工作区逐事件核验原始 trace。
+
+单独重播 HLG 一次为 0/181 丢帧；两段 trace 采样期间均报告无丢帧。
+`VideoFrameCompositor::UpdateCurrentFrame` 调用次数分别为 HLG 301、SDR 302；
+这是更新调用数，不单独证明有相同数量的独立视频帧实际呈现。此前 14/123 出自包含
+seek ×10、播完重播的完整场景，但尚未再次复现并定位具体操作。
+
+| 10 秒采样指标 | HLG | SDR |
+| --- | --- | --- |
+| FinishPaintCurrentFrame 累计线程 slice 时长 | 1203 ms | 1102 ms |
+| 按摘要约 300 帧估算的上述平均值 | 约 4.0 ms | 约 3.7 ms |
+| FillRectOp 次数 | 1208 | 602 |
+| VideoFrameSubmitter::OnBeginFrame 最长 | 8.3 ms | 3.4 ms |
+| VideoFrameCompositor::UpdateCurrentFrame 最长 | 6.6 ms | 2.3 ms |
+
+`FinishPaintCurrentFrame` 是 GPU 线程上的 CPU trace scope，涵盖 BeginAccess、
+绘制命令回放、Flush 和 fence 创建等调用；不是 GPU 硬件执行计时。上述约 0.3 ms
+差值不能直接标为额外 GPU 执行时间，也不能把可能嵌套或并行的 slice 相加为端到端延迟。
+
+回传的 RS 摘要：HLG 时 `HDR:1, in Unirender:1, brightnessRatio:0.52`，SDR 时
+`in Unirender:0`；HLG 每帧出现整屏 `[1316, 2832]` HDR 离屏 surface、额外
+`DrawImage(GPU) targetColorGamut=6`，以 colorSpace 6 请求帧。报告该阶段约多 1.3 ms，
+RenderFrame 总耗时与 SDR 接近（平均约 6.9 ms、最大约 12.3 ms）。这些是本次设备
+采样观察；`make offscreen surface` 本身不能证明每帧都重新分配物理 GPU 内存，
+也不能只用 RenderFrame 耗时推算整条管线的帧预算。
+
+进一步核对固定版本源码，确认两层处理应分开看：
+
+1. **Chromium HDR 混合／转换层**：
+   [SkiaRenderer::NeedsLayerForColorConversion](https://github.com/chromium/chromium/blob/743f26418a267dd97c3c1c71d786038ae68cfc8f/components/viz/service/display/skia_renderer.cc#L1448)
+   在 render pass 需要混合且输出空间不适合混合时返回 true。PQ 不适合直接混合，
+   `BeginDrawingRenderPass()` 会建立 F16 `saveLayer`，使用适合混合的 HDR 空间，
+   `FinishDrawingRenderPass()` 恢复时转换到输出空间。层边界使用更新区域，只有
+   更新区域覆盖屏幕时才是全屏。视频 tone-map filter 是另一项处理，不保证对应
+   独立 pass。PQ 视频也可能进入这条路径，因此应补 PQ 对照，而非认定 HLG 特有。
+   FillRectOp 的数量缺少 bounds、clip、render pass 归属，尚不能归因到具体全屏操作。
+2. **系统 HDR 合成层**：当前内核将 HLG 内容合成为 PQ 窗口再交给 RS，RS 的额外
+   HDR 离屏处理位于其后。SharedImage 复用减少导入开销，无法直接消除这层系统合成。
+
+seek／重播时，`FlushAndRestartCodec()` 重建 AVCodec 和 ConsumerSurface 解码队列，
+使旧帧与新时间戳分离；这不等于重建显示用的 NativeWindow/EGLSurface。
+`TagNativeWindowColorSpace()` 对未变化的 PQ/sRGB 标记直接返回，色彩变化本身也
+不要求重建 EGLSurface；新显示窗口、EGL 配置变化等才会触发相应重建。
+只有实际输出色彩变化才会重设色彩/HDR 标记，不能从“解码器重启”推出“RS 必然退出再进入 HDR”。
+
+后续优先复现原完整场景，对齐同一时间线上的 seek/ended/playing、逐段丢帧增量、
+`OHOS surface colour space: native window tagged ...`、RS HDR/brightness 状态和
+新代次首帧。若丢帧时没有 PQ↔sRGB 变化，应继续看解码重建、首帧供应和同步等待；
+若变化与丢帧同时出现，再定位输出切换开销。另用相同页面和窗口补 PQ 对照，并检查
+额外 FillRectOp 的绘制区域。现阶段记录为“稳定播放样本正常，完整操作场景待复现”，
+不据此改动 HDR 色彩、延迟 SDR 恢复或关闭复用。
 
 ## 待办：HDR 播放时网页也跟着变亮（已记录，暂缓）
 

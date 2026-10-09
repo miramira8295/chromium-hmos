@@ -27,7 +27,8 @@
 `OhosZeroCopyVideo` 路径通过 ConsumerSurface／NativeBuffer 直接生成 SharedImage，
 避开逐帧 CPU 输出拷贝。`build-010f7882` 已通过 Mate 70 Pro+ 单进程、默认配置的
 H.264、HEVC Main／Main10 SDR/PQ/HLG 零拷贝与导入复用功能验收，包括 seek、重播、
-Canvas/WebGL 取帧、保留帧及 SDR/HDR 切换；HLG 1080p 单次 14/123 丢帧待性能复测。
+Canvas/WebGL 取帧、保留帧及 SDR/HDR 切换。HLG 1080p 完整操作场景曾有 14/123 丢帧，
+后续纯播放和 10 秒 trace 样本无丢帧；操作阶段待复现，HDR 合成额外开销已记录。
 零拷贝和 SharedImage／EGLImage 导入复用默认开启，外壳无需测试开关；能力检查或初始化失败时自动回退兼容路径。
 Pad 多进程、4K PQ/HLG 和 VP9/AV1 硬解尚未由本轮覆盖；尚无功耗／CPU 对照数据，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
 Safe Browsing 按维护者安排暂缓。
