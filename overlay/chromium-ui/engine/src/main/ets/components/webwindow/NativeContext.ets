@@ -91,6 +91,11 @@ export interface BrowserTabState {
   // The `id` of the tab that opened this one, or '' when nothing did or when
   // that tab has since closed. Survives a restart.
   openerId?: string;
+  // Not loaded: discarded by the engine to save memory, or restored from the
+  // last session and not opened since. Title, icon and history are kept; the
+  // page loads again when the tab becomes active, so the shell should show it
+  // as loading rather than as a blank page. Absent on older engines.
+  discarded?: boolean;
 }
 
 export type PwaMenuItemType = 'command' | 'check' | 'radio' | 'separator' |

@@ -179,6 +179,7 @@ struct Browser {
 | `zoomPercent` | 当前标签的网页缩放,100 为正常。 |
 | `inReaderMode`、`readerModeAvailable` | 是否在阅读模式;当前页能否进入。 |
 | 标签的 `id`、`audible`、`muted` | 稳定 id;正在发声;已静音。 |
+| 标签的 `discarded` | 页面未加载:被引擎为省内存丢弃,或从上次会话恢复后还没打开过。标题、图标、前进后退记录都在;激活时自动重新加载,外壳宜显示为加载中而不是空白。见 [OHOS_TAB_DISCARDING.md](OHOS_TAB_DISCARDING.md)。 |
 | `isPwaWindow`、`pwaAppId`、`pwaStartUrl` | 当前窗口是否是 PWA。 |
 | `bookmarked` | 当前标签页的网址是否已加入书签。菜单里的书签开关用它。 |
 | `version` | 协议版本。 |

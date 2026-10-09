@@ -2710,6 +2710,10 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
       // can be muted without ever having made a sound.
       tab.Set("audible", contents->IsCurrentlyAudible());
       tab.Set("muted", contents->IsAudioMuted());
+      // Discarded to save memory, or restored and never opened: either way
+      // the page is not loaded and loads again when the tab is activated.
+      // WasDiscarded() is not the test: it can outlast the reload.
+      tab.Set("discarded", contents->GetController().NeedsReload());
     }
     tab_values.Append(std::move(tab));
   }

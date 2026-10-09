@@ -1,0 +1,103 @@
+Discard background tabs on HarmonyOS before memory runs out.
+
+Register OhosTabDiscardingPolicy (chrome/browser/performance_manager/
+policies/ohos_tab_discarding_policy.cc, in the overlay), which keeps a
+limited number of tabs loaded, discards tabs hidden too long, and acts on
+the system memory level the engine HAR forwards. Discard in place
+(kWebContentsDiscard, as Android does), so a tab keeps its WebContents and
+the shell's id for it. Restored background tabs load when opened instead of
+twenty at startup.
+
+Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
+applied. Apply with:
+  git apply ohos-tab-discarding.patch
+
+diff --git a/chrome/browser/performance_manager/BUILD.gn b/chrome/browser/performance_manager/BUILD.gn
+--- a/chrome/browser/performance_manager/BUILD.gn
++++ b/chrome/browser/performance_manager/BUILD.gn
+@@ -273,6 +273,14 @@ source_set("impl") {
+     ]
+   }
+ 
++  if (is_ohos) {
++    sources += [
++      "policies/ohos_tab_discarding_policy.cc",
++      "policies/ohos_tab_discarding_policy.h",
++    ]
++    deps += [ "//components/ohos_system_service" ]
++  }
++
+   if (is_linux || is_win || is_mac || is_chromeos) {
+     sources += [ "user_tuning/memory_saver_policy_handler.cc" ]
+     deps += [ "//components/policy/core/browser" ]
+diff --git a/chrome/browser/performance_manager/chrome_browser_main_extra_parts_performance_manager.cc b/chrome/browser/performance_manager/chrome_browser_main_extra_parts_performance_manager.cc
+--- a/chrome/browser/performance_manager/chrome_browser_main_extra_parts_performance_manager.cc
++++ b/chrome/browser/performance_manager/chrome_browser_main_extra_parts_performance_manager.cc
+@@ -27,6 +27,9 @@
+ #include "chrome/browser/performance_manager/policies/frame_throttling_policy.h"
+ #include "chrome/browser/performance_manager/policies/freezing_opt_out_checker.h"
+ #include "chrome/browser/performance_manager/policies/keep_alive_dse_policy.h"
++#if BUILDFLAG(IS_OHOS)
++#include "chrome/browser/performance_manager/policies/ohos_tab_discarding_policy.h"
++#endif
+ #include "chrome/browser/performance_manager/policies/page_discarding_helper.h"
+ #include "chrome/browser/performance_manager/policies/policy_features.h"
+ #include "chrome/browser/performance_manager/policies/termination_target_policy.h"
+@@ -235,6 +238,16 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
+ 
+   graph->PassToGraph(
+       std::make_unique<performance_manager::policies::MemorySaverModePolicy>());
++
++#if BUILDFLAG(IS_OHOS)
++  // HarmonyOS kills the whole browser when memory runs out, and tells only
++  // the app that it is running out: a limit on loaded tabs, and the system's
++  // memory level, keep it from getting there.
++  graph->PassToGraph(
++      std::make_unique<performance_manager::policies::OhosTabDiscardingPolicy>(
++          performance_manager::policies::OhosTabDiscardingPolicy::
++              LimitsForThisDevice()));
++#endif  // BUILDFLAG(IS_OHOS)
+ #endif  // !BUILDFLAG(IS_ANDROID)
+ 
+ #if !BUILDFLAG(IS_ANDROID)
+diff --git a/chrome/browser/performance_manager/policies/background_tab_loading_policy.cc b/chrome/browser/performance_manager/policies/background_tab_loading_policy.cc
+--- a/chrome/browser/performance_manager/policies/background_tab_loading_policy.cc
++++ b/chrome/browser/performance_manager/policies/background_tab_loading_policy.cc
+@@ -22,6 +22,9 @@
+ #include "build/build_config.h"
+ #include "chrome/browser/performance_manager/mechanisms/page_loader.h"
+ #include "chrome/browser/performance_manager/policies/background_tab_loading_policy_helpers.h"
++#if BUILDFLAG(IS_OHOS)
++#include "chrome/browser/performance_manager/policies/ohos_tab_discarding_policy.h"
++#endif
+ #include "chrome/browser/performance_manager/public/background_tab_loading_policy.h"
+ #include "components/favicon/content/content_favicon_driver.h"
+ #include "components/performance_manager/graph/page_node_impl.h"
+@@ -181,6 +184,15 @@ BackgroundTabLoadingPolicy::BackgroundTabLoadingPolicy(
+   max_simultaneous_tab_loads_ = CalculateMaxSimultaneousTabLoads(
+       kMinSimultaneousTabLoads, kMaxSimultaneousTabLoads,
+       kCoresPerSimultaneousTabLoad, base::SysInfo::NumberOfProcessors());
++#if BUILDFLAG(IS_OHOS)
++  // Restored tabs behind the active one load when opened. Loading up to
++  // twenty at startup, only for OhosTabDiscardingPolicy to discard all but a
++  // few, is the memory spike that policy is there to prevent.
++  max_tabs_to_load_ = static_cast<uint32_t>(
++      OhosTabDiscardingPolicy::LimitsForThisDevice()
++          .max_restored_background_loads);
++  min_tabs_to_load_ = std::min(min_tabs_to_load_, max_tabs_to_load_);
++#endif  // BUILDFLAG(IS_OHOS)
+ }
+ 
+ BackgroundTabLoadingPolicy::~BackgroundTabLoadingPolicy() = default;
+diff --git a/content/public/common/content_features.cc b/content/public/common/content_features.cc
+--- a/content/public/common/content_features.cc
++++ b/content/public/common/content_features.cc
+@@ -379,7 +379,7 @@ BASE_FEATURE(kWebRtcHWEncoding,
+ // Enables a discard operation on WebContents to free associated resources.
+ // Eliminates the need to destroy the WebContents object to free its resources.
+ BASE_FEATURE(kWebContentsDiscard,
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+              base::FEATURE_ENABLED_BY_DEFAULT
+ #else
+              base::FEATURE_DISABLED_BY_DEFAULT
