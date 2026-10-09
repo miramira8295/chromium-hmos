@@ -123,11 +123,40 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
                                       base::TimeDelta timestamp,
                                       OutputCB output_cb) {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
-  if (!sis_ || generation != image_cache_.generation() || !pixmap ||
-      !gfx::Rect(pixmap->GetBufferSize()).Contains(visible_rect) ||
-      !sis_->MakeContextCurrent(/*needs_gl=*/true) ||
-      sis_->shared_context_state()->context_lost()) {
+  // Keep each failure distinguishable in normal hilog; device diagnostics
+  // must not require an extra feature or verbose logging switch.
+  auto fail = [&](const char* reason) {
+    LOG(ERROR) << "OHOS video zero-copy: conversion failed: " << reason
+               << " generation=" << generation
+               << " cache_generation=" << image_cache_.generation()
+               << " visible=" << visible_rect.ToString()
+               << " natural=" << natural_size.ToString();
     std::move(output_cb).Run(nullptr);
+  };
+  if (!sis_) {
+    fail("SharedImage stub unavailable");
+    return;
+  }
+  if (generation != image_cache_.generation()) {
+    fail("cache generation mismatch before import");
+    return;
+  }
+  if (!pixmap) {
+    fail("native pixmap missing");
+    return;
+  }
+  if (!gfx::Rect(pixmap->GetBufferSize()).Contains(visible_rect)) {
+    LOG(ERROR) << "OHOS video zero-copy: allocation="
+               << pixmap->GetBufferSize().ToString();
+    fail("visible rect outside native allocation");
+    return;
+  }
+  if (!sis_->MakeContextCurrent(/*needs_gl=*/true)) {
+    fail("MakeContextCurrent failed");
+    return;
+  }
+  if (sis_->shared_context_state()->context_lost()) {
+    fail("GPU context lost");
     return;
   }
   // External sampling is a SharedImage detail. Select the VideoFrame format
@@ -137,7 +166,9 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
   auto pixel_format = SharedImageFormatToVideoPixelFormat(format);
   if (!pixel_format || (*pixel_format != PIXEL_FORMAT_NV12 &&
                         *pixel_format != PIXEL_FORMAT_P010LE)) {
-    std::move(output_cb).Run(nullptr);
+    LOG(ERROR) << "OHOS video zero-copy: native SharedImage format="
+               << format.ToString();
+    fail("unsupported VideoFrame pixel format");
     return;
   }
   // Read-only GPU uses. No scanout, CPU mapping, or direct WebGPU import.
@@ -152,11 +183,13 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
       ui::GetOhosVideoNativePixmapId(*pixmap);
   scoped_refptr<gpu::ClientSharedImage> shared_image;
   gpu::SyncToken ready_token;
+  const bool had_acquire_fence = !acquire_fence.is_null();
   if (reusable_buffer_id) {
     shared_image = image_cache_.Take(*reusable_buffer_id,
                                     pixmap->GetSharedImageFormat(),
                                     pixmap->GetBufferSize(), color_space);
   }
+  const bool reused = !!shared_image;
   if (shared_image) {
     std::unique_ptr<gfx::GpuFence> fence;
     if (!acquire_fence.is_null()) {
@@ -179,6 +212,10 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
       // Never cache that pixmap: it would hold a consumer queue slot forever.
       reusable_buffer_id.reset();
       import_pixmap = pixmap;
+      if (uncached_frames_ == 0) {
+        LOG(WARNING) << "OHOS video zero-copy: independent import wrapper "
+                        "unavailable; using uncached frame import";
+      }
       ++uncached_frames_;
     }
     shared_image =
@@ -191,8 +228,12 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
     }
   }
   if (!shared_image) {
-    LOG(ERROR) << "OHOS video zero-copy: SharedImage creation failed";
-    std::move(output_cb).Run(nullptr);
+    LOG(ERROR) << "OHOS video zero-copy: import format="
+               << pixmap->GetSharedImageFormat().ToString()
+               << " allocation=" << pixmap->GetBufferSize().ToString()
+               << " cacheable=" << reusable_buffer_id.has_value()
+               << " acquire_fence=" << had_acquire_fence;
+    fail("SharedImage creation/import failed");
     return;
   }
   auto release_cb = base::BindPostTask(
@@ -203,14 +244,23 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
   auto frame = VideoFrame::WrapSharedImage(
       *pixel_format, shared_image, ready_token,
       std::move(release_cb), visible_rect, natural_size, timestamp);
-  if (frame) {
-    frame->set_color_space(color_space);
-    if (color_space.IsHDR()) {
-      frame->set_hdr_metadata(hdr_metadata);
-    }
-    frame->metadata().read_lock_fences_enabled = true;
-    frame->metadata().power_efficient = true;
+  if (!frame) {
+    LOG(ERROR) << "OHOS video zero-copy: frame wrap format="
+               << VideoPixelFormatToString(*pixel_format)
+               << " allocation=" << shared_image->size().ToString()
+               << " reused=" << reused
+               << " acquire_fence=" << had_acquire_fence
+               << " ready_token=" << ready_token.HasData()
+               << " verified=" << ready_token.verified_flush();
+    fail("VideoFrame::WrapSharedImage failed");
+    return;
   }
+  frame->set_color_space(color_space);
+  if (color_space.IsHDR()) {
+    frame->set_hdr_metadata(hdr_metadata);
+  }
+  frame->metadata().read_lock_fences_enabled = true;
+  frame->metadata().power_efficient = true;
   if ((images_created_ + images_reused_) % 300 == 0) {
     LogCacheStats();
   }

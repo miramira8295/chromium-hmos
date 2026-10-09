@@ -307,6 +307,31 @@ OHOS video SharedImage cache: generation=... created=... reused=... uncached=...
 迟归还、独占取出、数量/字节预算，以及独立导入引用不占用原始帧 lease。
 这些测试不替代真机 GPU fence、EGL 驱动和功耗验收。
 
+### 2026-10-09 首帧转换失败回归
+
+外壳在 Mate 70 Pro+ 单进程、默认启动配置下报告：`build-2115d651` 的 H.264、
+HEVC Main／Main10（SDR、PQ、HLG）首帧均在转换阶段失败，H.264 仅靠后续软解才能播放。
+对照 `build-500ebea0` 的 H.264 NV12 和 `build-a00494a1` 的 Main10 P010 均能零拷贝播放。
+
+代码确认：复用实现只在 `DestroyCodec()` 递增代次时重置转换器缓存，遗漏了
+`CreateCodec()` 的下一次递增。例如首次初始化缓存停在代次 1，解码输出已是代次 2，
+`Convert()` 在导入前直接拒绝首帧。seek 和 EOS 重建也有同样问题；此处尚未执行
+SharedImage 导入、缓存复用或 acquire fence 更新。
+
+修复将创建、销毁和 Buffer flush 的代次切换统一到 `AdvanceGeneration()`，在同一
+GPU task runner 上先投递缓存 Reset，再投递该代次的 Convert，保留旧帧不可归还到
+新代次缓存的约束。零拷贝和复用仍默认开启，无需外壳测试开关。
+
+转换失败现在会在普通 ERROR 日志中区分 stub 不可用、代次不匹配、pixmap 缺失、
+可见区域越界、GL context 失败、格式不支持、SharedImage 创建失败和 VideoFrame
+包装失败，并附上相关代次、尺寸及导入／同步状态。独立 wrapper 不可用时会记录
+一次降级到不缓存导入的日志。
+
+修复待设备复测：先确认 H.264 NV12、HEVC Main NV12、Main10 P010 都出现
+`first SharedImage frame ... CPU output copies=0`，持续播放后出现
+`SharedImage reuse active`；再覆盖 seek、播完重播、SDR/PQ/HLG 切换及保留旧帧。
+首帧成功只验证代次修复，不能替代实际复用后的画面与同步验收。
+
 ## 待办：HDR 播放时网页也跟着变亮（已记录，暂缓）
 
 现象：播放 HDR 视频时，网页上视频以外的部分（白底、文字）也比平时亮。

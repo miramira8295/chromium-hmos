@@ -461,7 +461,7 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
             "OH_VideoDecoder_CreateByName failed"};
   }
 
-  ++generation_;
+  AdvanceGeneration();
   relay_ = std::make_unique<CallbackRelay>(
       task_runner_, weak_factory_.GetWeakPtr(), generation_);
   OH_AVCodecCallback callbacks = {
@@ -527,13 +527,22 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
   return DecoderStatus::Codes::kOk;
 }
 
-void OhosVideoDecoder::DestroyCodec() {
-  // Invalidate before destroying so that callbacks already posted by this
-  // codec are ignored even if a new codec reuses their indices.
+void OhosVideoDecoder::AdvanceGeneration() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Every epoch change must reach the converter before that epoch's frames.
+  // CreateCodec() advances independently of DestroyCodec(), including on the
+  // first initialization and after seek/EOS. Updating only on destruction
+  // leaves the cache one epoch behind and rejects every first Surface frame.
   ++generation_;
   gpu_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&OhosVideoFrameConverter::Reset,
                                frame_converter_, generation_));
+}
+
+void OhosVideoDecoder::DestroyCodec() {
+  // Invalidate before destroying so that callbacks already posted by this
+  // codec are ignored even if a new codec reuses their indices.
+  AdvanceGeneration();
   surface_timeout_.Stop();
   free_inputs_.clear();
   surface_outputs_.clear();
@@ -565,7 +574,7 @@ bool OhosVideoDecoder::FlushAndRestartCodec() {
   if (OH_VideoDecoder_Flush(codec_.get()) != AV_ERR_OK) {
     return false;
   }
-  ++generation_;
+  AdvanceGeneration();
   relay_->generation.store(generation_);
   free_inputs_.clear();
   return OH_VideoDecoder_Start(codec_.get()) == AV_ERR_OK;

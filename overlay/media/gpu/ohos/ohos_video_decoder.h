@@ -136,6 +136,7 @@ class MEDIA_GPU_EXPORT OhosVideoDecoder final : public VideoDecoder {
 
   void OnGpuInitialized(uint32_t generation, InitCB init_cb, bool supported);
   void FinishInitialize(InitCB init_cb);
+  void AdvanceGeneration();
   DecoderStatus CreateCodec();
   void RenderNextSurfaceOutput();
   void OnSurfaceFrameAvailable(uint32_t generation);
