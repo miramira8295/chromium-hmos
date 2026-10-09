@@ -2,6 +2,8 @@
 
 写给执行 150 → 154 升级的人。读完这份就能动手，不需要回看会话记录。
 
+**当前基线：`154.0.8037.97`（revision `b510e9d7cd3a2fbd78d0ddc42234103206c5f78d`），2026-10-09 从 `.51` 原地升级**，做法见第 10 节。下文的 `.51` 是迁移时的历史基线。
+
 当前配置说明：本文保留迁移时的历史配置和排障记录，下文关于关闭 JIT 的描述不代表当前配置。现在构建包含 JIT 编译器，启动时探测：能映射可执行内存就启用（平板、2in1、调试签名的手机包），不能就以 JITless 运行（手机正式包），本次启动以 `aboutInfo.jitEnabled` 为准。JITless 时 WebAssembly 由编入的 DrumBrake 解释器执行。增量 CI 使用 runner 的 `out/ohos_arm64/args.gn`（可通过 `OUT_DIR` 覆盖），仓库的 `config/args.plan_kirin_pc.gn` 与之保持一致。
 
 ---
@@ -596,3 +598,18 @@ overlay 里 46 处 `override` 全是潜在断点。这不是 bug，是跨版本�
 **性能参照**：同样的活在 x86-64 4c8g 机器上，CPU 侧差 2~3 倍（10 并行 vs 4 并行），但 8 GB 内存会逼到 `-j 2` 并触发 swap，实际差距会拉到 **5 倍以上**，且链接阶段有 OOM 风险。
 
 `git apply --check` 只验证文本能否落地，**不验证编译**。本文所有冲突率数字都是文本层的，实际工作量应按 **3~5 倍**估算。
+
+## 10. 同一大版本内的补丁版本升级（原地升级，避免全量编译）
+
+`.51` → `.97`（2026-10-09）的做法，下次升 154 的补丁版本照做。核心是**不把 runner 源码树重置后重打补丁**：那会改写主补丁和增量补丁碰过的全部文件（700 多个，含 base/ 等底层头文件），等于全量编译。改为只把上游两个版本之间的差异打进现有的、已打好补丁的工作区，只有上游真正改过的文件时间戳会变，ninja 只重编受影响的部分。
+
+1. **先确认工具链没变**：对比两个版本的 `tools/clang/scripts/update.py`（`CLANG_REVISION`）和 `tools/rust/update_rust.py`。变了就躲不开全量编译，改走正常的 `gclient sync`。
+2. **对比 DEPS**，列出版本有变化的 git 依赖（`.97` 是 V8、ANGLE、Dawn、WebRTC）和 CIPD 包（`.97` 只有 Windows 用的 7-Zip，可忽略）。确认 runner 上各依赖当前的 HEAD 等于旧版 DEPS 里的 revision。
+3. **备份**：每个仓库 `git rev-parse HEAD`、`git diff --binary HEAD`、未跟踪文件打包（`.51` 的备份在 `/root/chromium-154-backup-151-*`）。回退时反向打上游差异即可。
+4. **取对象**：src `git fetch --no-tags origin +refs/tags/<新版>:refs/tags/<新版>`（src 是浅克隆，照样能取），依赖按 commit 取。只写 `.git`，不碰工作区。
+5. **打差异**：每个仓库 `git diff --binary <旧> <新>`，先 `git apply --check`（`.97` 全部无冲突），再 `git apply`；src 要 `--exclude` 掉指向依赖的 gitlink（`v8`、`third_party/angle` 等和 `internal`）。然后 `git reset -q <新>`（mixed）：只移动 HEAD 和索引，不碰工作区文件。改动文件数应和升级前完全相同（`.97`：src 793、v8 6、angle 22、dawn 11、webrtc 4）。
+6. **跑与版本相关的 hooks**：DEPS 里的 `lastchange`、`gpu_lists_version`、`lastchange_dawn`（Skia 没变就不用跑 `lastchange_skia`）。
+7. **确认 CI 仍认得全部增量补丁**：对 `ci-incremental-build.sh` 清单里的每个补丁做 `git apply --reverse --check`（不行再 `-C0`），必须全部通过，否则 CI 会去回退或重打。
+8. **改钉住的版本**：`scripts/apply-adapter.sh` 的 `expected_revision`、`.github/workflows/adapter-ci.yml` 的版本号和 revision；本地先跑一遍 `REQUIRE_COMPATIBLE=1 scripts/check-upstream-adapter.sh <新版> <revision>`。
+9. 推送，由 CI 正常增量编译出包。
+
