@@ -1086,7 +1086,11 @@ bool ApplyUserAgentToWebContents(content::WebContents* contents,
   }
 
   contents->SetUserAgentOverride(desired, /*override_in_new_tabs=*/true);
-  if (reload && contents->GetController().GetLastCommittedEntry()) {
+  // Not a tab with no page in it -- restored and not opened yet, or
+  // discarded: it takes the new agent when it loads, and reloading it here
+  // loaded every restored tab at once, behind the user's back.
+  if (reload && contents->GetController().GetLastCommittedEntry() &&
+      !contents->GetController().NeedsReload()) {
     contents->GetController().Reload(content::ReloadType::NORMAL,
                                      /*check_for_repost=*/false);
   }
@@ -4070,7 +4074,10 @@ void ReloadAllTabsAfterThemeFontChange() {
     TabStripModel* tabs = browser->GetTabStripModel();
     if (tabs) {
       for (int index = 0; index < tabs->count(); ++index) {
-        if (content::WebContents* contents = tabs->GetWebContentsAt(index)) {
+        content::WebContents* contents = tabs->GetWebContentsAt(index);
+        // A tab with no page in it gets the new font when it loads; see
+        // ApplyUserAgentToWebContents().
+        if (contents && !contents->GetController().NeedsReload()) {
           contents->GetController().Reload(content::ReloadType::NORMAL,
                                            /*check_for_repost=*/false);
         }
