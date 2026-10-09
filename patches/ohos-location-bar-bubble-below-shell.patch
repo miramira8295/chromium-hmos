@@ -9,6 +9,12 @@ picture -- behind them. On OHOS they now hang from the line just below the
 shell's top bar, centred, the way the page-info bubbles already do
 (GetPageInfoAnchorRect, ohos-phone-dialogs.patch).
 
+Chromium's own bookmark bar stays out of the way too. When the shell draws
+the browser UI it draws its own; BrowserView::MaybeShowBookmarkBar(), which
+every tab switch and bookmark bar state change goes through, no longer puts
+Chromium's back between the shell's bars and the page when "show on all
+tabs" is on (an imported profile can turn it on).
+
 Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
 applied. Apply with:
   git apply ohos-location-bar-bubble-below-shell.patch
@@ -114,3 +120,28 @@ index 95bb443..8b6c7ce 100644
    // The class listens for WebContentsView events and closes the bubble. Useful
    // for bubbles that do not start out focused but need to close when the user
    // interacts with the web view.
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -5416,10 +5416,20 @@
+ }
+ 
+ bool BrowserView::MaybeShowBookmarkBar(WebContents* contents) {
+-  const bool show_bookmark_bar =
++  bool show_bookmark_bar =
+       contents &&
+       WindowFeatureController::From(browser_)->SupportsWindowFeature(
+           WindowFeatureController::WindowFeature::kFeatureBookmarkBar);
++#if BUILDFLAG(IS_OHOS)
++  // When the shell draws the browser UI it draws its own bookmark bar.
++  // OnOhosUiFamilyChanged() hides Chromium's once, but every tab switch and
++  // bookmark bar state change comes back here, and with "show on all tabs"
++  // on -- an imported profile can bring that -- the bar was put back between
++  // the shell's bars and the page. Keep it out of the view hierarchy.
++  if (chrome::ohos::IsAuraShellChromeHiddenByShell()) {
++    show_bookmark_bar = false;
++  }
++#endif
+   if (!show_bookmark_bar && !bookmark_bar_view_) {
+     return false;
+   }
