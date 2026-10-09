@@ -5,10 +5,14 @@
 
 #include <native_vsync/native_vsync.h>
 
+#include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/task/bind_post_task.h"
+#include "base/trace_event/trace_event.h"
 
 namespace ui {
 namespace {
@@ -51,6 +55,8 @@ constexpr int32_t kMaxFrameRate = 120;
 
 OhosVSyncProvider::OhosVSyncProvider(int32_t window_id)
     : interval_(kFallbackInterval) {
+  idle_callback_ = base::BindPostTaskToCurrentDefault(base::BindRepeating(
+      &OhosVSyncProvider::ReleaseFrameRateIfIdle, weak_factory_.GetWeakPtr()));
   // A connection bound to the window is what lets the system apply the
   // requested frame rate to it; an unassociated one gets whatever rate the
   // system picked for the app.
@@ -65,12 +71,7 @@ OhosVSyncProvider::OhosVSyncProvider(int32_t window_id)
                << kFallbackInterval.InMillisecondsF() << " ms";
     return;
   }
-  OH_NativeVSync_ExpectedRateRange range = {kMinFrameRate, kMaxFrameRate,
-                                            kMaxFrameRate};
-  if (OH_NativeVSync_SetExpectedFrameRateRange(native_vsync_, &range) != 0) {
-    LOG(WARNING) << "OHOS NativeVSync refused a " << kMaxFrameRate
-                 << " Hz frame rate range";
-  }
+  ApplyFrameRate(kMaxFrameRate);
 
   // Decoupled VSync lets the system drive animation frames early, which it
   // documents as smoother for self-drawn content.
@@ -87,6 +88,8 @@ OhosVSyncProvider::OhosVSyncProvider(int32_t window_id)
 }
 
 OhosVSyncProvider::~OhosVSyncProvider() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  weak_factory_.InvalidateWeakPtrs();
   if (native_vsync_) {
     OH_NativeVSync_Destroy(native_vsync_);
   }
@@ -105,10 +108,15 @@ void OhosVSyncProvider::GetVSyncParameters(UpdateVSyncCallback callback) {
 bool OhosVSyncProvider::GetVSyncParametersIfAvailable(
     base::TimeTicks* timebase,
     base::TimeDelta* interval) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  {
+    base::AutoLock lock(lock_);
+    last_query_ = base::TimeTicks::Now();
+  }
+  // The first draw after idle restores the most recent content request.
+  ApplyFrameRate(preferred_frame_rate_);
   RequestFrameIfIdle();
-
   base::AutoLock lock(lock_);
-  last_query_ = base::TimeTicks::Now();
   if (!has_parameters_) {
     return false;
   }
@@ -123,6 +131,70 @@ bool OhosVSyncProvider::SupportGetVSyncParametersIfAvailable() const {
 
 bool OhosVSyncProvider::IsHWClock() const {
   return native_vsync_ != nullptr;
+}
+
+void OhosVSyncProvider::SetPreferredFrameInterval(base::TimeDelta interval) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Viz supplies an interval chosen for content cadence within 60..120 Hz.
+  // Round fractional video cadences (e.g. 59.94) for the native integer API.
+  preferred_frame_rate_ =
+      interval.is_positive()
+          ? static_cast<int32_t>(std::lround(std::clamp(
+                1.0 / interval.InSecondsF(), static_cast<double>(kMinFrameRate),
+                static_cast<double>(kMaxFrameRate))))
+          : kMaxFrameRate;
+  {
+    base::AutoLock lock(lock_);
+    last_query_ = base::TimeTicks::Now();
+  }
+  ApplyFrameRate(preferred_frame_rate_);
+}
+
+void OhosVSyncProvider::ApplyFrameRate(int32_t expected) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!native_vsync_ || rate_control_failed_ || expected == applied_frame_rate_) {
+    return;
+  }
+  OH_NativeVSync_ExpectedRateRange range = {
+      expected ? kMinFrameRate : 0, expected ? kMaxFrameRate : 0, expected};
+  const int result =
+      OH_NativeVSync_SetExpectedFrameRateRange(native_vsync_, &range);
+  if (result != 0) {
+    // Stop retrying an unsupported API/range every frame. Keep the previous
+    // high-rate policy as the compatibility fallback for this provider.
+    rate_control_failed_ = true;
+    OH_NativeVSync_ExpectedRateRange fallback = {
+        kMinFrameRate, kMaxFrameRate, kMaxFrameRate};
+    const int fallback_result =
+        OH_NativeVSync_SetExpectedFrameRateRange(native_vsync_, &fallback);
+    LOG(WARNING) << "OHOS VSync: rate request failed expected=" << expected
+                 << " result=" << result
+                 << "; legacy 120 Hz request result=" << fallback_result;
+    return;
+  }
+  applied_frame_rate_ = expected;
+  {
+    base::AutoLock lock(lock_);
+    // A requested rate is not necessarily granted on the very next callback.
+    // Poll actual period during transition, then return to the normal cadence.
+    recheck_period_until_ = base::TimeTicks::Now() + base::Seconds(1);
+    last_period_read_ = base::TimeTicks();
+  }
+  TRACE_EVENT_INSTANT("viz", "OhosVSyncRateRequest", "expected_hz", expected);
+  LOG(WARNING) << "OHOS VSync: requested rate=" << expected
+               << " range=" << range.min << ".." << range.max
+               << (expected ? " (content policy)" : " (idle, request released)");
+}
+
+void OhosVSyncProvider::ReleaseFrameRateIfIdle() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  {
+    base::AutoLock lock(lock_);
+    if (base::TimeTicks::Now() - last_query_ < kKeepRequestingFor) {
+      return;  // A queued idle notification must not cancel a new draw's boost.
+    }
+  }
+  ApplyFrameRate(0);
 }
 
 // static
@@ -142,7 +214,8 @@ void OhosVSyncProvider::OnVSyncOnAnyThread(base::TimeTicks timebase) {
     has_parameters_ = true;
     frame_requested_ = false;
     keep_requesting = now - last_query_ < kKeepRequestingFor;
-    recheck_period = now - last_period_read_ >= kPeriodRecheckEvery;
+    recheck_period = now < recheck_period_until_ ||
+                     now - last_period_read_ >= kPeriodRecheckEvery;
     if (recheck_period) {
       last_period_read_ = now;
     }
@@ -150,12 +223,25 @@ void OhosVSyncProvider::OnVSyncOnAnyThread(base::TimeTicks timebase) {
   if (recheck_period) {
     const base::TimeDelta hardware_interval = ReadHardwareInterval();
     if (!hardware_interval.is_zero()) {
-      base::AutoLock lock(lock_);
-      interval_ = hardware_interval;
+      bool changed;
+      {
+        base::AutoLock lock(lock_);
+        changed = (interval_ - hardware_interval).magnitude() >
+                  base::Milliseconds(0.5);
+        interval_ = hardware_interval;
+      }
+      if (changed) {
+        TRACE_EVENT_INSTANT("viz", "OhosVSyncActualInterval", "interval_us",
+                            hardware_interval.InMicroseconds());
+        LOG(WARNING) << "OHOS VSync: actual interval="
+                     << hardware_interval.InMillisecondsF() << " ms";
+      }
     }
   }
   if (keep_requesting) {
     RequestFrameIfIdle();
+  } else {
+    idle_callback_.Run();
   }
 }
 

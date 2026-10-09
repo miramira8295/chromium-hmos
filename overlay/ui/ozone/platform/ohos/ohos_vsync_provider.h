@@ -8,6 +8,7 @@
 
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
@@ -36,6 +37,7 @@ class OhosVSyncProvider final : public gfx::VSyncProvider {
                                      base::TimeDelta* interval) override;
   bool SupportGetVSyncParametersIfAvailable() const override;
   bool IsHWClock() const override;
+  void SetPreferredFrameInterval(base::TimeDelta interval) override;
 
  private:
   // Runs on the NativeVSync thread.
@@ -44,6 +46,8 @@ class OhosVSyncProvider final : public gfx::VSyncProvider {
   void RequestFrameIfIdle();
   void OnVSyncOnAnyThread(base::TimeTicks timebase);
   base::TimeDelta ReadHardwareInterval();
+  void ApplyFrameRate(int32_t expected);
+  void ReleaseFrameRateIfIdle();
 
   OH_NativeVSync* native_vsync_ = nullptr;
 
@@ -52,9 +56,17 @@ class OhosVSyncProvider final : public gfx::VSyncProvider {
   base::TimeDelta interval_ GUARDED_BY(lock_);
   base::TimeTicks last_query_ GUARDED_BY(lock_);
   base::TimeTicks last_period_read_ GUARDED_BY(lock_);
+  base::TimeTicks recheck_period_until_ GUARDED_BY(lock_);
   bool has_parameters_ GUARDED_BY(lock_) = false;
   bool frame_requested_ GUARDED_BY(lock_) = false;
 
+  // Only the owning GPU sequence changes native frame-rate requests. The
+  // NativeVSync callback posts idle work back here, never mutating policy.
+  int32_t preferred_frame_rate_ = 120;
+  int32_t applied_frame_rate_ = -1;
+  bool rate_control_failed_ = false;
+  base::RepeatingClosure idle_callback_;
+  SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<OhosVSyncProvider> weak_factory_{this};
 };
 

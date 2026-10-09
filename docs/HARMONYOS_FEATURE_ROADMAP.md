@@ -1,6 +1,6 @@
 # HarmonyOS 功能补齐进度表
 
-更新日期：2026-10-08。
+更新日期：2026-10-09。
 
 本表记录仓库静态检查及维护者对 runner 实际配置的核对结果，作为后续逐项实现的工作清单。对比对象是 Android Chrome 的常见能力，部分能力依赖平台服务。此表不是所有 Web API 的完整审计，也不代表已经完成真机验证。
 
@@ -33,6 +33,14 @@ Canvas/WebGL 取帧、保留帧及 SDR/HDR 切换。HLG 1080p 完整操作场景
 零拷贝和 SharedImage／EGLImage 导入复用默认开启，外壳无需测试开关；能力检查或初始化失败时自动回退兼容路径。
 Pad 多进程、4K PQ/HLG 和 VP9/AV1 硬解尚未由本轮覆盖；尚无功耗／CPU 对照数据，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
 Safe Browsing 按维护者安排暂缓。
+
+## 当前 GPU 工作：动态帧率与 VSync
+
+已接入 FrameIntervalDecider → NativeVSync 的内容帧率请求，默认开启；
+纯视频按节奏请求 60–120 Hz，输入或混合动画升频，降频防抖 500 ms，闲置释放请求。
+实际 BeginFrame 仍跟随系统回报周期，不把期望帧率当作实际值。
+状态：待真机验证；SDR/PQ/HLG、滚动与闲置恢复的验收步骤见
+[动态帧率与 VSync 策略](OHOS_ADAPTIVE_VSYNC.md)。
 
 ## WebOTP：明确不实施
 

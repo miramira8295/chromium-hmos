@@ -1,0 +1,329 @@
+diff --git a/components/viz/service/display/frame_interval_decider_unittest.cc b/components/viz/service/display/frame_interval_decider_unittest.cc
+--- a/components/viz/service/display/frame_interval_decider_unittest.cc
++++ b/components/viz/service/display/frame_interval_decider_unittest.cc
+@@ -147,6 +147,21 @@
+       static_cast<SurfaceObserver*>(&scoped_aggregate)
+           ->OnSurfaceWillBeDrawn(surface);
+     }
++  }
++
++  void InitializeOhosVideoDecider() {
++    ContinuousRangeSettings range;
++    range.min_interval = base::Hertz(120) - base::Microseconds(50);
++    range.max_interval = base::Hertz(60) + base::Microseconds(50);
++    range.default_interval = base::Hertz(120);
++    settings_.interval_settings = range;
++    settings_.increase_frame_interval_timeout = base::Milliseconds(500);
++    settings_.result_callback = base::BindRepeating(
++        &FrameIntervalDeciderTest::SetFrameInterval, base::Unretained(this));
++    std::vector<std::unique_ptr<FrameIntervalMatcher>> matchers;
++    matchers.push_back(std::make_unique<InputBoostMatcher>());
++    matchers.push_back(std::make_unique<OnlyVideoMatcher>());
++    decider_->UpdateSettings(settings_, std::move(matchers));
+   }
+ 
+   void InitializeDecider() {
+@@ -208,6 +223,102 @@
+   std::optional<FrameIntervalMatcherType> matcher_type_;
+ };
+ 
++// Exercise the real matchers with the OHOS native request range. In particular,
++// 1000/1001 video intervals must not accidentally select an extra cadence.
++TEST_F(FrameIntervalDeciderTest, OhosVideoCadences) {
++  struct TestCase {
++    double video_hz;
++    double request_hz;
++  };
++  constexpr TestCase cases[] = {
++      {24, 72}, {24000.0 / 1001, 72}, {25, 75},
++      {30, 60}, {30000.0 / 1001, 60}, {50, 100},
++      {60, 60}, {60000.0 / 1001, 60}, {120, 120}, {240, 120}};
++  uint32_t sink_id = 1;
++  for (const auto& test : cases) {
++    SCOPED_TRACE(test.video_hz);
++    decider_ = std::make_unique<FrameIntervalDecider>();
++    InitializeOhosVideoDecider();
++    FrameIntervalInputs inputs;
++    inputs.frame_time = kNow;
++    inputs.has_only_content_frame_interval_updates = true;
++    inputs.content_interval_info.push_back(
++        {ContentFrameIntervalType::kVideo, base::Hertz(test.video_hz)});
++    Surface* surface = CreateSurface(FrameSinkId(0, sink_id++), inputs);
++    DrawSurfaces({surface}, kNow);
++    Result result = TakeLastResult();
++    ASSERT_TRUE(std::holds_alternative<ResultInterval>(result));
++    EXPECT_NEAR(test.request_hz,
++                1.0 / std::get<ResultInterval>(result).interval.InSecondsF(),
++                0.15);
++    EXPECT_EQ(FrameIntervalMatcherType::kOnlyVideo, TakeLastMatcherType());
++  }
++}
++
++TEST_F(FrameIntervalDeciderTest, OhosVideoDownshiftAndInputBoost) {
++  InitializeOhosVideoDecider();
++  FrameIntervalInputs inputs;
++  inputs.frame_time = kNow;
++  Surface* surface = CreateSurface(FrameSinkId(0, 1), inputs);
++  DrawSurfaces({surface}, kNow);
++  ExpectResult(TakeLastResult(), base::Hertz(120));
++
++  inputs.has_only_content_frame_interval_updates = true;
++  inputs.content_interval_info.push_back(
++      {ContentFrameIntervalType::kVideo, base::Hertz(30)});
++  auto draw_at = [&](int milliseconds) {
++    inputs.frame_time = kNow + base::Milliseconds(milliseconds);
++    UpdateFrame(surface, inputs);
++    DrawSurfaces({surface}, inputs.frame_time);
++  };
++  draw_at(100);
++  EXPECT_FALSE(has_result());
++  draw_at(499);
++  EXPECT_FALSE(has_result());
++  draw_at(501);
++  ExpectResult(TakeLastResult(), base::Hertz(30) / 2);
++  EXPECT_EQ(FrameIntervalMatcherType::kOnlyVideo, TakeLastMatcherType());
++
++  // Input takes precedence over video in the very next aggregation.
++  inputs.has_input = true;
++  draw_at(510);
++  ExpectResult(TakeLastResult(), base::Hertz(120) - base::Microseconds(50));
++  EXPECT_EQ(FrameIntervalMatcherType::kInputBoost, TakeLastMatcherType());
++  inputs.has_input = false;
++  draw_at(1009);
++  EXPECT_FALSE(has_result());
++  draw_at(1011);
++  ExpectResult(TakeLastResult(), base::Hertz(30) / 2);
++
++  // Non-video damage immediately restores the high-rate default too.
++  inputs.has_only_content_frame_interval_updates = false;
++  draw_at(1012);
++  ExpectResult(TakeLastResult(), base::Hertz(120));
++  EXPECT_EQ(FrameIntervalMatcherType::kNone, TakeLastMatcherType());
++}
++
++TEST_F(FrameIntervalDeciderTest, OhosStaleInputDoesNotHoldVideoAtHighRate) {
++  InitializeOhosVideoDecider();
++  FrameIntervalInputs video;
++  video.frame_time = kNow;
++  video.has_only_content_frame_interval_updates = true;
++  video.content_interval_info.push_back(
++      {ContentFrameIntervalType::kVideo, base::Hertz(30)});
++  Surface* video_surface = CreateSurface(FrameSinkId(0, 1), video);
++  FrameIntervalInputs input;
++  input.frame_time = kNow;
++  input.has_input = true;
++  Surface* input_surface = CreateSurface(FrameSinkId(0, 2), input);
++  DrawSurfaces({video_surface, input_surface}, kNow);
++  ExpectResult(TakeLastResult(), base::Hertz(120) - base::Microseconds(50));
++
++  video.frame_time = kNow + base::Milliseconds(501);
++  UpdateFrame(video_surface, video);
++  DrawSurfaces({video_surface, input_surface}, video.frame_time);
++  ExpectResult(TakeLastResult(), base::Hertz(30) / 2);
++  EXPECT_EQ(FrameIntervalMatcherType::kOnlyVideo, TakeLastMatcherType());
++}
++
+ TEST_F(FrameIntervalDeciderTest, Basics) {
+   settings_.increase_frame_interval_timeout = base::Milliseconds(50);
+   InitializeDecider();
+diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
+--- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
++++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
+@@ -683,6 +683,10 @@
+ #elif BUILDFLAG(IS_IOS)
+   interval_decider_use_fixed_intervals_ = false;
+ #endif
++#if BUILDFLAG(IS_OHOS)
++  // Do not replace measured VSync timing with a requested content interval.
++  use_preferred_interval_ = false;
++#endif
+   UpdateFrameIntervalDeciderSettings();
+ }
+ 
+@@ -713,7 +717,7 @@
+     matchers.push_back(
+         std::make_unique<OnlyScrollBarFadeOutAnimationMatcher>());
+   }
+-#elif BUILDFLAG(IS_IOS)
++#elif BUILDFLAG(IS_IOS) || BUILDFLAG(IS_OHOS)
+   matchers.push_back(std::make_unique<OnlyVideoMatcher>());
+ #else
+   if (base::FeatureList::IsEnabled(features::kSingleVideoFrameRateThrottling)) {
+@@ -727,6 +731,19 @@
+   }
+ 
+   FrameIntervalDecider::Settings settings = decider->settings();
++#if BUILDFLAG(IS_OHOS)
++  // These are request limits, not a claim that every panel supports every Hz.
++  // NativeVSync reports the actual granted interval separately. Numeric
++  // results keep the decider's immediate-boost/delayed-downshift ordering.
++  FrameIntervalMatcher::ContinuousRangeSettings range;
++  // Allow 1000/1001 cadences and integer-microsecond rounding at the bounds.
++  // The NativeVSync provider clamps the final integer request to 60..120 Hz.
++  range.min_interval = base::Hertz(120) - base::Microseconds(50);
++  range.max_interval = base::Hertz(60) + base::Microseconds(50);
++  range.default_interval = base::Hertz(120);
++  settings.interval_settings = range;
++  settings.increase_frame_interval_timeout = base::Milliseconds(500);
++#else
+   if (interval_decider_use_fixed_intervals_) {
+     FrameIntervalMatcher::FixedIntervalSettings fixed_interval_settings;
+     fixed_interval_settings.supported_intervals = GetSupportedFrameIntervals();
+@@ -750,6 +767,7 @@
+   } else {
+     settings.interval_settings = {};
+   }
++#endif
+ 
+   // Unretained is safe since this owns Display which owns FrameIntervalDecider.
+   settings.result_callback = base::BindRepeating(
+@@ -830,7 +848,11 @@
+     return;
+   }
+ #endif
++#if BUILDFLAG(IS_OHOS)
++  display_->SetFrameIntervalOnOutputSurface(interval);
++#else
+   SetPreferredFrameInterval(interval);
++#endif
+ }
+ 
+ void RootCompositorFrameSinkImpl::DisplayOutputSurfaceLost() {
+diff --git a/components/viz/service/display/display.h b/components/viz/service/display/display.h
+--- a/components/viz/service/display/display.h
++++ b/components/viz/service/display/display.h
+@@ -193,6 +193,10 @@
+   void SetFrameIntervalOnOutputSurface(gfx::SurfaceControlFrameRate frame_rate);
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  void SetFrameIntervalOnOutputSurface(base::TimeDelta interval);
++#endif
++
+   void PreserveChildSurfaceControls();
+ 
+ #if BUILDFLAG(IS_ANDROID)
+diff --git a/components/viz/service/display/display.cc b/components/viz/service/display/display.cc
+--- a/components/viz/service/display/display.cc
++++ b/components/viz/service/display/display.cc
+@@ -1455,6 +1455,12 @@
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++void Display::SetFrameIntervalOnOutputSurface(base::TimeDelta interval) {
++  output_surface_->SetPreferredFrameInterval(interval);
++}
++#endif
++
+ void Display::DisableGPUAccessByDefault() {
+   DCHECK(resource_provider_);
+   resource_provider_->SetAllowAccessToGPUThread(false);
+diff --git a/components/viz/service/display/output_surface.h b/components/viz/service/display/output_surface.h
+--- a/components/viz/service/display/output_surface.h
++++ b/components/viz/service/display/output_surface.h
+@@ -284,6 +284,10 @@
+   // Notifies the OutputSurface of rate of content updates in frames per second.
+   virtual void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate) {}
+ #endif
++#if BUILDFLAG(IS_OHOS)
++  // Platform hint only; measured VSync parameters remain authoritative.
++  virtual void SetPreferredFrameInterval(base::TimeDelta interval) {}
++#endif
+ 
+   // Sends the pending delegated ink renderer receiver to GPU Main to allow the
+   // browser process to send points directly there.
+diff --git a/components/viz/service/display_embedder/skia_output_surface_impl.h b/components/viz/service/display_embedder/skia_output_surface_impl.h
+--- a/components/viz/service/display_embedder/skia_output_surface_impl.h
++++ b/components/viz/service/display_embedder/skia_output_surface_impl.h
+@@ -117,6 +117,9 @@
+ #if BUILDFLAG(IS_ANDROID)
+   void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate) override;
+ #endif
++#if BUILDFLAG(IS_OHOS)
++  void SetPreferredFrameInterval(base::TimeDelta interval) override;
++#endif
+   void SetNeedsMeasureNextDrawLatency() override;
+ 
+   // SkiaOutputSurface implementation:
+diff --git a/components/viz/service/display_embedder/skia_output_surface_impl.cc b/components/viz/service/display_embedder/skia_output_surface_impl.cc
+--- a/components/viz/service/display_embedder/skia_output_surface_impl.cc
++++ b/components/viz/service/display_embedder/skia_output_surface_impl.cc
+@@ -1060,6 +1060,17 @@
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++void SkiaOutputSurfaceImpl::SetPreferredFrameInterval(base::TimeDelta interval) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  auto task =
++      base::BindOnce(&SkiaOutputSurfaceImplOnGpu::SetPreferredFrameInterval,
++                     base::Unretained(impl_on_gpu_.get()), interval);
++  EnqueueGpuTask(std::move(task), {}, /*make_current=*/false,
++                 /*need_framebuffer=*/false);
++}
++#endif
++
+ void SkiaOutputSurfaceImpl::SetCapabilitiesForTesting(
+     gfx::SurfaceOrigin output_surface_origin) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+diff --git a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
+--- a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
++++ b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.h
+@@ -220,6 +220,10 @@
+   void SetFrameRate(gfx::SurfaceControlFrameRate frame_rate);
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  void SetPreferredFrameInterval(base::TimeDelta interval);
++#endif
++
+   bool was_context_lost() { return context_state_->context_lost(); }
+ 
+   void SetCapabilitiesForTesting(
+diff --git a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.cc b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.cc
+--- a/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.cc
++++ b/components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.cc
+@@ -95,6 +95,9 @@
+ #include "ui/gl/gl_features.h"
+ #include "ui/gl/gl_fence.h"
+ #include "ui/gl/gl_surface.h"
++#if BUILDFLAG(IS_OHOS)
++#include "ui/gfx/vsync_provider.h"
++#endif
+ #include "ui/gl/presenter.h"
+ #include "ui/gl/progress_reporter.h"
+ #include "url/gurl.h"
+@@ -1921,6 +1924,18 @@
+     gfx::SurfaceControlFrameRate frame_rate) {
+   if (presenter_) {
+     presenter_->SetFrameRate(frame_rate);
++  }
++}
++#endif
++
++#if BUILDFLAG(IS_OHOS)
++void SkiaOutputSurfaceImplOnGpu::SetPreferredFrameInterval(
++    base::TimeDelta interval) {
++  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
++  if (gl_surface_) {
++    if (auto* provider = gl_surface_->GetVSyncProvider()) {
++      provider->SetPreferredFrameInterval(interval);
++    }
+   }
+ }
+ #endif
+diff --git a/ui/gfx/vsync_provider.h b/ui/gfx/vsync_provider.h
+--- a/ui/gfx/vsync_provider.h
++++ b/ui/gfx/vsync_provider.h
+@@ -37,6 +37,10 @@
+ 
+   // Returns true, if VSyncProvider gets VSync timebase from HW.
+   virtual bool IsHWClock() const = 0;
++
++  // Optional platform hint. Never substitutes for measured VSync timing.
++  // Implementations without native rate control keep their existing behavior.
++  virtual void SetPreferredFrameInterval(base::TimeDelta interval) {}
+ };
+ 
+ // Provides a constant timebase and interval.
