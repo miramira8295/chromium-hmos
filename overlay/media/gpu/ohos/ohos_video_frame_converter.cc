@@ -148,7 +148,7 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
                                       gpu::SHARED_IMAGE_USAGE_RASTER_READ |
                                       gpu::SHARED_IMAGE_USAGE_GLES2_READ,
                                   "OhosVideoDecoder");
-  const std::optional<uint32_t> reusable_buffer_id =
+  std::optional<uint32_t> reusable_buffer_id =
       ui::GetOhosVideoNativePixmapId(*pixmap);
   scoped_refptr<gpu::ClientSharedImage> shared_image;
   gpu::SyncToken ready_token;
