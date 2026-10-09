@@ -118,6 +118,7 @@ test("aura_shell_smoke_tests") {
   configs += [ ":aura_shell_config" ]
 
   sources = [
+    "//ui/ozone/platform/ohos/ohos_native_pixmap_unittest.cc",
     "ohos_aura_shell_unittest.cc",
     "ohos_renderer_isolation_unittest.cc",
   ]

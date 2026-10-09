@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <set>
@@ -20,14 +21,18 @@
 #include <vector>
 
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory_coordinator/async_memory_consumer_registration.h"
+#include "base/memory_coordinator/memory_consumer.h"
 #include "base/no_destructor.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/task/thread_pool.h"
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "ui/gfx/client_native_pixmap.h"
@@ -147,7 +152,7 @@ void ReleaseEntry(BufferEntry& entry) {
 // nor by a DMA_BUF_SET_NAME name, which its fdinfo does not show. So each
 // buffer carries its id in the padding after its last plane, which nothing
 // else writes, and a handle is resolved by reading it back.
-class BufferRegistry {
+class BufferRegistry : public base::MemoryConsumer {
  public:
   static BufferRegistry& Get() {
     static base::NoDestructor<BufferRegistry> registry;
@@ -304,7 +309,6 @@ class BufferRegistry {
     }
 
     base::AutoLock hold(lock_);
-    PurgeUnused();
     entries_[key] = std::move(entry);
     return key;
   }
@@ -321,6 +325,7 @@ class BufferRegistry {
           ReadTag(fd, entry->size - sizeof(BufferTag));
       if (tag && tag->magic == kBufferTagMagic && tag->key == key) {
         ++entry->users;
+        entry->unused_since = base::TimeTicks();
         return key;
       }
     }
@@ -332,6 +337,7 @@ class BufferRegistry {
     auto it = entries_.find(key);
     if (it != entries_.end() && --it->second->users == 0) {
       it->second->unused_since = base::TimeTicks::Now();
+      SchedulePurgeLocked();
     }
   }
 
@@ -356,18 +362,87 @@ class BufferRegistry {
 
  private:
   friend class base::NoDestructor<BufferRegistry>;
-  BufferRegistry() = default;
+  BufferRegistry()
+      : memory_consumer_registration_(
+            "OhosNativeBufferRegistry",
+            {base::MemoryConsumerTraits::EstimatedMemoryUsage::kLarge,
+             base::MemoryConsumerTraits::ReleaseMemoryCost::
+                 kFreesPagesWithoutTraversal,
+             base::MemoryConsumerTraits::InformationRetention::kLossless,
+             base::MemoryConsumerTraits::ExecutionType::kAsynchronous,
+             base::MemoryConsumerTraits::SupportsMemoryLimit::kNo},
+            this,
+            base::MemoryConsumerRegistration::CheckUnregister::kDisabled) {}
 
-  void PurgeUnused() EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    const base::TimeTicks now = base::TimeTicks::Now();
-    for (auto it = entries_.begin(); it != entries_.end();) {
-      if (it->second->users == 0 &&
-          now - it->second->unused_since > kUnusedBufferGrace) {
-        ReleaseEntry(*it->second);
-        it = entries_.erase(it);
-      } else {
-        ++it;
+  // This is a handle handoff grace period, not an optional image cache. Even
+  // critical pressure must not evict a buffer whose handle may still be in
+  // transit. Drain only expired entries, just as the delayed task does.
+  void OnReleaseMemory() override {
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+        base::BindOnce(&BufferRegistry::PurgeUnused, base::Unretained(this),
+                       /*from_delayed_task=*/false));
+  }
+  void OnUpdateMemoryLimit() override {}
+
+  void SchedulePurgeLocked() EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    if (purge_pending_) {
+      return;
+    }
+    std::optional<base::TimeTicks> next_deadline;
+    for (const auto& [key, entry] : entries_) {
+      if (entry->users == 0) {
+        const base::TimeTicks deadline = entry->unused_since + kUnusedBufferGrace;
+        if (!next_deadline || deadline < *next_deadline) {
+          next_deadline = deadline;
+        }
       }
+    }
+    if (!next_deadline) {
+      return;
+    }
+    // The singleton outlives the ThreadPool. Coalesce all idle buffers into
+    // one task, and stop posting once none remain. Native handle destruction
+    // may call into the allocator, so run it off the GPU thread.
+    purge_pending_ = base::ThreadPool::PostDelayedTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+        base::BindOnce(&BufferRegistry::PurgeUnused, base::Unretained(this),
+                       /*from_delayed_task=*/true),
+        std::max(base::TimeDelta(), *next_deadline - base::TimeTicks::Now()));
+  }
+
+  void PurgeUnused(bool from_delayed_task) {
+    std::vector<std::unique_ptr<BufferEntry>> retired;
+    size_t released_bytes = 0;
+    {
+      base::AutoLock hold(lock_);
+      if (from_delayed_task) {
+        purge_pending_ = false;
+      }
+      const base::TimeTicks now = base::TimeTicks::Now();
+      for (auto it = entries_.begin(); it != entries_.end();) {
+        // Recheck under the same lock as Acquire/Unuse. Re-importing a buffer
+        // protects it; releasing it again starts a fresh, full grace period.
+        if (it->second->users == 0 &&
+            now - it->second->unused_since >= kUnusedBufferGrace) {
+          released_bytes += it->second->size;
+          retired.push_back(std::move(it->second));
+          it = entries_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+      SchedulePurgeLocked();
+    }
+    // Remove entries before dropping the lock, so no importer can acquire
+    // one while its native handles are being destroyed. Existing users keep
+    // their entries registered and never enter this list.
+    for (const auto& entry : retired) {
+      ReleaseEntry(*entry);
+    }
+    if (!retired.empty()) {
+      VLOG(1) << "OHOS native pixmap: reclaimed " << retired.size()
+              << " idle buffers, " << released_bytes << " bytes";
     }
   }
 
@@ -376,6 +451,8 @@ class BufferRegistry {
   // Format and size of buffers with no padding to hold a tag.
   std::set<std::tuple<int32_t, int, int>> untaggable_ GUARDED_BY(lock_);
   std::map<uint64_t, std::unique_ptr<BufferEntry>> entries_ GUARDED_BY(lock_);
+  bool purge_pending_ GUARDED_BY(lock_) = false;
+  base::AsyncMemoryConsumerRegistration memory_consumer_registration_;
 };
 
 OH_NativeBuffer_ColorSpace OhosColorSpaceFor(

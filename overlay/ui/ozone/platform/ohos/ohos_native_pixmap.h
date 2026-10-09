@@ -44,6 +44,9 @@ class NativePixmapGLBinding;
 // buffer stays registered for a while after its last pixmap goes, in case
 // its handle is still on the way. Renderers, processes of their own, only
 // write into the buffer: they map the dma-buf fd directly.
+// Idle entries are retired after a ten-second handoff grace period, even if
+// no more buffers are allocated. Re-importing one restarts that period on its
+// next release. Memory pressure never shortens the handoff grace period.
 
 // Whether `format` is one this platform allocates and imports.
 bool IsOhosNativePixmapFormat(viz::SharedImageFormat format);
