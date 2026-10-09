@@ -1,8 +1,8 @@
-Enable HEVC, AC-3 and DTS for the AVCodecKit decoders on OHOS.
+Enable HEVC, AC-3, DTS and WisePlay for the AVCodecKit decoders on OHOS.
 
 Keep support optional: Chromium obtains the supported HEVC profiles from the
 GPU decoder capability query rather than advertising HEVC on every device.
-No software HEVC decoder or DRM support is added.
+No software HEVC decoder is added.
 
 AC-3 and DTS, which Chromium cannot decode itself, go to the system's
 AVCodecKit audio decoders in the GPU process (media/gpu/ohos): the
@@ -10,6 +10,16 @@ AVCodecKit audio decoders in the GPU process (media/gpu/ohos): the
 canPlayType and MSE from the configs the GPU process reports, as Windows
 and Mac do for AC-3. E-AC-3, DTS:X and DTS Express are never offered: the
 system has no decoder for them.
+
+EME com.wiseplay.drm goes to HarmonyOS DRM Kit, as Android's platform key
+systems go to MediaDrm: the "cdm" mojo media service runs OhosCdm in the
+GPU process next to those decoders, which decrypt with its DRM Kit session
+(CdmContext::GetOhosMediaKeySession). The browser registers the key system
+without capabilities and asks DRM Kit for them the first time a page wants
+it (content/browser/media/key_system_support_ohos); the renderer's key
+system plumbing, so far built only with library CDMs, on Windows and on
+Android, is built for OHOS too and describes it with OhosKeySystemInfo.
+Software security and temporary sessions only.
 
 Generated against runner source snapshot 37748799880, pinned Chromium
 743f26418a267dd97c3c1c71d786038ae68cfc8f (154.0.8037.51).
@@ -61,7 +71,7 @@ diff --git a/media/media_options.gni b/media/media_options.gni
    platform_has_optional_hevc_encode_support =
        enable_platform_hevc && (is_win || is_apple || is_android)
  }
-@@ -338,8 +344,13 @@
+@@ -338,8 +344,16 @@
    _default_mojo_media_host = "gpu"
  } else if (is_ohos) {
    # Hardware decoding goes through AVCodecKit in the GPU process
@@ -69,8 +79,11 @@ diff --git a/media/media_options.gni b/media/media_options.gni
 -  _default_mojo_media_services = [ "video_decoder" ]
 +  # (media/gpu/ohos). Audio stays on the renderer's software decoders except
 +  # for what Chromium cannot decode itself -- AC-3 and DTS -- which the
-+  # system's AVCodecKit audio decoders handle there too.
++  # system's AVCodecKit audio decoders handle there too. The DRM Kit CDM
++  # (WisePlay) runs there as well, as on Android: the system decoders decrypt
++  # what it licenses.
 +  _default_mojo_media_services = [
++    "cdm",
 +    "audio_decoder",
 +    "video_decoder",
 +  ]
@@ -113,3 +126,281 @@ diff --git a/media/base/supported_types.cc b/media/base/supported_types.cc
      case AudioCodec::kAC3:
      case AudioCodec::kEAC3:
        return IsDecoderDolbyAc3Eac3Supported(type);
+diff --git a/media/base/cdm_context.h b/media/base/cdm_context.h
+--- a/media/base/cdm_context.h
++++ b/media/base/cdm_context.h
+@@ -24,6 +24,11 @@
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++// DRM Kit's session type (multimedia/drm_framework/native_drm_common.h).
++struct MediaKeySession;
++#endif
++
+ namespace media {
+ 
+ class CallbackRegistration;
+@@ -119,6 +124,16 @@
+   virtual FuchsiaCdmContext* GetFuchsiaCdmContext();
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  // Returns the DRM Kit session that AVCodecKit decoders decrypt with, or
++  // nullptr if this CDM is not backed by DRM Kit.
++  virtual ::MediaKeySession* GetOhosMediaKeySession();
++
++  // Whether that session holds a usable key yet. Decoders hold encrypted
++  // samples until it does, then wait for kHasAdditionalUsableKey.
++  virtual bool OhosHasUsableKey();
++#endif
++
+ #if BUILDFLAG(IS_CHROMEOS)
+   // Returns a ChromeOsCdmContext interface when the context is backed by the
+   // ChromeOS CdmFactoryDaemon. Otherwise return nullptr.
+diff --git a/media/base/cdm_context.cc b/media/base/cdm_context.cc
+--- a/media/base/cdm_context.cc
++++ b/media/base/cdm_context.cc
+@@ -47,6 +47,16 @@
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++::MediaKeySession* CdmContext::GetOhosMediaKeySession() {
++  return nullptr;
++}
++
++bool CdmContext::OhosHasUsableKey() {
++  return false;
++}
++#endif
++
+ #if BUILDFLAG(IS_FUCHSIA)
+ FuchsiaCdmContext* CdmContext::GetFuchsiaCdmContext() {
+   return nullptr;
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -2655,6 +2655,18 @@
+     deps += [ "//components/ohos_shape_detection" ]
+   }
+ 
++  # What HarmonyOS DRM Kit can decrypt, for CdmRegistryImpl's WisePlay entry.
++  if (is_ohos) {
++    sources += [
++      "media/key_system_support_ohos.cc",
++      "media/key_system_support_ohos.h",
++    ]
++    libs += [
++      "native_drm",
++      "native_media_codecbase",
++    ]
++  }
++
+   if (is_apple) {
+     sources += [
+       "font_access/font_enumeration_data_source_mac.h",
+diff --git a/content/browser/browser_interface_binders.cc b/content/browser/browser_interface_binders.cc
+--- a/content/browser/browser_interface_binders.cc
++++ b/content/browser/browser_interface_binders.cc
+@@ -1201,7 +1201,8 @@
+       &BindRenderFrameHostImpl<
+           &RenderFrameHostImpl::BindMediaInterfaceFactoryReceiver>);
+ 
+-#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || \
++    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   map->Add<media::mojom::KeySystemSupport>(
+       &BindRenderFrameHostImpl<
+           &RenderFrameHostImpl::BindKeySystemSupportReceiver>);
+diff --git a/content/browser/media/cdm_registry_impl.cc b/content/browser/media/cdm_registry_impl.cc
+--- a/content/browser/media/cdm_registry_impl.cc
++++ b/content/browser/media/cdm_registry_impl.cc
+@@ -35,6 +35,10 @@
+ #include "media/base/android/media_drm_bridge.h"
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "content/browser/media/key_system_support_ohos.h"
++#endif
++
+ #if BUILDFLAG(IS_WIN)
+ #include "content/browser/gpu/gpu_data_manager_impl.h"
+ #include "content/browser/media/key_system_support_win.h"
+@@ -579,6 +583,8 @@
+   }
+ #elif BUILDFLAG(IS_ANDROID)
+   GetAndroidCdmCapability(key_system, robustness, std::move(cdm_capability_cb));
++#elif BUILDFLAG(IS_OHOS)
++  GetOhosCdmCapability(key_system, robustness, std::move(cdm_capability_cb));
+ #else
+   std::move(cdm_capability_cb)
+       .Run(base::unexpected(media::CdmCapabilityQueryStatus::kUnknown));
+diff --git a/content/public/renderer/BUILD.gn b/content/public/renderer/BUILD.gn
+--- a/content/public/renderer/BUILD.gn
++++ b/content/public/renderer/BUILD.gn
+@@ -89,7 +89,7 @@
+     deps += [ "//sandbox" ]
+   }
+ 
+-  if (enable_library_cdms || is_win || is_android) {
++  if (enable_library_cdms || is_win || is_android || is_ohos) {
+     sources += [
+       "key_system_support.cc",
+       "key_system_support.h",
+diff --git a/chrome/common/media/cdm_registration.cc b/chrome/common/media/cdm_registration.cc
+--- a/chrome/common/media/cdm_registration.cc
++++ b/chrome/common/media/cdm_registration.cc
+@@ -430,6 +430,19 @@
+   cdm::AddOtherAndroidCdms(cdms);
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
++#if BUILDFLAG(IS_OHOS)
++  // WisePlay through HarmonyOS DRM Kit, served by OhosCdm in the GPU
++  // process. Registered without capabilities, as Android's platform key
++  // systems are: CdmRegistryImpl asks DRM Kit the first time a page wants
++  // it. Only software security so far. The CdmType is unused for a platform
++  // CDM but must differ from every other.
++  const media::CdmType kOhosCdmType{0x3d5e6d359b9a41e8ull,
++                                    0xb843dd3c6e72c42cull};
++  cdms->emplace_back("com.wiseplay.drm",
++                     content::CdmInfo::Robustness::kSoftwareSecure,
++                     std::nullopt, kOhosCdmType);
++#endif  // BUILDFLAG(IS_OHOS)
++
+   DVLOG(3) << __func__ << " done with " << cdms->size() << " cdms";
+ }
+ 
+diff --git a/chrome/renderer/BUILD.gn b/chrome/renderer/BUILD.gn
+--- a/chrome/renderer/BUILD.gn
++++ b/chrome/renderer/BUILD.gn
+@@ -279,7 +279,7 @@
+     deps += [ "//third_party/widevine/cdm:headers" ]
+   }
+ 
+-  if (enable_library_cdms || is_win || is_android) {
++  if (enable_library_cdms || is_win || is_android || is_ohos) {
+     sources += [
+       "media/chrome_key_systems.cc",
+       "media/chrome_key_systems.h",
+diff --git a/chrome/renderer/chrome_content_renderer_client.cc b/chrome/renderer/chrome_content_renderer_client.cc
+--- a/chrome/renderer/chrome_content_renderer_client.cc
++++ b/chrome/renderer/chrome_content_renderer_client.cc
+@@ -270,7 +270,8 @@
+ #include "chrome/common/request_header_integrity/request_header_integrity_url_loader_throttle.h"  // nogncheck
+ #endif
+ 
+-#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || \
++    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+ #include "chrome/renderer/media/chrome_key_systems.h"
+ #endif
+ 
+@@ -1400,7 +1401,8 @@
+ ChromeContentRendererClient::GetSupportedKeySystems(
+     content::RenderFrame* render_frame,
+     media::GetSupportedKeySystemsCB cb) {
+-#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(ENABLE_LIBRARY_CDMS) || BUILDFLAG(IS_WIN) || \
++    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   return GetChromeKeySystems(render_frame, std::move(cb));
+ #else
+   std::move(cb).Run({});
+diff --git a/components/cdm/renderer/BUILD.gn b/components/cdm/renderer/BUILD.gn
+--- a/components/cdm/renderer/BUILD.gn
++++ b/components/cdm/renderer/BUILD.gn
+@@ -29,7 +29,7 @@
+     "//third_party/widevine/cdm:buildflags",
+   ]
+ 
+-  if (enable_library_cdms || is_win || is_android) {
++  if (enable_library_cdms || is_win || is_android || is_ohos) {
+     sources += [
+       "key_system_support_update.cc",
+       "key_system_support_update.h",
+@@ -43,6 +43,14 @@
+     ]
+   }
+ 
++  # WisePlay through HarmonyOS DRM Kit.
++  if (is_ohos) {
++    sources += [
++      "ohos_key_system_info.cc",
++      "ohos_key_system_info.h",
++    ]
++  }
++
+   if (enable_widevine) {
+     sources += [
+       "widevine_key_system_info.cc",
+diff --git a/components/cdm/renderer/key_system_support_update.cc b/components/cdm/renderer/key_system_support_update.cc
+--- a/components/cdm/renderer/key_system_support_update.cc
++++ b/components/cdm/renderer/key_system_support_update.cc
+@@ -41,6 +41,10 @@
+ #include "components/cdm/renderer/android_key_system_info.h"
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "components/cdm/renderer/ohos_key_system_info.h"
++#endif  // BUILDFLAG(IS_OHOS)
++
+ #if BUILDFLAG(ENABLE_PLAYREADY)
+ #include "components/cdm/common/playready_cdm_common.h"
+ #include "components/cdm/renderer/playready_key_system_info.h"
+@@ -59,7 +63,7 @@
+ namespace {
+ 
+ #if BUILDFLAG(ENABLE_WIDEVINE) || BUILDFLAG(IS_ANDROID) || \
+-    BUILDFLAG(ENABLE_PLAYREADY)
++    BUILDFLAG(ENABLE_PLAYREADY) || BUILDFLAG(IS_OHOS)
+ SupportedCodecs GetVP9Codecs(
+     const base::flat_set<media::VideoCodecProfile>& profiles) {
+   if (profiles.empty()) {
+@@ -249,7 +253,7 @@
+   return supported_codecs;
+ }
+ #endif  // BUILDFLAG(ENABLE_WIDEVINE) || BUILDFLAG(IS_ANDROID) ||
+-        // BUILDFLAG(ENABLE_PLAYREADY)
++        // BUILDFLAG(ENABLE_PLAYREADY) || BUILDFLAG(IS_OHOS)
+ 
+ #if BUILDFLAG(ENABLE_WIDEVINE)
+ 
+@@ -543,6 +547,28 @@
+ }
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
++#if BUILDFLAG(IS_OHOS)
++void AddOhosPlatformKeySystem(const std::string& key_system,
++                              const media::KeySystemCapability& capability,
++                              bool can_persist_data,
++                              KeySystemInfos* key_systems) {
++  // The licenses are bound to a device certificate every site shares, so,
++  // as Android does for its platform key systems, none in incognito.
++  if (!can_persist_data) {
++    return;
++  }
++  // Software security only: CdmRegistryImpl reports no hardware capability.
++  if (!capability.sw_cdm_capability_or_status.has_value()) {
++    return;
++  }
++  const auto& sw_secure_capability =
++      capability.sw_cdm_capability_or_status.value();
++  key_systems->push_back(std::make_unique<OhosKeySystemInfo>(
++      key_system, GetSupportedCodecs(sw_secure_capability),
++      sw_secure_capability.encryption_schemes));
++}
++#endif  // BUILDFLAG(IS_OHOS)
++
+ void OnKeySystemSupportUpdated(
+     bool can_persist_data,
+     media::GetSupportedKeySystemsCB cb,
+@@ -578,6 +604,9 @@
+ #if BUILDFLAG(IS_ANDROID)
+     AddAndroidPlatformKeySystem(key_system, capability, can_persist_data,
+                                 &key_systems);
++#elif BUILDFLAG(IS_OHOS)
++    AddOhosPlatformKeySystem(key_system, capability, can_persist_data,
++                             &key_systems);
+ #else
+     DLOG(ERROR) << "Unrecognized key system: " << key_system;
+ #endif  // BUILDFLAG(IS_ANDROID)

@@ -99,12 +99,16 @@ index 0e28cdd..58da046 100644
 diff --git a/media/gpu/BUILD.gn b/media/gpu/BUILD.gn
 --- a/media/gpu/BUILD.gn
 +++ b/media/gpu/BUILD.gn
-@@ -199,14 +199,25 @@
+@@ -199,14 +199,31 @@
  
    if (is_ohos) {
      sources += [
 +      "ohos/ohos_audio_decoder.cc",
 +      "ohos/ohos_audio_decoder.h",
++      "ohos/ohos_cdm.cc",
++      "ohos/ohos_cdm.h",
++      "ohos/ohos_cenc_info.cc",
++      "ohos/ohos_cenc_info.h",
        "ohos/ohos_codec_util.cc",
        "ohos/ohos_codec_util.h",
        "ohos/ohos_video_decoder.cc",
@@ -119,9 +123,11 @@ diff --git a/media/gpu/BUILD.gn b/media/gpu/BUILD.gn
      ]
      libs += [
 +      "native_buffer",
++      "native_drm",
 +      "native_image",
 +      "native_window",
 +      "native_media_acodec",
++      "native_media_avcencinfo",
        "native_media_codecbase",
        "native_media_core",
        "native_media_vdec",

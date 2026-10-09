@@ -44,8 +44,47 @@ Chromium does not demux on OHOS.
 The AC-3 and DTS MIME constants are resolved at run time (API 22 and 23),
 so older systems load the engine and report neither.
 
-Clear streams only. Encrypted audio waits for the WisePlay CDM, which will
-hand the same decoder a key session.
+These are clear streams. Encrypted AC-3 or DTS is not offered: WisePlay
+(below) decrypts only AAC audio.
 
 As with AAC and H.264, enabling these formats is a technical capability, not
 a licence.
+
+## WisePlay (EME `com.wiseplay.drm`)
+
+HarmonyOS ships WisePlay in DRM Kit. The engine exposes it to pages through
+standard EME, the way Chrome on Android exposes MediaDrm's platform key
+systems:
+
+- **CDM.** `OhosCdm` (`media/gpu/ohos/ohos_cdm.*`) runs in the GPU process's
+  media service (the `cdm` mojo media service is on for OHOS) and maps EME
+  onto `OH_MediaKeySystem_*` and `OH_MediaKeySession_*`. All EME sessions of
+  one `MediaKeys` share one DRM Kit session, because decoders decrypt with a
+  single session, as ArkWeb does for WisePlay.
+- **Decryption.** There is no `Decryptor`. `OhosVideoDecoder` (H.264, HEVC)
+  and `OhosAudioDecoder` (AAC) call `OH_*_SetDecryptionConfig` with that
+  session and attach each sample's key ID, IV, subsamples and `cbcs` pattern
+  as `OH_AVCencInfo` (`ohos_cenc_info.*`). Encrypted samples wait
+  (`WaitingReason::kNoDecryptionKey`) until a license is in. Clear AAC still
+  decodes in the renderer; only encrypted AAC reaches the system decoder.
+- **Registration.** The browser registers the key system without capabilities;
+  the first page that asks makes `CdmRegistryImpl` query DRM Kit
+  (`content/browser/media/key_system_support_ohos.cc`): `IsSupported`, MP4
+  video and audio, and whether there is a hardware HEVC decoder. On a device
+  without WisePlay, `requestMediaKeySystemAccess` fails.
+- **Device certificate.** When DRM Kit has none, `OhosCdm` downloads it
+  before creating its session, through the browser's `ProvisionFetcher`
+  (no cookies), and only then resolves `createMediaKeys()`.
+
+Limits for now:
+
+| What | Status |
+| --- | --- |
+| Security level | Software (`CONTENT_PROTECTION_LEVEL_SW_CRYPTO`) only. Hardware levels need DRM Kit's secure video path, which renders past the GPU and so past the zero-copy compositor. Robustness `""`, `SW_SECURE_CRYPTO` and `SW_SECURE_DECODE` are accepted. |
+| Session types | `temporary` only; `persistent-license`, `load()` and `remove()` are rejected. |
+| Init data | `cenc` (PSSH boxes). Longer than DRM Kit's 2048 bytes, only WisePlay's boxes (system ID `3d5e6d35-9b9a-41e8-b843-dd3c6e72c42c`) are passed. |
+| Codecs | H.264, HEVC and AAC in MP4, `cenc` and `cbcs`. DRM Kit decrypts nothing else. |
+| Distinctive identifier | Not offered: the protected media identifier permission does not exist on this platform yet. Pages that ask for it `optional` (Shaka's and dash.js's default) play; `required` fails. |
+| Incognito | Not offered, as Android does for its platform key systems. |
+
+Logs: filter `OHOS CDM`, `OHOS key system` and `decrypting`.

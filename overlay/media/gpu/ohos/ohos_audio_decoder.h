@@ -13,6 +13,7 @@
 #include <optional>
 
 #include "base/containers/circular_deque.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
@@ -21,6 +22,8 @@
 #include "media/base/audio_decoder.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/audio_timestamp_helper.h"
+#include "media/base/callback_registry.h"
+#include "media/base/cdm_context.h"
 #include "media/base/channel_layout.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_log.h"
@@ -32,7 +35,8 @@ namespace media {
 // Decodes the audio Chromium has no decoder for -- AC-3 and DTS -- with the
 // system's AVCodecKit audio codecs. Hosted in the GPU process's media service
 // and reached from the renderer through MojoAudioDecoder, the same way video
-// reaches OhosVideoDecoder. Clear streams only for now.
+// reaches OhosVideoDecoder. Also decrypts and decodes AAC encrypted for a
+// DRM Kit CDM (OhosCdm), which only the system decoder can decrypt.
 class MEDIA_GPU_EXPORT OhosAudioDecoder final : public AudioDecoder {
  public:
   OhosAudioDecoder(scoped_refptr<base::SequencedTaskRunner> task_runner,
@@ -123,6 +127,7 @@ class MEDIA_GPU_EXPORT OhosAudioDecoder final : public AudioDecoder {
   // stream (it takes no input in that state) and on Reset().
   bool FlushAndRestartCodec();
   void PumpInput();
+  void OnCdmEvent(CdmContext::Event event);
   bool QueueInput(const CodecBuffer& input, const DecoderBuffer& buffer);
   bool UpdateOutputFormat();
   void DeliverOutput(const OH_AVCodecBufferAttr& attr, OH_AVBuffer* buffer);
@@ -135,6 +140,14 @@ class MEDIA_GPU_EXPORT OhosAudioDecoder final : public AudioDecoder {
   State state_ = State::kUninitialized;
   AudioDecoderConfig config_;
   OutputCB output_cb_;
+  WaitingCB waiting_cb_;
+
+  // For encrypted streams: the CDM whose DRM Kit session decrypts them. The
+  // media service keeps it alive for as long as this decoder.
+  raw_ptr<CdmContext> cdm_context_ = nullptr;
+  std::unique_ptr<CallbackRegistration> cdm_event_registration_;
+  // Encrypted input is held while the CDM has no usable key.
+  bool waiting_for_key_ = false;
 
   // Identifies the codec instance and flush epoch. Every callback carries the
   // value current when AVCodecKit invoked it, so tasks that refer to a

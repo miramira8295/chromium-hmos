@@ -4,20 +4,76 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 
+#include "base/functional/bind.h"
+#include "base/logging.h"
 #include "base/task/sequenced_task_runner.h"
 #include "media/base/audio_decoder.h"
+#include "media/base/cdm_factory.h"
 #include "media/base/media_log.h"
+#include "media/base/provision_fetcher.h"
 #include "media/base/supported_audio_decoder_config.h"
 #include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder.h"
 #include "media/gpu/ohos/ohos_audio_decoder.h"
+#include "media/gpu/ohos/ohos_cdm.h"
 #include "media/gpu/ohos/ohos_codec_util.h"
 #include "media/gpu/ohos/ohos_video_decoder.h"
+#include "media/mojo/mojom/frame_interface_factory.mojom.h"
 #include "media/mojo/services/gpu_mojo_media_client.h"
+#include "media/mojo/services/mojo_provision_fetcher.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 
 namespace media {
+
+namespace {
+
+// Device certificates are downloaded by the browser process for the frame
+// that asked for the CDM, as for Android's MediaDrmBridge.
+std::unique_ptr<ProvisionFetcher> CreateProvisionFetcher(
+    mojom::FrameInterfaceFactory* frame_interfaces) {
+  mojo::PendingRemote<mojom::ProvisionFetcher> provision_fetcher;
+  frame_interfaces->CreateProvisionFetcher(
+      provision_fetcher.InitWithNewPipeAndPassReceiver());
+  return std::make_unique<MojoProvisionFetcher>(std::move(provision_fetcher));
+}
+
+class OhosCdmFactory final : public CdmFactory {
+ public:
+  explicit OhosCdmFactory(CreateFetcherCB create_fetcher_cb)
+      : create_fetcher_cb_(std::move(create_fetcher_cb)) {}
+  ~OhosCdmFactory() final = default;
+
+  void Create(const CdmConfig& cdm_config,
+              const SessionMessageCB& session_message_cb,
+              const SessionClosedCB& session_closed_cb,
+              const SessionKeysChangeCB& session_keys_change_cb,
+              const SessionExpirationUpdateCB& session_expiration_update_cb,
+              CdmCreatedCB cdm_created_cb) final {
+    OhosCdm::Create(
+        cdm_config, create_fetcher_cb_, session_message_cb, session_closed_cb,
+        session_keys_change_cb, session_expiration_update_cb,
+        base::BindOnce(
+            [](CdmCreatedCB cdm_created_cb, scoped_refptr<OhosCdm> cdm,
+               const std::string& error_message) {
+              if (!cdm) {
+                LOG(WARNING) << "OHOS CDM: not created: " << error_message;
+              }
+              const CreateCdmStatus status =
+                  cdm ? CreateCdmStatus::kSuccess
+                      : CreateCdmStatus::kInitCdmFailed;
+              std::move(cdm_created_cb).Run(std::move(cdm), status);
+            },
+            std::move(cdm_created_cb)));
+  }
+
+ private:
+  const CreateFetcherCB create_fetcher_cb_;
+};
+
+}  // namespace
 
 class GpuMojoMediaClientOhos final : public GpuMojoMediaClient {
  public:
@@ -58,6 +114,13 @@ class GpuMojoMediaClientOhos final : public GpuMojoMediaClient {
       std::unique_ptr<MediaLog> media_log) final {
     return std::make_unique<OhosAudioDecoder>(std::move(task_runner),
                                               std::move(media_log));
+  }
+
+  // WisePlay through DRM Kit; the AVCodecKit decoders above decrypt with it.
+  std::unique_ptr<CdmFactory> CreatePlatformCdmFactory(
+      mojom::FrameInterfaceFactory* frame_interfaces) final {
+    return std::make_unique<OhosCdmFactory>(
+        base::BindRepeating(&CreateProvisionFetcher, frame_interfaces));
   }
 };
 

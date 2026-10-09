@@ -235,9 +235,12 @@ SupportedVideoDecoderConfigs GetOhosSupportedDecoderConfigs() {
     LOG(WARNING) << "OHOS video capability: " << mime
                  << " hardware decoder, usable profiles=" << profiles.size()
                  << " max=" << sizes->max.ToString();
+    // DRM Kit decrypts H.264 and HEVC in the decoder (OhosCdm).
+    const bool allow_encrypted =
+        codec == VideoCodec::kH264 || codec == VideoCodec::kHEVC;
     for (VideoCodecProfile profile : profiles) {
       configs.emplace_back(profile, profile, sizes->min, sizes->max,
-                           /*allow_encrypted=*/false,
+                           allow_encrypted,
                            /*require_encrypted=*/false);
     }
   }

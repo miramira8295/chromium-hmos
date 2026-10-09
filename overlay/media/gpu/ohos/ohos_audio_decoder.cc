@@ -12,6 +12,7 @@
 
 #include <array>
 #include <utility>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
@@ -24,7 +25,10 @@
 #include "base/task/bind_post_task.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/audio_codecs.h"
+#include "media/base/decrypt_config.h"
 #include "media/base/limits.h"
+#include "media/base/waiting.h"
+#include "media/gpu/ohos/ohos_cenc_info.h"
 #include "media/gpu/ohos/ohos_codec_util.h"
 
 namespace media {
@@ -159,16 +163,21 @@ void OhosAudioDecoder::Initialize(const AudioDecoderConfig& config,
     std::move(bound_init_cb).Run(DecoderStatus::Codes::kUnsupportedConfig);
     return;
   }
-  // Decryption comes with the WisePlay CDM; until then an encrypted stream
-  // is not ours.
-  if (config.is_encrypted()) {
+  // An encrypted stream needs a DRM Kit CDM: the codec decrypts with its
+  // session.
+  if (config.is_encrypted() &&
+      (!cdm_context || !cdm_context->GetOhosMediaKeySession())) {
     std::move(bound_init_cb)
         .Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
     return;
   }
-  // Only what the system decodes and Chromium cannot. Everything else is left
-  // to the renderer's own decoders, which DecoderSelector tries first anyway.
+  // Only what Chromium cannot do itself: decode AC-3 and DTS, or decrypt.
+  // Clear AAC is left to the renderer's own decoders, which DecoderSelector
+  // tries first anyway.
   const char* mime = OhosMimeTypeForAudioCodec(config.codec());
+  if (config.codec() == AudioCodec::kAAC && config.is_encrypted()) {
+    mime = OH_AVCODEC_MIMETYPE_AUDIO_AAC;
+  }
   if (!mime) {
     std::move(bound_init_cb).Run(DecoderStatus::Codes::kUnsupportedConfig);
     return;
@@ -180,9 +189,19 @@ void OhosAudioDecoder::Initialize(const AudioDecoderConfig& config,
   DestroyCodec();
   config_ = config;
   output_cb_ = output_cb;
+  waiting_cb_ = waiting_cb;
   output_format_.reset();
   timestamp_helper_.reset();
   logged_first_output_ = false;
+  waiting_for_key_ = false;
+  cdm_event_registration_.reset();
+  cdm_context_ = config.is_encrypted() ? cdm_context : nullptr;
+  if (cdm_context_) {
+    // CdmContext posts the event back to this sequence.
+    cdm_event_registration_ = cdm_context_->RegisterEventCB(
+        base::BindRepeating(&OhosAudioDecoder::OnCdmEvent,
+                            weak_factory_.GetWeakPtr()));
+  }
 
   if (!CreateCodec(mime)) {
     DestroyCodec();
@@ -217,6 +236,7 @@ void OhosAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
 void OhosAudioDecoder::Reset(base::OnceClosure closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   AbortPendingDecodes(DecoderStatus::Codes::kAborted);
+  waiting_for_key_ = false;
   if (state_ == State::kDecoding || state_ == State::kDraining) {
     if (FlushAndRestartCodec()) {
       state_ = State::kDecoding;
@@ -228,7 +248,8 @@ void OhosAudioDecoder::Reset(base::OnceClosure closure) {
 }
 
 bool OhosAudioDecoder::NeedsBitstreamConversion() const {
-  return false;
+  // AAC goes in as ADTS, as Android's MediaCodecAudioDecoder has it.
+  return config_.codec() == AudioCodec::kAAC;
 }
 
 bool OhosAudioDecoder::IsPlatformDecoder() const {
@@ -390,6 +411,19 @@ bool OhosAudioDecoder::CreateCodec(const char* mime) {
       OH_AVFormat_SetIntValue(format.get(), OH_MD_KEY_AUDIO_SAMPLE_FORMAT,
                               SAMPLE_S16LE);
     }
+    if (config_.codec() == AudioCodec::kAAC) {
+      // Samples come with ADTS headers (NeedsBitstreamConversion()), except
+      // xHE-AAC, which ADTS cannot describe; the AudioSpecificConfig is
+      // passed either way.
+      OH_AVFormat_SetIntValue(
+          format.get(), OH_MD_KEY_AAC_IS_ADTS,
+          config_.profile() == AudioCodecProfile::kXHE_AAC ? 0 : 1);
+      std::vector<uint8_t> extra_data = config_.extra_data();
+      if (!extra_data.empty()) {
+        OH_AVFormat_SetBuffer(format.get(), OH_MD_KEY_CODEC_CONFIG,
+                              extra_data.data(), extra_data.size());
+      }
+    }
     result = OH_AudioCodec_Configure(codec_.get(), format.get());
     if (result == AV_ERR_OK) {
       break;
@@ -402,6 +436,19 @@ bool OhosAudioDecoder::CreateCodec(const char* mime) {
         << base::NumberToString(static_cast<int>(result));
     return false;
   }
+  if (cdm_context_) {
+    // Must come before Prepare(). Software crypto only: the output stays in
+    // ordinary memory.
+    result = OH_AudioCodec_SetDecryptionConfig(
+        codec_.get(), cdm_context_->GetOhosMediaKeySession(),
+        /*secureAudio=*/false);
+    if (result != AV_ERR_OK) {
+      MEDIA_LOG(ERROR, media_log_)
+          << "OH_AudioCodec_SetDecryptionConfig failed: "
+          << base::NumberToString(static_cast<int>(result));
+      return false;
+    }
+  }
   if (OH_AudioCodec_Prepare(codec_.get()) != AV_ERR_OK ||
       OH_AudioCodec_Start(codec_.get()) != AV_ERR_OK) {
     MEDIA_LOG(ERROR, media_log_) << "OH_AudioCodec_Prepare/Start failed";
@@ -409,7 +456,8 @@ bool OhosAudioDecoder::CreateCodec(const char* mime) {
   }
   LOG(WARNING) << "OHOS audio decoder: " << GetCodecName(config_.codec())
                << " " << config_.channels() << " ch "
-               << config_.samples_per_second() << " Hz on the system decoder";
+               << config_.samples_per_second() << " Hz on the system decoder"
+               << (cdm_context_ ? ", decrypting" : "");
   return true;
 }
 
@@ -442,6 +490,15 @@ bool OhosAudioDecoder::FlushAndRestartCodec() {
 void OhosAudioDecoder::PumpInput() {
   while (state_ == State::kDecoding && !pending_decodes_.empty() &&
          !free_inputs_.empty()) {
+    if (cdm_context_ && pending_decodes_.front().buffer->decrypt_config() &&
+        !cdm_context_->OhosHasUsableKey()) {
+      // Without a key the codec would fail the sample; wait for the license.
+      if (!waiting_for_key_) {
+        waiting_for_key_ = true;
+        waiting_cb_.Run(WaitingReason::kNoDecryptionKey);
+      }
+      return;
+    }
     PendingDecode pending = std::move(pending_decodes_.front());
     pending_decodes_.pop_front();
     CodecBuffer input = free_inputs_.front();
@@ -486,6 +543,11 @@ bool OhosAudioDecoder::QueueInput(const CodecBuffer& input,
     attr.pts = buffer.timestamp().InMicroseconds();
     attr.size = static_cast<int32_t>(buffer.size());
     attr.flags = AVCODEC_BUFFER_FLAGS_NONE;
+    if (cdm_context_ && !AttachOhosCencInfo(buffer.decrypt_config(),
+                                            buffer.size(), input.buffer)) {
+      MEDIA_LOG(ERROR, media_log_) << "Unsupported audio encryption layout";
+      return false;
+    }
     if (!timestamp_helper_) {
       timestamp_sample_rate_ = output_format_ ? output_format_->sample_rate
                                               : config_.samples_per_second();
@@ -499,6 +561,16 @@ bool OhosAudioDecoder::QueueInput(const CodecBuffer& input,
   }
   return OH_AudioCodec_PushInputBuffer(codec_.get(), input.index) ==
          AV_ERR_OK;
+}
+
+void OhosAudioDecoder::OnCdmEvent(CdmContext::Event event) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (event != CdmContext::Event::kHasAdditionalUsableKey ||
+      !waiting_for_key_) {
+    return;
+  }
+  waiting_for_key_ = false;
+  PumpInput();
 }
 
 bool OhosAudioDecoder::UpdateOutputFormat() {

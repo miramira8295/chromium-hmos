@@ -28,9 +28,12 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/task/bind_post_task.h"
 #include "base/time/time.h"
+#include "media/base/decrypt_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_types.h"
+#include "media/base/waiting.h"
+#include "media/gpu/ohos/ohos_cenc_info.h"
 #include "media/gpu/ohos/ohos_codec_util.h"
 #include "third_party/libyuv/include/libyuv/planar_functions.h"
 #include "ui/gfx/color_space.h"
@@ -136,7 +139,12 @@ void OhosVideoDecoder::Initialize(const VideoDecoderConfig& config,
     std::move(bound_init_cb).Run(DecoderStatus::Codes::kUnsupportedConfig);
     return;
   }
-  if (config.is_encrypted()) {
+  // An encrypted stream needs a DRM Kit CDM: the codec decrypts with its
+  // session. H.264 and HEVC only; DRM Kit decrypts nothing else.
+  if (config.is_encrypted() &&
+      (!cdm_context || !cdm_context->GetOhosMediaKeySession() ||
+       (config.codec() != VideoCodec::kH264 &&
+        config.codec() != VideoCodec::kHEVC))) {
     std::move(bound_init_cb)
         .Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
     return;
@@ -162,9 +170,19 @@ void OhosVideoDecoder::Initialize(const VideoDecoderConfig& config,
   DestroyCodec();
   config_ = config;
   output_cb_ = output_cb;
+  waiting_cb_ = waiting_cb;
   output_layout_.reset();
   surface_frame_count_ = 0;
   buffer_frame_logged_ = false;
+  waiting_for_key_ = false;
+  cdm_event_registration_.reset();
+  cdm_context_ = config.is_encrypted() ? cdm_context : nullptr;
+  if (cdm_context_) {
+    // CdmContext posts the event back to this sequence.
+    cdm_event_registration_ = cdm_context_->RegisterEventCB(
+        base::BindRepeating(&OhosVideoDecoder::OnCdmEvent,
+                            weak_factory_.GetWeakPtr()));
+  }
 
   state_ = State::kUninitialized;
   surface_enabled_ = false;
@@ -259,6 +277,7 @@ void OhosVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
 void OhosVideoDecoder::Reset(base::OnceClosure closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   AbortPendingDecodes(DecoderStatus::Codes::kAborted);
+  waiting_for_key_ = false;
   if (state_ == State::kDecoding || state_ == State::kDraining) {
     if (FlushAndRestartCodec()) {
       state_ = State::kDecoding;
@@ -516,6 +535,19 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
               "consumer surface/SetSurface failed"};
     }
   }
+  if (cdm_context_) {
+    // Must come before Prepare(). Software crypto only, so frames stay in
+    // ordinary buffers and the zero-copy path is unchanged; a secure video
+    // path would render past the GPU.
+    result = OH_VideoDecoder_SetDecryptionConfig(
+        codec_.get(), cdm_context_->GetOhosMediaKeySession(),
+        /*secureVideoPath=*/false);
+    if (result != AV_ERR_OK) {
+      return {DecoderStatus::Codes::kFailedToCreateDecoder,
+              "OH_VideoDecoder_SetDecryptionConfig failed: " +
+                  base::NumberToString(static_cast<int>(result))};
+    }
+  }
   if (OH_VideoDecoder_Prepare(codec_.get()) != AV_ERR_OK ||
       OH_VideoDecoder_Start(codec_.get()) != AV_ERR_OK) {
     return {DecoderStatus::Codes::kFailedToCreateDecoder,
@@ -523,7 +555,8 @@ DecoderStatus OhosVideoDecoder::CreateCodec() {
   }
   LOG(WARNING) << "OHOS video decoder: selected hardware " << *name
                << " profile=" << GetProfileName(config_.profile())
-               << " output=" << (surface_enabled_ ? "surface" : "buffer");
+               << " output=" << (surface_enabled_ ? "surface" : "buffer")
+               << (cdm_context_ ? ", decrypting" : "");
   return DecoderStatus::Codes::kOk;
 }
 
@@ -583,6 +616,15 @@ bool OhosVideoDecoder::FlushAndRestartCodec() {
 void OhosVideoDecoder::PumpInput() {
   while (state_ == State::kDecoding && !pending_decodes_.empty() &&
          !free_inputs_.empty()) {
+    if (cdm_context_ && pending_decodes_.front().buffer->decrypt_config() &&
+        !cdm_context_->OhosHasUsableKey()) {
+      // Without a key the codec would fail the sample; wait for the license.
+      if (!waiting_for_key_) {
+        waiting_for_key_ = true;
+        waiting_cb_.Run(WaitingReason::kNoDecryptionKey);
+      }
+      return;
+    }
     PendingDecode pending = std::move(pending_decodes_.front());
     pending_decodes_.pop_front();
     CodecBuffer input = free_inputs_.front();
@@ -627,12 +669,27 @@ bool OhosVideoDecoder::QueueInput(const CodecBuffer& input,
     attr.pts = buffer.timestamp().InMicroseconds();
     attr.size = static_cast<int32_t>(buffer.size());
     attr.flags = AVCODEC_BUFFER_FLAGS_NONE;
+    if (cdm_context_ && !AttachOhosCencInfo(buffer.decrypt_config(),
+                                            buffer.size(), input.buffer)) {
+      MEDIA_LOG(ERROR, media_log_) << "Unsupported video encryption layout";
+      return false;
+    }
   }
   if (OH_AVBuffer_SetBufferAttr(input.buffer, &attr) != AV_ERR_OK) {
     return false;
   }
   return OH_VideoDecoder_PushInputBuffer(codec_.get(), input.index) ==
          AV_ERR_OK;
+}
+
+void OhosVideoDecoder::OnCdmEvent(CdmContext::Event event) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (event != CdmContext::Event::kHasAdditionalUsableKey ||
+      !waiting_for_key_) {
+    return;
+  }
+  waiting_for_key_ = false;
+  PumpInput();
 }
 
 bool OhosVideoDecoder::UpdateOutputLayout() {
