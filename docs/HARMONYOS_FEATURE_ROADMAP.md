@@ -25,11 +25,11 @@
 ## 当前 GPU 工作：硬解输出零拷贝
 
 `OhosZeroCopyVideo` 路径通过 ConsumerSurface／NativeBuffer 直接生成 SharedImage，
-避开逐帧 CPU 输出拷贝。8 位首版 `build-0e19c42c` 和 HEVC Main10／P010 版本 `build-47c09559` 均已通过 CI；
-传递 PQ／HLG、色彩范围和 Chromium 已知 HDR 元数据。首版 H.264 已通过 Mate 70 Pro+ 外壳验收。
-本轮补齐 VP9／AV1 动态硬解选择、HEVC 网页能力所需构建开关、旧 Surface 退役和测试服务器 Range 支持。
+避开逐帧 CPU 输出拷贝。`build-010f7882` 已通过 Mate 70 Pro+ 单进程、默认配置的
+H.264、HEVC Main／Main10 SDR/PQ/HLG 零拷贝与导入复用功能验收，包括 seek、重播、
+Canvas/WebGL 取帧、保留帧及 SDR/HDR 切换；HLG 1080p 单次 14/123 丢帧待性能复测。
 零拷贝和 SharedImage／EGLImage 导入复用默认开启，外壳无需测试开关；能力检查或初始化失败时自动回退兼容路径。
-新增路径和修复待设备回归，尚无功耗／CPU 对照数据，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
+Pad 多进程、4K PQ/HLG 和 VP9/AV1 硬解尚未由本轮覆盖；尚无功耗／CPU 对照数据，详见 [实现与验收](OHOS_VIDEO_ZERO_COPY.md)。
 Safe Browsing 按维护者安排暂缓。
 
 ## WebOTP：明确不实施

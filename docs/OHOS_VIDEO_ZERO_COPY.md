@@ -6,10 +6,10 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 压缩码流输入仍会复制；视频合成、Canvas/WebGL 操作仍可能产生 GPU 采样或 GPU 拷贝。
 不能把这里的“零拷贝”理解成整条媒体管线没有任何数据搬运。
 
-状态：8 位首版 H.264 已通过 Mate 70 Pro+ 验收（见文末）。已加入 HEVC Main10／P010，
-本轮补齐 VP9／AV1 动态硬解查询、HEVC 构建开关和旧 Surface 退役处理，新增路径待设备验证。
-`build-0e19c42c` 是此前仅支持 8 位 Surface 输出的版本，不能用于验收本次 10 位扩展。
-性能收益尚未测量；此前 renderer isolation 的验证结果不能替代本项验证。
+状态：`build-010f7882` 已通过 Mate 70 Pro+ 单进程、默认配置的 H.264、HEVC Main／
+Main10 SDR/PQ/HLG 零拷贝与导入复用功能验收（具体片源和范围见文末）。HLG 1080p
+单轮丢帧 14/123，单列为性能待复测项。Pad 多进程、4K PQ/HLG 及 VP9／AV1 硬解
+尚未由本轮覆盖，功耗／CPU 对照收益也尚未测量。
 
 ## 启用与回退
 
@@ -327,10 +327,56 @@ GPU task runner 上先投递缓存 Reset，再投递该代次的 Convert，保�
 包装失败，并附上相关代次、尺寸及导入／同步状态。独立 wrapper 不可用时会记录
 一次降级到不缓存导入的日志。
 
-修复待设备复测：先确认 H.264 NV12、HEVC Main NV12、Main10 P010 都出现
+修复时的设备复测要求：先确认 H.264 NV12、HEVC Main NV12、Main10 P010 都出现
 `first SharedImage frame ... CPU output copies=0`，持续播放后出现
 `SharedImage reuse active`；再覆盖 seek、播完重播、SDR/PQ/HLG 切换及保留旧帧。
 首帧成功只验证代次修复，不能替代实际复用后的画面与同步验收。
+
+### build-010f7882 手机验收及 HLG 性能待复测
+
+以下为外壳回传结果，非内核开发环境执行：Mate 70 Pro+、单进程、默认启动配置，
+没有测试开关；HAR SHA-256 `55771290a5f62450c1e0a94035ecff8382bd9799847b847a03a4ae4d336a0763` 已校验。
+所有片源均完成播放、暂停恢复、seek ×10、播完重播、Canvas/WebGL 取帧，以及保留帧
+12 秒后重新绘制且画面不变。
+
+| 片源 | 丢帧／总帧（外壳记录） | 首帧格式／色彩 | reuse active 日志次数 | 转换失败 |
+| --- | --- | --- | --- | --- |
+| H.264 1080p30 | 0/123 | NV12 BT709 | 23 | 0 |
+| H.264 1080p60 | 0/240 | NV12 BT709 | 21 | 0 |
+| H.264 2160p30 | 0/122 | NV12 BT709 | 21 | 0 |
+| HEVC Main 1080p | 0/122 | NV12 BT709 | 22 | 0 |
+| HEVC Main10 SDR 1080p | 0/123 | P010 BT709 | 23 | 0 |
+| HEVC Main10 PQ 1080p | 0/122 | P010 BT2020/PQ，hdr_metadata=1 | 23 | 0 |
+| HEVC Main10 HLG 1080p | 14/123 | P010 BT2020/HLG | 23 | 0 |
+| HEVC Main10 SDR 2160p | 0/123 | P010 BT709 | 19 | 0 |
+
+零拷贝首帧确认 `CPU output copies=0`。全程无 `buffer mode`、`arrival timed out`、
+`requires P010`、`context lost` 或崩溃。`SharedImage reuse active` 每代次首次复用
+只打一次，因此表中次数不是复用帧数，也不能用于计算缓存命中率。
+
+同页按 SDR → PQ → HLG → H.264 → PQ 等顺序切换共 8 次，每次再 seek，均有画面且
+继续播放；首帧格式和色彩正确。只有 PQ 的 hdr_metadata=1，切回 SDR/8 位后为 0，
+没有旧 HDR 元数据残留。HLG 日志为 white 203 nits、peak 1000 nits、gamma 1.2。
+
+HLG 代码检查（基于固定 Chromium `743f26418a267dd97c3c1c71d786038ae68cfc8f`）：
+
+- OHOS 转换器的 P010 导入、复用和 fence 流程不区分 PQ/HLG，Surface 路径没有新增
+  HLG 专用 CPU 像素转换。`OhosVideoColorSpace()` 保留 HLG 标记。
+- `ohos_screen.cc` 的 HDR 输出空间统一为 PQ，因此 HLG 到最终输出存在色彩转换。
+  上游 `SkiaRenderer::DrawTextureQuad()` 对 PQ 和 HLG 的 HDR 视频都会选择 tone-map
+  路径，调用 `ToneMapUtil::AddGlobalToneMapFilterToPaint()`，不能据此宣称只有 HLG
+  多一次渲染 pass，或认定丢帧由 HLG shader 引起。
+- 上游 `ui/gfx/color_space.cc` 会在未指定参数时显示上述 HLG 默认值；1000 nits 是
+  色彩转换的默认峰值参数，不代表测得手机面板峰值，也不是异常或旧 PQ 元数据残留。
+- 当前只有一次短样本，尚不能区分首播 shader 编译、解码供应、GPU/fence 等待、
+  调度、设备温度和 seek／Canvas/WebGL 操作造成的开销。保持现有色彩和复用逻辑。
+
+复测无需功能开关：使用同源且分辨率、帧率和编码设置尽量一致的 Main10 SDR/PQ/HLG
+长片，固定亮度和窗口大小；分别记录冷启动首播及同进程第二遍，每组至少 3 次。
+纯播放阶段不执行 seek／取帧，先记录前 5 秒，再统计其后至少 60 秒的
+`getVideoPlaybackQuality()` 总帧／丢帧增量（每秒采样），把 seek、取帧测试另记。
+若热身后 HLG 仍稳定丢帧，再采集同时间段 media/viz/gpu trace 和系统 GPU 数据，
+区分解码输出迟到、GPU 队列／fence 等待与合成耗时，不能把 CPU 提交耗时当 GPU 执行时间。
 
 ## 待办：HDR 播放时网页也跟着变亮（已记录，暂缓）
 
