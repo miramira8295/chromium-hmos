@@ -63,6 +63,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/performance_manager/public/background_tab_loading_policy.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -2515,12 +2516,17 @@ void RestoreLastSessionTabs(gfx::AcceleratedWidget widget,
         }
         int count = 0;
         const int selected = main->selected_tab_index;
+        // The tabs behind the selected one, handed to the background tab
+        // loader as SessionRestore does; it loads as many as the device's
+        // cap allows (OhosTabDiscardingPolicy: none on a phone, 3 on a
+        // tablet) and leaves the rest to load when opened.
+        std::vector<content::WebContents*> background_tabs;
         for (size_t i = 0; i < main->tabs.size(); ++i) {
           const sessions::SessionTab& tab = *main->tabs[i];
           if (tab.navigations.empty()) {
             continue;
           }
-          chrome::AddRestoredTab(
+          content::WebContents* contents = chrome::AddRestoredTab(
               browser, tab.navigations, tabs->count(),
               tab.normalized_navigation_index(), tab.extension_app_id,
               tab.group, static_cast<int>(i) == selected, tab.pinned,
@@ -2528,7 +2534,15 @@ void RestoreLastSessionTabs(gfx::AcceleratedWidget widget,
               /*storage_namespace=*/nullptr, tab.user_agent_override,
               tab.extra_data, /*from_session_restore=*/true,
               /*is_active_browser=*/std::nullopt);
+          if (contents && static_cast<int>(i) != selected) {
+            background_tabs.push_back(contents);
+          }
           ++count;
+        }
+        if (!background_tabs.empty() &&
+            performance_manager::policies::CanScheduleLoadForRestoredTabs()) {
+          performance_manager::policies::ScheduleLoadForRestoredTabs(
+              std::move(background_tabs));
         }
         LOG(WARNING) << "OHOS restored " << count
                      << " tabs of the last session's main window";
