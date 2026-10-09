@@ -6,7 +6,8 @@ limited number of tabs loaded, discards tabs hidden too long, and acts on
 the system memory level the engine HAR forwards. Discard in place
 (kWebContentsDiscard, as Android does), so a tab keeps its WebContents and
 the shell's id for it. Restored background tabs load when opened instead of
-twenty at startup.
+twenty at startup. Register chrome://discards, which was built and packed
+but never registered, to show which tabs may be discarded and why not.
 
 Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
 applied. Apply with:
@@ -89,6 +90,31 @@ diff --git a/chrome/browser/performance_manager/policies/background_tab_loading_
  }
  
  BackgroundTabLoadingPolicy::~BackgroundTabLoadingPolicy() = default;
+diff --git a/chrome/browser/ui/webui/chrome_web_ui_configs.cc b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+--- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
++++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+@@ -192,7 +192,8 @@
+         // BUILDFLAG(IS_ANDROID)
+ 
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+-    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_DESKTOP_ANDROID)
++    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_DESKTOP_ANDROID) ||      \
++    BUILDFLAG(IS_OHOS)
+ #include "chrome/browser/ui/webui/discards/discards_ui.h"
+ #endif
+ 
+@@ -453,7 +454,10 @@ void RegisterChromeWebUIConfigs() {
+         // BUILDFLAG(IS_ANDROID)
+ 
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+-    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_DESKTOP_ANDROID)
++    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_DESKTOP_ANDROID) ||      \
++    BUILDFLAG(IS_OHOS)
++  // chrome://discards: which tabs OhosTabDiscardingPolicy may discard, and why
++  // not; the UI was already built and packed, only never registered.
+   map.AddWebUIConfig(std::make_unique<DiscardsUIConfig>());
+ #endif
+ 
 diff --git a/content/public/common/content_features.cc b/content/public/common/content_features.cc
 --- a/content/public/common/content_features.cc
 +++ b/content/public/common/content_features.cc

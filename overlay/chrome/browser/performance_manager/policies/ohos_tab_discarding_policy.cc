@@ -13,10 +13,13 @@
 #include "base/logging.h"
 #include "base/memory/memory_pressure_level.h"
 #include "base/memory/memory_pressure_listener.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/performance_manager/policies/discard_eligibility_policy.h"
 #include "chrome/browser/performance_manager/policies/page_discarding_helper.h"
 #include "components/ohos_system_service/system_service_ohos.h"
 #include "components/performance_manager/public/decorators/page_live_state_decorator.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 
 namespace performance_manager::policies {
@@ -221,11 +224,21 @@ std::vector<const PageNode*> OhosTabDiscardingPolicy::LoadedTabs() const {
   for (const PageNode* page : GetOwningGraph()->GetAllPageNodes()) {
     if (page->GetType() != PageType::kTab ||
         !page->GetPrimaryMainFrameNode()) {
-      // No main frame: restored and never opened, discarded, or crashed.
+      // No main frame: discarded or crashed.
       continue;
     }
     const auto* live_state = PageLiveStateDecorator::Data::FromPageNode(page);
     if (live_state && live_state->IsDiscarded()) {
+      continue;
+    }
+    // A restored tab not opened since can have a main frame too -- its empty
+    // first document -- but no page. Counted, thirty restored tabs read as
+    // thirty loaded on a phone, and twenty-five were discarded at startup for
+    // nothing.
+    const base::WeakPtr<content::WebContents> contents =
+        page->GetWebContents();
+    if (!contents || contents->GetController().NeedsReload() ||
+        page->GetMainFrameUrl().is_empty()) {
       continue;
     }
     loaded.push_back(page);
