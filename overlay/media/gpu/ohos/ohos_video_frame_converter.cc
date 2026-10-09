@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/functional/bind.h"
-#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/task/bind_post_task.h"
 #include "gpu/command_buffer/client/client_shared_image.h"
@@ -23,12 +23,23 @@
 #include "gpu/ipc/service/shared_image_stub.h"
 #include "media/base/format_utils.h"
 #include "media/base/video_types.h"
+#include "ui/gfx/gpu_fence.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_fence.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/ozone/platform/ohos/ohos_native_pixmap.h"
 
 namespace media {
+namespace {
+
+// Only reached by the opt-in OhosZeroCopyVideo path. Independently switchable
+// for same-build A/B measurements and driver-specific regressions.
+BASE_FEATURE(kOhosVideoSharedImageReuse,
+             "OhosVideoSharedImageReuse",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+constexpr base::TimeDelta kIdleImportCacheTimeout = base::Seconds(10);
+
+}  // namespace
 
 OhosVideoFrameConverter::OhosVideoFrameConverter(
     scoped_refptr<base::SequencedTaskRunner> gpu_task_runner,
@@ -80,11 +91,16 @@ void OhosVideoFrameConverter::Initialize(viz::SharedImageFormat format,
 }
 
 void OhosVideoFrameConverter::OnWillDestroyStub(bool have_context) {
+  // Cancelling the wait sequence can drop the last frame callback's reference.
+  auto keep_alive = base::WrapRefCounted(this);
   DestroyStub();
 }
 
 void OhosVideoFrameConverter::DestroyStub() {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
+  idle_cache_timer_.Stop();
+  LogCacheStats();
+  image_cache_.Clear();
   sis_ = nullptr;
   if (stub_) {
     stub_->channel()->scheduler()->DestroySequence(wait_sequence_id_);
@@ -93,7 +109,18 @@ void OhosVideoFrameConverter::DestroyStub() {
   }
 }
 
-void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
+void OhosVideoFrameConverter::Reset(uint32_t generation) {
+  DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
+  idle_cache_timer_.Stop();
+  LogCacheStats();
+  image_cache_.Reset(generation);
+  images_created_ = 0;
+  images_reused_ = 0;
+  uncached_frames_ = 0;
+}
+
+void OhosVideoFrameConverter::Convert(uint32_t generation,
+                                      scoped_refptr<gfx::NativePixmap> pixmap,
                                       gfx::GpuFenceHandle acquire_fence,
                                       const gfx::Rect& visible_rect,
                                       const gfx::Size& natural_size,
@@ -102,7 +129,10 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
                                       base::TimeDelta timestamp,
                                       OutputCB output_cb) {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
-  if (!sis_ || !gfx::Rect(pixmap->GetBufferSize()).Contains(visible_rect)) {
+  if (!sis_ || generation != image_cache_.generation() || !pixmap ||
+      !gfx::Rect(pixmap->GetBufferSize()).Contains(visible_rect) ||
+      !sis_->MakeContextCurrent(/*needs_gl=*/true) ||
+      sis_->shared_context_state()->context_lost()) {
     std::move(output_cb).Run(nullptr);
     return;
   }
@@ -124,9 +154,50 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
                                       gpu::SHARED_IMAGE_USAGE_RASTER_READ |
                                       gpu::SHARED_IMAGE_USAGE_GLES2_READ,
                                   "OhosVideoDecoder");
-  auto shared_image =
-      sis_->shared_image_interface()->CreateSharedImageForOhosVideo(
-          info, pixmap, std::move(acquire_fence), workarounds_);
+  std::optional<uint32_t> reusable_buffer_id;
+  if (base::FeatureList::IsEnabled(kOhosVideoSharedImageReuse)) {
+    reusable_buffer_id = ui::GetOhosVideoNativePixmapId(*pixmap);
+  }
+  scoped_refptr<gpu::ClientSharedImage> shared_image;
+  gpu::SyncToken ready_token;
+  if (reusable_buffer_id) {
+    shared_image = image_cache_.Take(*reusable_buffer_id,
+                                    pixmap->GetSharedImageFormat(),
+                                    pixmap->GetBufferSize(), color_space);
+  }
+  if (shared_image) {
+    std::unique_ptr<gfx::GpuFence> fence;
+    if (!acquire_fence.is_null()) {
+      fence = std::make_unique<gfx::GpuFence>(std::move(acquire_fence));
+    }
+    // A reused mailbox now contains new pixels. The update installs this
+    // decode's producer fence; its new token orders all subsequent readers.
+    ready_token = shared_image->BackingWasExternallyUpdated(std::move(fence));
+    sis_->shared_image_interface()->VerifySyncToken(ready_token);
+    if (++images_reused_ == 1) {
+      LOG(WARNING) << "OHOS video zero-copy: SharedImage reuse active";
+    }
+  } else {
+    scoped_refptr<gfx::NativePixmap> import_pixmap;
+    if (reusable_buffer_id) {
+      import_pixmap = ui::CloneOhosVideoNativePixmapForImport(*pixmap);
+    }
+    if (!import_pixmap) {
+      // An uncached frame retains the original ownership/fence protocol.
+      // Never cache that pixmap: it would hold a consumer queue slot forever.
+      reusable_buffer_id.reset();
+      import_pixmap = pixmap;
+      ++uncached_frames_;
+    }
+    shared_image =
+        sis_->shared_image_interface()->CreateSharedImageForOhosVideo(
+            info, std::move(import_pixmap), std::move(acquire_fence),
+            workarounds_);
+    if (shared_image) {
+      ready_token = shared_image->creation_sync_token();
+      ++images_created_;
+    }
+  }
   if (!shared_image) {
     LOG(ERROR) << "OHOS video zero-copy: SharedImage creation failed";
     std::move(output_cb).Run(nullptr);
@@ -135,10 +206,10 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
   auto release_cb = base::BindPostTask(
       gpu_task_runner_,
       base::BindOnce(&OhosVideoFrameConverter::OnVideoFrameReleased,
-                     base::WrapRefCounted(this), shared_image,
-                     std::move(pixmap)));
+                     base::WrapRefCounted(this), generation, reusable_buffer_id,
+                     shared_image, std::move(pixmap), ready_token));
   auto frame = VideoFrame::WrapSharedImage(
-      *pixel_format, shared_image, shared_image->creation_sync_token(),
+      *pixel_format, shared_image, ready_token,
       std::move(release_cb), visible_rect, natural_size, timestamp);
   if (frame) {
     frame->set_color_space(color_space);
@@ -148,12 +219,18 @@ void OhosVideoFrameConverter::Convert(scoped_refptr<gfx::NativePixmap> pixmap,
     frame->metadata().read_lock_fences_enabled = true;
     frame->metadata().power_efficient = true;
   }
+  if ((images_created_ + images_reused_) % 300 == 0) {
+    LogCacheStats();
+  }
   std::move(output_cb).Run(std::move(frame));
 }
 
 void OhosVideoFrameConverter::OnVideoFrameReleased(
+    uint32_t generation,
+    std::optional<uint32_t> reusable_buffer_id,
     scoped_refptr<gpu::ClientSharedImage> shared_image,
     scoped_refptr<gfx::NativePixmap> pixmap,
+    gpu::SyncToken ready_token,
     const gpu::SyncToken& sync_token) {
   DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
   shared_image->UpdateDestructionSyncToken(sync_token);
@@ -162,9 +239,47 @@ void OhosVideoFrameConverter::OnVideoFrameReleased(
   }
   // A mailbox release means submitted work, not necessarily completed work.
   // Hold the native buffer until Chromium's read-lock completion token passes.
+  // Also wait for the external update if a frame was dropped without readers.
+  // Keep the converter alive until the wait completes: decoder destruction
+  // alone must not destroy the sequence and release an in-flight frame early.
   stub_->channel()->scheduler()->ScheduleTask(gpu::Scheduler::Task(
-      wait_sequence_id_, base::DoNothingWithBoundArgs(std::move(pixmap)),
-      std::vector<gpu::SyncToken>{sync_token}));
+      wait_sequence_id_,
+      base::BindOnce(&OhosVideoFrameConverter::OnVideoFrameReadComplete,
+                     base::WrapRefCounted(this), generation, reusable_buffer_id,
+                     std::move(shared_image), std::move(pixmap)),
+      std::vector<gpu::SyncToken>{sync_token, ready_token}));
+}
+
+void OhosVideoFrameConverter::OnVideoFrameReadComplete(
+    uint32_t generation,
+    std::optional<uint32_t> reusable_buffer_id,
+    scoped_refptr<gpu::ClientSharedImage> shared_image,
+    scoped_refptr<gfx::NativePixmap> pixmap) {
+  DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
+  if (sis_ && reusable_buffer_id && generation == image_cache_.generation()) {
+    image_cache_.Put(generation, *reusable_buffer_id, std::move(shared_image));
+    idle_cache_timer_.Start(
+        FROM_HERE, kIdleImportCacheTimeout, this,
+        &OhosVideoFrameConverter::ClearIdleCache);
+  }
+  // Only the per-frame pixmap owns the queue lease. Dropping it posts the
+  // release to the decoder even while the cached import remains alive.
+}
+
+void OhosVideoFrameConverter::ClearIdleCache() {
+  DCHECK(gpu_task_runner_->RunsTasksInCurrentSequence());
+  LogCacheStats();
+  image_cache_.Clear();
+}
+
+void OhosVideoFrameConverter::LogCacheStats() {
+  if (images_created_ || images_reused_) {
+    VLOG(1) << "OHOS video SharedImage cache: generation="
+            << image_cache_.generation() << " created=" << images_created_
+            << " reused=" << images_reused_ << " uncached=" << uncached_frames_
+            << " idle=" << image_cache_.size()
+            << " estimated_bytes=" << image_cache_.bytes();
+  }
 }
 
 }  // namespace media

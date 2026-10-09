@@ -260,6 +260,66 @@ Main10 SDR／PQ／HLG（1080p、4K，均为 yuv420p10le）仍被网页 HEVC 能�
 修复放在 `patches/ohos-video-zero-copy.patch`：不显示的 surface 照常 prewalk（复制请求等仍需要），
 但不参与输出色彩空间的选择。
 
+## SharedImage / EGLImage 导入复用
+
+开启 `OhosZeroCopyVideo` 时，`OhosVideoSharedImageReuse` 默认启用。它减少同一解码
+NativeBuffer 循环使用时的 SharedImage 创建；Ozone backing 已有的每 context 纹理缓存
+随之保留 EGLImage。没有默认打开 `OhosZeroCopyVideo`，也没有改变视频位深或 HDR 输出。
+
+生命周期约束：
+
+- 缓存使用 NativeBuffer 的唯一序列号，限于同一解码代次，并核对尺寸、格式和色彩空间。
+- 缓存导入使用独立 native wrapper，只持有底层 allocation；原始 pixmap 单独持有本帧
+  ConsumerSurface lease。不能把带队列 lease 的 pixmap 放进长期缓存。
+- VideoFrame 被释放后，还要等待 GPU read-completion token 和本次外部更新 token。
+  两者完成后才归还队列 lease，并允许该 SharedImage 再次复用。
+- 每次复用都通过 `BackingWasExternallyUpdated` 更新本帧 acquire fence，提供新的
+  verified SyncToken 给读取者；不能重复使用初次创建时的 token 来表示新帧就绪。
+- seek、EOS 后重启、配置变化和销毁解码器时清空该代次缓存；之后归还的旧代次帧不能
+  填回新缓存。GPU stub 销毁时也清空缓存。
+- 最多缓存 8 个空闲导入，估算像素内存最多 128 MiB；超限淘汰最早归还的空闲项。
+  10 秒没有新的可缓存归还时清空空闲项。活跃/保留帧不计入这个空闲预算，不会被强制释放。
+- 独立 wrapper 创建失败时，该帧继续使用原来不缓存的导入路径。
+
+外壳可用同一构建对照：
+
+```text
+# A：零拷贝 + 导入复用
+--enable-features=OhosZeroCopyVideo
+--vmodule=ohos_video_frame_converter=1
+
+# B：零拷贝，但每帧重新创建导入
+--enable-features=OhosZeroCopyVideo
+--disable-features=OhosVideoSharedImageReuse
+--vmodule=ohos_video_frame_converter=1
+```
+
+每次修改参数后完全重启应用。若使用启动配置的参数数组，应合并已有的 enable/disable
+列表。不要带上一轮软解上传回收测试的 `--disable-accelerated-video-decode`。
+
+首次命中应出现 `OHOS video zero-copy: SharedImage reuse active`。
+每 300 帧、解码代次结束和空闲清理前，在 VLOG(1) 输出：
+
+```text
+OHOS video SharedImage cache: generation=... created=... reused=... uncached=... idle=... estimated_bytes=...
+```
+
+`created/reused/uncached` 是当前解码代次内累计计数。持续播放、尺寸和颜色不变时，A 的
+`reused` 应持续增长，`created` 通常应明显少于总帧数；B 的 `reused` 应为 0。
+队列缓冲数量、预算淘汰和长暂停可能带来额外创建，不能要求始终只创建某个固定数量。
+`created` 统计 SharedImage 创建，不是驱动内部 EGLImage 调用次数；EGLImage 的实际
+复用取决于 Ozone context 纹理缓存，需结合 trace 验证。两组都应保持 CPU output copies=0。
+
+设备回归沿用前述矩阵：H.264 1080p60/4K、HEVC Main10 的 SDR/PQ/HLG；重点覆盖
+持续播放、连续 seek、8/10 位切换、暂停超过 10 秒再恢复、Canvas/WebGL 保留旧帧后
+继续播放、关闭页面，以及 Pad 多进程。旧帧不能变成新帧画面，不能出现队列卡死、花屏、
+新的 surface release 错误或持续内存增长。HDR 网页亮度待办仍暂缓。
+
+`aura_shell_smoke_tests` 增加 `OhosVideoSharedImageCacheTest.*` 和
+`OhosNativePixmapTest.CachedImportDoesNotHoldFrameLease`，覆盖元数据不匹配、旧代次
+迟归还、独占取出、数量/字节预算，以及独立导入引用不占用原始帧 lease。
+这些测试不替代真机 GPU fence、EGL 驱动和功耗验收。
+
 ## 待办：HDR 播放时网页也跟着变亮（已记录，暂缓）
 
 现象：播放 HDR 视频时，网页上视频以外的部分（白底、文字）也比平时亮。

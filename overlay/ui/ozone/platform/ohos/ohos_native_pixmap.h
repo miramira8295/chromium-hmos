@@ -71,6 +71,17 @@ scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
     gfx::ColorSpace* color_space,
     base::OnceClosure release);
 
+// Stable allocation identity, not the address of a per-acquisition wrapper.
+// Only decoder surface pixmaps have one. Scope it to the decoder's epoch.
+std::optional<uint32_t> GetOhosVideoNativePixmapId(
+    const gfx::NativePixmap& pixmap);
+
+// Holds the allocation through an independent native wrapper, without holding
+// the frame's ConsumerSurface lease. Safe to retain in an import cache; the
+// original pixmap must separately survive until that frame's GPU reads finish.
+scoped_refptr<gfx::NativePixmap> CloneOhosVideoNativePixmapForImport(
+    const gfx::NativePixmap& pixmap);
+
 // Imports `pixmap` as an EGLImage through EGL_NATIVE_BUFFER_OHOS, tagged with
 // `color_space` so the driver converts YUV with the right matrix and range,
 // and binds it to `texture_id` on `target` (GL_TEXTURE_EXTERNAL_OES).

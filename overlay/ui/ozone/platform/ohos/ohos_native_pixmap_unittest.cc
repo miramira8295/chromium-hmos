@@ -6,6 +6,11 @@
 
 #include <utility>
 
+#include <native_buffer/native_buffer.h>
+#include <native_window/external_window.h>
+
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory_coordinator/memory_consumer_registry.h"
 #include "base/memory_coordinator/test_memory_consumer_registry.h"
 #include "base/test/task_environment.h"
@@ -15,6 +20,43 @@
 
 namespace ui {
 namespace {
+
+TEST(OhosNativePixmapTest, CachedImportDoesNotHoldFrameLease) {
+  OH_NativeBuffer_Config config = {};
+  config.width = 1920;
+  config.height = 1080;
+  config.format = NATIVEBUFFER_PIXEL_FMT_YCBCR_420_SP;
+  config.usage = NATIVEBUFFER_USAGE_HW_TEXTURE;
+  auto* buffer = OH_NativeBuffer_Alloc(&config);
+  ASSERT_NE(buffer, nullptr);
+  auto* window =
+      OH_NativeWindow_CreateNativeWindowBufferFromNativeBuffer(buffer);
+  OH_NativeBuffer_Unreference(buffer);
+  ASSERT_NE(window, nullptr);
+  bool released = false;
+  gfx::ColorSpace color_space = gfx::ColorSpace::CreateREC709();
+  using OwnedWindowBuffer =
+      std::unique_ptr<OHNativeWindowBuffer,
+                      decltype(&OH_NativeWindow_DestroyNativeWindowBuffer)>;
+  auto frame_pixmap = CreateOhosVideoNativePixmap(
+      window, &color_space,
+      base::BindOnce([](OwnedWindowBuffer, bool* released) { *released = true; },
+                     OwnedWindowBuffer(
+                         window, &OH_NativeWindow_DestroyNativeWindowBuffer),
+                     base::Unretained(&released)));
+  ASSERT_TRUE(frame_pixmap);
+  const auto id = GetOhosVideoNativePixmapId(*frame_pixmap);
+  ASSERT_TRUE(id.has_value());
+  auto cached_import = CloneOhosVideoNativePixmapForImport(*frame_pixmap);
+  ASSERT_TRUE(cached_import);
+  EXPECT_EQ(GetOhosVideoNativePixmapId(*cached_import), id);
+  frame_pixmap.reset();
+  EXPECT_TRUE(released);  // A live cache must not keep the queue slot occupied.
+  // Its own wrapper must still be valid after the original is destroyed.
+  auto another_import = CloneOhosVideoNativePixmapForImport(*cached_import);
+  ASSERT_TRUE(another_import);
+  EXPECT_EQ(GetOhosVideoNativePixmapId(*another_import), id);
+}
 
 // Exercises the real allocator/registry without creating a GL context. Keep
 // the scenarios in one environment because the process-wide registry, like

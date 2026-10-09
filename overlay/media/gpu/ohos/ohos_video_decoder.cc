@@ -531,6 +531,9 @@ void OhosVideoDecoder::DestroyCodec() {
   // Invalidate before destroying so that callbacks already posted by this
   // codec are ignored even if a new codec reuses their indices.
   ++generation_;
+  gpu_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&OhosVideoFrameConverter::Reset,
+                               frame_converter_, generation_));
   surface_timeout_.Stop();
   free_inputs_.clear();
   surface_outputs_.clear();
@@ -868,7 +871,7 @@ void OhosVideoDecoder::OnSurfaceFrameAvailable(uint32_t generation) {
       FROM_HERE,
       base::BindOnce(
           &OhosVideoFrameConverter::Convert, frame_converter_,
-          std::move(pixmap), std::move(fence), output.visible_rect,
+          generation, std::move(pixmap), std::move(fence), output.visible_rect,
           output.natural_size, output.color_space, output.hdr_metadata,
           output.timestamp,
           base::BindPostTask(

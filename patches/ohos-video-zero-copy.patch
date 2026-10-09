@@ -100,12 +100,13 @@ diff --git a/media/gpu/BUILD.gn b/media/gpu/BUILD.gn
 index ae41656..3ef8343 100644
 --- a/media/gpu/BUILD.gn
 +++ b/media/gpu/BUILD.gn
-@@ -203,10 +203,17 @@ component("gpu") {
+@@ -203,10 +203,18 @@ component("gpu") {
        "ohos/ohos_codec_util.h",
        "ohos/ohos_video_decoder.cc",
        "ohos/ohos_video_decoder.h",
 +      "ohos/ohos_video_frame_converter.cc",
 +      "ohos/ohos_video_frame_converter.h",
++      "ohos/ohos_video_shared_image_cache.h",
 +      "ohos/ohos_video_surface.cc",
 +      "ohos/ohos_video_surface.h",
        "ohos/ohos_video_encode_accelerator.cc",

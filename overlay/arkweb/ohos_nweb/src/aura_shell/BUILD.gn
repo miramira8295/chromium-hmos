@@ -118,6 +118,8 @@ test("aura_shell_smoke_tests") {
   configs += [ ":aura_shell_config" ]
 
   sources = [
+    "//media/gpu/ohos/ohos_video_shared_image_cache.h",
+    "//media/gpu/ohos/ohos_video_shared_image_cache_unittest.cc",
     "//ui/ozone/platform/ohos/ohos_native_pixmap_unittest.cc",
     "ohos_aura_shell_unittest.cc",
     "ohos_renderer_isolation_unittest.cc",
@@ -127,6 +129,8 @@ test("aura_shell_smoke_tests") {
     ":aura_shell_core",
     "//base",
     "//base/test:test_support",
+    "//gpu/command_buffer/client",
+    "//gpu/command_buffer/common",
     "//testing/gtest",
     "//testing/gtest:gtest_main",
     "//ui/base",

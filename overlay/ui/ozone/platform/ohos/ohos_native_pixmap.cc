@@ -474,10 +474,12 @@ class OhosNativePixmap : public gfx::NativePixmap {
   OhosNativePixmap(OHNativeWindowBuffer* window_buffer,
                    gfx::Size size,
                    viz::SharedImageFormat format,
+                   uint32_t buffer_id,
                    base::OnceClosure release)
       : key_(0),
         size_(size),
         format_(format),
+        video_buffer_id_(buffer_id),
         video_window_(window_buffer),
         video_release_(std::move(release)) {}
 
@@ -500,6 +502,7 @@ class OhosNativePixmap : public gfx::NativePixmap {
   }
 
   uint64_t key() const { return key_; }
+  std::optional<uint32_t> video_buffer_id() const { return video_buffer_id_; }
 
   bool AreDmaBufFdsValid() const override { return fd_ >= 0; }
   int GetDmaBufFd(size_t plane) const override { return fd_; }
@@ -556,8 +559,9 @@ class OhosNativePixmap : public gfx::NativePixmap {
   const uint64_t key_;
   const gfx::Size size_;
   const viz::SharedImageFormat format_;
-  // Borrowed pointer, kept alive by video_release_. Destroying the EGL
-  // binding precedes release back to the decoder's consumer queue.
+  const std::optional<uint32_t> video_buffer_id_;
+  // Kept alive by video_release_: either a per-frame consumer queue lease or
+  // an independent allocation reference used by a cached import.
   RAW_PTR_EXCLUSION OHNativeWindowBuffer* video_window_ = nullptr;
   base::ScopedClosureRunner video_release_;
   // Owned by the registry entry, which outlives this pixmap.
@@ -845,7 +849,43 @@ scoped_refptr<gfx::NativePixmap> CreateOhosVideoNativePixmap(
   format.SetPrefersExternalSampler();
   return base::MakeRefCounted<OhosNativePixmap>(
       window, gfx::Size(config.width, config.height), format,
+      OH_NativeBuffer_GetSeqNum(buffer),
       release_on_failure.Release());
+}
+
+std::optional<uint32_t> GetOhosVideoNativePixmapId(
+    const gfx::NativePixmap& pixmap) {
+  return static_cast<const OhosNativePixmap&>(pixmap).video_buffer_id();
+}
+
+scoped_refptr<gfx::NativePixmap> CloneOhosVideoNativePixmapForImport(
+    const gfx::NativePixmap& pixmap) {
+  const auto& video = static_cast<const OhosNativePixmap&>(pixmap);
+  const auto id = video.video_buffer_id();
+  if (!id) {
+    return nullptr;
+  }
+  OH_NativeBuffer* buffer = nullptr;
+  if (OH_NativeBuffer_FromNativeWindowBuffer(
+          video.WindowBuffer(gfx::ColorSpace()), &buffer) != 0 || !buffer) {
+    return nullptr;
+  }
+  // Do not retain the acquired queue wrapper: it carries a frame lease, and
+  // its release runs on the decoder sequence. This independent wrapper owns
+  // only an allocation reference and is used/destroyed on the GPU sequence.
+  auto* window =
+      OH_NativeWindow_CreateNativeWindowBufferFromNativeBuffer(buffer);
+  if (!window) {
+    return nullptr;
+  }
+  using OwnedWindowBuffer =
+      std::unique_ptr<OHNativeWindowBuffer,
+                      decltype(&OH_NativeWindow_DestroyNativeWindowBuffer)>;
+  return base::MakeRefCounted<OhosNativePixmap>(
+      window, pixmap.GetBufferSize(), pixmap.GetSharedImageFormat(), *id,
+      base::BindOnce([](OwnedWindowBuffer) {},
+                     OwnedWindowBuffer(
+                         window, &OH_NativeWindow_DestroyNativeWindowBuffer)));
 }
 
 std::unique_ptr<NativePixmapGLBinding> ImportOhosNativePixmap(
