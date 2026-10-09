@@ -8,7 +8,8 @@ GPU 进程直接导入 EGLImage／SharedImage，renderer 只接收 mailbox。
 
 状态：`build-010f7882` 已通过 Mate 70 Pro+ 单进程、默认配置的 H.264、HEVC Main／
 Main10 SDR/PQ/HLG 零拷贝与导入复用功能验收（具体片源和范围见文末）。HLG 1080p
-完整操作场景曾单轮丢帧 14/123，后续纯播放及 10 秒 trace 样本未丢帧，操作阶段待复现。
+原 14/123 未复现；第二轮完整场景 HLG/SDR 分别丢 2/3 帧。稳定播放无视频丢帧，
+BeginFrameDropped 的原因与 120/60 Hz 采样差异已核验，见 [原始 trace 分析](OHOS_HLG_TRACE_ANALYSIS.md)。
 Pad 多进程、4K PQ/HLG 及 VP9／AV1 硬解
 尚未由本轮覆盖，功耗／CPU 对照收益也尚未测量。
 
