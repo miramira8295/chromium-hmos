@@ -744,7 +744,7 @@ Chromium 首次访问时重新抓。这是一直如此，不是偶尔。
 
 偏好键（只接受这些）：`blockThirdPartyCookies`、`doNotTrack`、`safeBrowsing`（`'off' | 'standard' | 'enhanced'`）、`preloadPages`、`popupsBlocked`、`javascriptEnabled`、`textScale`、`autofillAddresses`、`autofillCards`、`downloadAskWhereToSave`、`passwordVault`、`forceDarkWebContents`(网页强制深色,已打开的标签页立即生效)。
 
-- `textScale` 是 50–200 的百分比。桌面版 Chromium 没有只放大文字的设置，所以这里改的是网页的默认缩放比例，整页一起放大。
+- `textScale` 是 50–200 的百分比。桌面版 Chromium 没有只放大文字的设置，所以这里改的是网页的默认缩放比例，整页一起放大。网页实际的默认缩放还要乘上系统字体大小（设置 > 显示 > 字体大小，`Configuration.fontSizeScale`，限制在 0.8–2.0），由引擎 HAR 的 `fontscale` 服务自动跟随，外壳不用处理；`textScale` 读出来的仍是外壳设的值，不含系统字体部分。自己设过缩放的网站保持自己的比例。`--disable-features=OhosFollowSystemFontSize` 可关闭跟随。
 - 这个版本没有配置 Google API 密钥，`safeBrowsing` 开关能保存，但实际上很可能不起作用，设置页不要承诺有安全浏览保护。
 - 没有 `passwordFillRequiresAuth`（已去掉）：把已保存的密码填进网页总要验证身份，和查看、复制、编辑、导出一样，没有开关。设备上没有锁屏也没有录入生物特征时没有东西可以拿来验证，照常填充。
 - `passwordVault` 默认关。打开后由系统密码保险箱填充和保存网页密码：点登录框时内核直接调起保险箱（每个表单问一次），用户选的账号由内核填进网页；登录成功后保险箱询问是否保存，同时 Chromium 不弹提示、悄悄存一份，关掉开关后照常可用。打开期间 Chromium 自己的填充建议、自动填充和强密码提示都不出现。保险箱调用由外壳用 `registerShellSystemService('passwordvault', …)` 实现（`autoFillManager` 的 ViewData 接口要 API 26，引擎 HAR 按 API 20 编译）。保险箱要求设备设了锁屏密码，外壳只在可用时让开关可点。

@@ -37,6 +37,7 @@
 
 #include "base/command_line.h"
 #include "base/containers/span.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
@@ -54,6 +55,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -138,6 +140,8 @@
 #include "components/content_settings/core/browser/content_settings_observer.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
+#include "components/ohos_system_service/system_service_ohos.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/embedder_support/user_agent_utils.h"
 #include "components/sessions/content/session_tab_helper.h"
@@ -925,6 +929,86 @@ void RequestOhosPermissionsFor(ContentSettingsType content_type,
   event.Set("permissions", std::move(wanted));
   DispatchRuntimeEvent(std::move(event));
 }
+
+// Page zoom follows the system font size (Settings > Display > Font size):
+// the engine HAR's "fontscale" service reports Configuration.fontSizeScale,
+// which ChromeZoomLevelPrefs applies on top of the default zoom pref (the
+// shell's textScale). Off with --disable-features=OhosFollowSystemFontSize.
+BASE_FEATURE(kOhosFollowSystemFontSize,
+             "OhosFollowSystemFontSize",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+class OhosSystemFontScaleWatcher {
+ public:
+  static OhosSystemFontScaleWatcher& GetInstance() {
+    static base::NoDestructor<OhosSystemFontScaleWatcher> instance;
+    return *instance;
+  }
+
+  void Start() {
+    if (std::exchange(started_, true) ||
+        !base::FeatureList::IsEnabled(kOhosFollowSystemFontSize)) {
+      return;
+    }
+    events_ = ohos_system_service::SubscribeToEvents(
+        kService, base::BindRepeating(&OhosSystemFontScaleWatcher::OnEvent,
+                                      base::Unretained(this)));
+    Query(/*attempt=*/0);
+  }
+
+ private:
+  friend class base::NoDestructor<OhosSystemFontScaleWatcher>;
+
+  static constexpr char kService[] = "fontscale";
+  static constexpr int kMaxQueryAttempts = 5;
+  static constexpr base::TimeDelta kQueryRetryDelay = base::Seconds(2);
+
+  OhosSystemFontScaleWatcher() = default;
+
+  // The current scale; later changes arrive as events. An engine HAR without
+  // the service answers with an error, and the scale stays 1.
+  void Query(int attempt) {
+    ohos_system_service::Call(
+        kService, "get", base::DictValue(),
+        base::BindOnce(&OhosSystemFontScaleWatcher::OnReply,
+                       base::Unretained(this), attempt));
+  }
+
+  void OnReply(int attempt, ohos_system_service::Reply reply) {
+    if (reply.ok) {
+      Apply(reply.result_dict().FindDouble("scale"));
+      return;
+    }
+    // ArkTS may not be attached yet this early in startup.
+    if (!ohos_system_service::IsAvailable() &&
+        attempt + 1 < kMaxQueryAttempts) {
+      base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&OhosSystemFontScaleWatcher::Query,
+                         base::Unretained(this), attempt + 1),
+          kQueryRetryDelay);
+      return;
+    }
+    LOG(WARNING) << "OHOS font scale: unavailable (" << reply.error << ")";
+  }
+
+  void OnEvent(const std::string& event, const base::DictValue& data) {
+    if (event == "scale") {
+      Apply(data.FindDouble("scale"));
+    }
+  }
+
+  void Apply(std::optional<double> scale) {
+    if (!scale || !(*scale > 0)) {
+      return;
+    }
+    LOG(WARNING) << "OHOS font scale: system " << *scale;
+    ChromeZoomLevelPrefs::SetOhosSystemFontScale(*scale);
+  }
+
+  bool started_ = false;
+  std::unique_ptr<ohos_system_service::EventSubscription> events_;
+};
 
 // Watches every profile's content settings so that granting a site one of the
 // web permissions above pulls in the HarmonyOS permission behind it.
@@ -4501,6 +4585,7 @@ void NotifyAuraShellBrowserStarted() {
   }
   ApplyPullToRefresh(IsAuraShellMobilePhoneUi());
   OhosWebPermissionWatcher::GetInstance().Start();
+  OhosSystemFontScaleWatcher::GetInstance().Start();
   // Only Android installs one upstream; without it screen.orientation.lock()
   // rejects with NotSupportedError.
   static base::NoDestructor<ScreenOrientationDelegateOhos>

@@ -12,6 +12,14 @@ and pages saw no touch events. Report it for device classes tablet and
 phone (--ohos-device-class) outside the phone UI too, leaving the primary
 pointer and hover as Chromium finds them.
 
+Page zoom follows the system font size, as Chrome on Android can adjust
+page zoom for the OS font scale: ChromeZoomLevelPrefs puts the scale the
+engine reports (SetOhosSystemFontScale) on top of the default zoom pref
+everywhere it hands the HostZoomMap its default
+(GetEffectiveDefaultZoomLevel), and an off-the-record profile takes the same
+effective default from its parent. The pref itself -- the shell's textScale
+-- is unchanged; sites with a zoom level of their own keep it.
+
 Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
 applied. Apply with:
   git apply ohos-phone-android-web-prefs.patch
@@ -62,3 +70,198 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
    // WebUI is written for a desktop window and almost none of it declares a
    // <meta viewport>: 29 files in all of chrome/browser/resources do, and
    // password_manager.html is not one. Under the mobile rules it would be laid
+diff --git a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
+--- a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
++++ b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
+@@ -9,6 +9,7 @@
+ #include "base/files/file_path.h"
+ #include "base/functional/callback.h"
+ #include "base/memory/raw_ptr.h"
++#include "build/build_config.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/values.h"
+ #include "components/prefs/json_pref_store.h"
+@@ -50,6 +51,9 @@
+ 
+   void SetDefaultZoomLevelPref(double level);
+   double GetDefaultZoomLevelPref() const;
++  // The default zoom level pages actually get: the pref, and on OHOS the
++  // system font size on top of it (SetOhosSystemFontScale).
++  double GetEffectiveDefaultZoomLevel() const;
+   double GetDefaultZoomFactor() const;
+   base::CallbackListSubscription RegisterDefaultZoomLevelCallback(
+       base::RepeatingClosure callback);
+@@ -60,7 +64,22 @@
+   // content::ZoomLevelDelegate
+   void InitHostZoomMap(content::HostZoomMap* host_zoom_map) override;
+ 
++#if BUILDFLAG(IS_OHOS)
++  // The system font size scale (HarmonyOS Configuration.fontSizeScale). Page
++  // zoom follows it, on top of the default zoom pref -- as Chrome on Android
++  // can adjust page zoom for the OS font scale -- so larger system text
++  // makes web text larger too. Sites with their own zoom level keep it.
++  // Applies to every profile at once. UI thread.
++  static void SetOhosSystemFontScale(double scale);
++#endif
++
+  private:
++#if BUILDFLAG(IS_OHOS)
++  // Pushes GetEffectiveDefaultZoomLevel() to the HostZoomMap and tells
++  // observers (an off-the-record profile mirrors it) that it changed.
++  void ApplyEffectiveDefaultZoomLevel();
++#endif
++
+   // This is a callback function that receives notifications from HostZoomMap
+   // when per-host zoom levels change. It is used to update the per-host
+   // zoom levels (if any) managed by this class (for its associated partition).
+diff --git a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
+--- a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
++++ b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
+@@ -27,6 +27,13 @@
+ #include "content/public/browser/host_zoom_map.h"
+ #include "third_party/blink/public/common/page/page_zoom.h"
+ 
++#if BUILDFLAG(IS_OHOS)
++#include <algorithm>
++#include <set>
++
++#include "base/no_destructor.h"
++#endif
++
+ namespace {
+ 
+ std::string GetPartitionKey(const base::FilePath& relative_path) {
+@@ -57,6 +64,24 @@
+ 
+ }  // namespace
+ 
++#if BUILDFLAG(IS_OHOS)
++namespace {
++
++// Page zoom for the system font size, clamped: HarmonyOS's largest font
++// sizes would otherwise leave a phone page only a few words wide.
++constexpr double kMinOhosFontScale = 0.8;
++constexpr double kMaxOhosFontScale = 2.0;
++
++double g_ohos_system_font_scale = 1.0;
++
++std::set<ChromeZoomLevelPrefs*>& OhosZoomLevelPrefs() {
++  static base::NoDestructor<std::set<ChromeZoomLevelPrefs*>> instances;
++  return *instances;
++}
++
++}  // namespace
++#endif  // BUILDFLAG(IS_OHOS)
++
+ ChromeZoomLevelPrefs::ChromeZoomLevelPrefs(
+     PrefService* pref_service,
+     const base::FilePath& profile_path,
+@@ -73,9 +98,16 @@
+   base::FilePath partition_relative_path;
+   profile_path.AppendRelativePath(partition_path, &partition_relative_path);
+   partition_key_ = GetPartitionKey(partition_relative_path);
++#if BUILDFLAG(IS_OHOS)
++  OhosZoomLevelPrefs().insert(this);
++#endif
+ }
+ 
+-ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() = default;
++ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() {
++#if BUILDFLAG(IS_OHOS)
++  OhosZoomLevelPrefs().erase(this);
++#endif
++}
+ 
+ std::string ChromeZoomLevelPrefs::GetPartitionKeyForTesting(
+     const base::FilePath& relative_path) {
+@@ -83,7 +115,13 @@
+ }
+ 
+ void ChromeZoomLevelPrefs::SetDefaultZoomLevelPref(double level) {
++#if BUILDFLAG(IS_OHOS)
++  // The HostZoomMap holds the pref plus the system font size; compare with
++  // the pref itself.
++  if (blink::ZoomValuesEqual(level, GetDefaultZoomLevelPref())) {
++#else
+   if (blink::ZoomValuesEqual(level, host_zoom_map_->GetDefaultZoomLevel())) {
++#endif
+     return;
+   }
+ 
+@@ -91,7 +129,7 @@
+   update->Set(partition_key_, level);
+   // For unregistered paths, OnDefaultZoomLevelChanged won't be called, so
+   // set this manually.
+-  host_zoom_map_->SetDefaultZoomLevel(level);
++  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
+   default_zoom_changed_callbacks_.Notify();
+   if (zoom_event_manager_) {
+     zoom_event_manager_->OnDefaultZoomLevelChanged();
+@@ -104,6 +142,46 @@
+   return default_zoom_level_dictionary.FindDouble(partition_key_).value_or(0.0);
+ }
+ 
++double ChromeZoomLevelPrefs::GetEffectiveDefaultZoomLevel() const {
++#if BUILDFLAG(IS_OHOS)
++  return GetDefaultZoomLevelPref() +
++         blink::ZoomFactorToZoomLevel(g_ohos_system_font_scale);
++#else
++  return GetDefaultZoomLevelPref();
++#endif
++}
++
++#if BUILDFLAG(IS_OHOS)
++// static
++void ChromeZoomLevelPrefs::SetOhosSystemFontScale(double scale) {
++  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
++  if (!(scale > 0)) {
++    return;
++  }
++  scale = std::clamp(scale, kMinOhosFontScale, kMaxOhosFontScale);
++  if (scale == g_ohos_system_font_scale) {
++    return;
++  }
++  g_ohos_system_font_scale = scale;
++  for (ChromeZoomLevelPrefs* prefs : OhosZoomLevelPrefs()) {
++    prefs->ApplyEffectiveDefaultZoomLevel();
++  }
++}
++
++void ChromeZoomLevelPrefs::ApplyEffectiveDefaultZoomLevel() {
++  if (!host_zoom_map_) {
++    // InitHostZoomMap() picks the scale up.
++    return;
++  }
++  // Updates every page without a zoom level of its own, in place.
++  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
++  default_zoom_changed_callbacks_.Notify();
++  if (zoom_event_manager_) {
++    zoom_event_manager_->OnDefaultZoomLevelChanged();
++  }
++}
++#endif  // BUILDFLAG(IS_OHOS)
++
+ double ChromeZoomLevelPrefs::GetDefaultZoomFactor() const {
+   return blink::ZoomLevelToZoomFactor(GetDefaultZoomLevelPref());
+ }
+@@ -224,7 +302,7 @@
+   host_zoom_map_ = host_zoom_map;
+ 
+   // Initialize the default zoom level.
+-  host_zoom_map_->SetDefaultZoomLevel(GetDefaultZoomLevelPref());
++  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
+ 
+   // Initialize the HostZoomMap with per-host zoom levels from the persisted
+   // zoom-level preference values.
+diff --git a/chrome/browser/profiles/off_the_record_profile_impl.cc b/chrome/browser/profiles/off_the_record_profile_impl.cc
+--- a/chrome/browser/profiles/off_the_record_profile_impl.cc
++++ b/chrome/browser/profiles/off_the_record_profile_impl.cc
+@@ -668,7 +668,7 @@
+ void OffTheRecordProfileImpl::UpdateDefaultZoomLevel() {
+   HostZoomMap* host_zoom_map = HostZoomMap::GetDefaultForBrowserContext(this);
+   double default_zoom_level =
+-      profile_->GetZoomLevelPrefs()->GetDefaultZoomLevelPref();
++      profile_->GetZoomLevelPrefs()->GetEffectiveDefaultZoomLevel();
+   host_zoom_map->SetDefaultZoomLevel(default_zoom_level);
+   // HostZoomMap does not trigger zoom notification events when the default
+   // zoom level is set, so we need to do it here.
