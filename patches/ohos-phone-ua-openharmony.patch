@@ -11,11 +11,11 @@ stay Android.
 Tablets, 2in1s and unfolded foldables did the same with ArkWeb's own
 shape, "(Tablet; OpenHarmony 7.0) ... ArkWeb/7.0.0.105", and failed
 Turnstile with 600010 whenever client hints went with it, as ArkWeb itself
-does. They now send Chrome's Linux section naming the real CPU,
-"Mozilla/5.0 (X11; Linux aarch64) ... Safari/537.36 OpenHarmony/7.0
-ArkWeb/7.0.0.105", with the HarmonyOS client hints unchanged; measured on a
-tablet, the X11 section passed with the trailing tokens and with UA-CH
-platform HarmonyOS, the old shape never. navigator.platform says
+does. They now send Chrome's Linux section naming the real CPU, with
+OpenHarmony as a product at the end and no ArkWeb token,
+"Mozilla/5.0 (X11; Linux aarch64) ... Safari/537.36 OpenHarmony/7.0",
+with the HarmonyOS client hints unchanged; measured on a tablet, the X11
+section passed with UA-CH platform Linux or HarmonyOS, the old shape never. navigator.platform says
 "Linux aarch64" to match. The Chrome Web Store user agent no longer adds
 X11 where the section already has it.
 
@@ -27,7 +27,7 @@ Apply with:
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
-@@ -233,8 +233,18 @@
+@@ -233,8 +233,19 @@
        kUseMobileUserAgent);
  }
  
@@ -43,12 +43,13 @@ diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedd
 +#error "Name this CPU as Chrome's Linux User-Agent does."
 +#endif
 +
-+// Sites such as Baidu recognize HarmonyOS by the OpenHarmony and ArkWeb
-+// tokens, which every shape below carries.
++// Every shape below names HarmonyOS with an OpenHarmony product token at the
++// end, where sites that look for it find it and the platform section stays
++// Chrome's.
  std::string BuildOhosUserAgent(const std::string& product, bool mobile) {
    // For example "OpenHarmony-7.0.0.105".
    const char* os_full_name = OH_GetOSFullName();
-@@ -250,15 +260,12 @@
+@@ -250,15 +261,10 @@
            ? base::StrCat({components[0], ".", components[1]})
            : version;
  
@@ -61,16 +62,14 @@ diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedd
 -  } else if (device_class == "2in1") {
 -    device_type = "PC";
 -  }
-+  // The OpenHarmony and ArkWeb product tokens, " OpenHarmony/7.0 ArkWeb/
-+  // 7.0.0.105", or less of it when the system does not say.
-+  const std::string ohos_tokens = base::StrCat(
-+      {major_minor.empty() ? std::string()
-+                           : base::StrCat({" OpenHarmony/", major_minor}),
-+       version.empty() ? std::string() : base::StrCat({" ArkWeb/", version})});
++  // " OpenHarmony/7.0", or nothing when the system does not say.
++  const std::string openharmony_token =
++      major_minor.empty() ? std::string()
++                          : base::StrCat({" OpenHarmony/", major_minor});
  
    if (!mobile) {
      // A tablet, a 2in1, an unfolded foldable, or a phone asked for the desktop
-@@ -268,22 +275,20 @@
+@@ -268,22 +274,19 @@
      // the desktop page once the token goes, and the tenth (qq.com) serves
      // tablets the phone page whatever the UA says.
      //
@@ -89,24 +88,23 @@ diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedd
 -    return base::StrCat({"Mozilla/5.0 (", device_type, "; OpenHarmony ",
 -                         major_minor,
 +    // The platform section is Chrome's own for Linux, "X11; Linux aarch64",
-+    // naming the CPU the device really has, and the OpenHarmony and ArkWeb
-+    // tokens -- how Chinese sites recognise the platform -- follow as
-+    // products, as they do on the phone. In the section ArkWeb itself sends,
-+    // "(Tablet; OpenHarmony 7.0)", Cloudflare Turnstile failed with 600010
-+    // whenever client hints went with it, as it does for ArkWeb: a platform
-+    // section that matches no Chrome it knows. Measured on a tablet with the
-+    // client hints left as they are: the X11 section passed 3/3 with or
-+    // without the trailing ArkWeb token and with a UA-CH platform of Linux or
-+    // HarmonyOS; the old shape failed every time. The client hints stay
++    // naming the CPU the device really has, and OpenHarmony follows as a
++    // product, as on the phone. In the section ArkWeb itself sends,
++    // "(Tablet; OpenHarmony 7.0) ... ArkWeb/7.0.0.105", Cloudflare Turnstile
++    // failed with 600010 whenever client hints went with it, as it does for
++    // ArkWeb: a platform section that matches no Chrome it knows. Measured on
++    // a tablet with the client hints left as they are: the X11 section passed
++    // 3/3 with a UA-CH platform of Linux or HarmonyOS; the old shape failed
++    // every time. No ArkWeb token: this is not ArkWeb. The client hints stay
 +    // HarmonyOS.
 +    return base::StrCat({"Mozilla/5.0 (X11; Linux ", kOhosUserAgentCpu,
                           ") AppleWebKit/537.36 (KHTML, like Gecko) ", product,
 -                         " Safari/537.36 ArkWeb/", version});
-+                         " Safari/537.36", ohos_tokens});
++                         " Safari/537.36", openharmony_token});
    }
  
    // A phone. Chrome's own reduced User-Agent, because a UA naming no OS that
-@@ -294,9 +299,18 @@
+@@ -294,9 +297,15 @@
    // to bot checks (Cloudflare Turnstile failed with 600010). The platform,
    // platform version, navigator.platform and navigator.plugins all follow
    // this string; see GetPlatformForUAMetadata() below.
@@ -119,14 +117,11 @@ diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedd
    return base::StrCat({"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) ",
 -                       product, " Mobile Safari/537.36"});
-+                       product, " Mobile Safari/537.36",
-+                       major_minor.empty()
-+                           ? std::string()
-+                           : base::StrCat({" OpenHarmony/", major_minor})});
++                       product, " Mobile Safari/537.36", openharmony_token});
  }
  #endif  // BUILDFLAG(IS_OHOS)
  
-@@ -612,16 +626,15 @@
+@@ -612,16 +621,15 @@
  }
  
  std::string GetOhosStoreUserAgent() {
