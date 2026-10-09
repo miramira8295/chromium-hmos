@@ -12,6 +12,8 @@
 #include <optional>
 #include <string>
 
+#include "media/base/audio_codecs.h"
+#include "media/base/supported_audio_decoder_config.h"
 #include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/gpu/media_gpu_export.h"
@@ -43,6 +45,17 @@ MEDIA_GPU_EXPORT std::optional<int32_t> VideoCodecProfileToOhosProfile(
 // Decoder configs the hardware can take, derived from AVCodecKit capability
 // queries. Empty when the device has no hardware decoder.
 MEDIA_GPU_EXPORT SupportedVideoDecoderConfigs GetOhosSupportedDecoderConfigs();
+
+// Returns the AVCodecKit MIME type for `codec`, or nullptr when the system
+// offers none or the port does not decode that codec through AVCodecKit.
+// AC-3 and DTS only: everything else Chromium decodes itself.
+MEDIA_GPU_EXPORT const char* OhosMimeTypeForAudioCodec(AudioCodec codec);
+
+// Audio decoders the system has for codecs Chromium cannot decode itself,
+// from AVCodecKit capability queries; the renderer reads this to answer
+// canPlayType and MSE. Empty when there are none.
+MEDIA_GPU_EXPORT SupportedAudioDecoderConfigs
+GetOhosSupportedAudioDecoderConfigs();
 
 // Encoder profiles the hardware can produce. H.264 only.
 MEDIA_GPU_EXPORT VideoEncodeAccelerator::SupportedProfiles

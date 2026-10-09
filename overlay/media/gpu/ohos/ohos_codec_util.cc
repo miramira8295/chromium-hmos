@@ -245,6 +245,44 @@ SupportedVideoDecoderConfigs GetOhosSupportedDecoderConfigs() {
   return configs;
 }
 
+const char* OhosMimeTypeForAudioCodec(AudioCodec codec) {
+  // AC-3 came in API 22 and DTS in API 23; resolved like VP9 and AV1 so that
+  // older systems still load the engine and simply report no decoder.
+  switch (codec) {
+    case AudioCodec::kAC3: {
+      static const char* const mime =
+          ResolveOptionalMime("OH_AVCODEC_MIMETYPE_AUDIO_AC3");
+      return mime;
+    }
+    case AudioCodec::kDTS: {
+      static const char* const mime =
+          ResolveOptionalMime("OH_AVCODEC_MIMETYPE_AUDIO_DTS");
+      return mime;
+    }
+    default:
+      return nullptr;
+  }
+}
+
+SupportedAudioDecoderConfigs GetOhosSupportedAudioDecoderConfigs() {
+  SupportedAudioDecoderConfigs configs;
+  // E-AC-3 is left out on purpose: the system has no decoder for it, and an
+  // entry here is what makes canPlayType say yes.
+  for (AudioCodec codec : {AudioCodec::kAC3, AudioCodec::kDTS}) {
+    const char* mime = OhosMimeTypeForAudioCodec(codec);
+    // Software codecs count here, unlike video: there is no FFmpeg decoder
+    // for these to prefer instead.
+    OH_AVCapability* capability =
+        mime ? OH_AVCodec_GetCapability(mime, /*isEncoder=*/false) : nullptr;
+    LOG(WARNING) << "OHOS audio capability: " << GetCodecName(codec) << " "
+                 << (capability ? "system decoder" : "none");
+    if (capability) {
+      configs.emplace_back(codec, AudioCodecProfile::kUnknown);
+    }
+  }
+  return configs;
+}
+
 VideoEncodeAccelerator::SupportedProfiles GetOhosSupportedEncoderProfiles() {
   VideoEncodeAccelerator::SupportedProfiles result;
   OH_AVCapability* capability =

@@ -97,10 +97,15 @@ index 0e28cdd..58da046 100644
  
   protected:
 diff --git a/media/gpu/BUILD.gn b/media/gpu/BUILD.gn
-index ae41656..3ef8343 100644
 --- a/media/gpu/BUILD.gn
 +++ b/media/gpu/BUILD.gn
-@@ -203,10 +203,18 @@ component("gpu") {
+@@ -199,14 +199,25 @@
+ 
+   if (is_ohos) {
+     sources += [
++      "ohos/ohos_audio_decoder.cc",
++      "ohos/ohos_audio_decoder.h",
+       "ohos/ohos_codec_util.cc",
        "ohos/ohos_codec_util.h",
        "ohos/ohos_video_decoder.cc",
        "ohos/ohos_video_decoder.h",
@@ -116,6 +121,7 @@ index ae41656..3ef8343 100644
 +      "native_buffer",
 +      "native_image",
 +      "native_window",
++      "native_media_acodec",
        "native_media_codecbase",
        "native_media_core",
        "native_media_vdec",

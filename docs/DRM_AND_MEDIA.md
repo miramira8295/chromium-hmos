@@ -25,3 +25,27 @@ HarmonyOS media path can be exercised on physical devices. This is only a
 technical capability flag. It does not grant patent, content, or distribution
 rights, and downstream distributors must make their own licensing decision.
 Open codecs continue to use Chromium's normal media pipeline.
+
+## System audio decoders (AC-3, DTS)
+
+Chromium has no AC-3 or DTS decoder. On OHOS they are decoded by the
+system's AVCodecKit audio decoders (`media/gpu/ohos/ohos_audio_decoder.*`),
+hosted in the GPU process's media service and reached from the renderer
+through `MojoAudioDecoder`, as video reaches `OhosVideoDecoder`. The
+`audio_decoder` mojo media service is on for OHOS; FFmpeg is still tried
+first, so every other audio format decodes in the renderer as before.
+
+Support is whatever the device has: the GPU process asks AVCodecKit
+(`OH_AVCodec_GetCapability`) and the renderer answers `canPlayType`, MSE and
+MediaCapabilities from that, the way Windows and Mac answer for AC-3.
+Never offered: E-AC-3, which the system has no decoder for; DTS:X and DTS
+Express, which are not reported (only core DTS is); AC-4 and TrueHD, which
+Chromium does not demux on OHOS.
+The AC-3 and DTS MIME constants are resolved at run time (API 22 and 23),
+so older systems load the engine and report neither.
+
+Clear streams only. Encrypted audio waits for the WisePlay CDM, which will
+hand the same decoder a key session.
+
+As with AAC and H.264, enabling these formats is a technical capability, not
+a licence.
