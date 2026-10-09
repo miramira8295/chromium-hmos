@@ -28,6 +28,11 @@ const PATH_KEY: string = 'chromiumDownloadPath';
 const MIME_KEY: string = 'chromiumDownloadMime';
 // The shade redraws on every publish; once a second is enough for progress.
 const PROGRESS_INTERVAL_MS: number = 1000;
+// The engine reports every download in the history again when the browser
+// starts (OnDownloadCreated covers restored ones). A download first seen
+// already finished is only announced if it finished this recently, i.e. in
+// this run but before its first update arrived; older ones are history.
+const RECENTLY_FINISHED_MS: number = 60 * 1000;
 
 // Opens the file a "download complete" notification points at. Returns true
 // when the want was such a tap, which the shell then treats as handled.
@@ -94,9 +99,22 @@ export class DownloadNotifier {
       this.enqueue(() => notificationManager.cancel(id, LABEL));
       return;
     }
+    const firstSeen = !this.lastState.has(item.id);
     const stateChanged = this.lastState.get(item.id) !== item.state;
     const now = Date.now();
-    if (!stateChanged && item.state === 'inProgress' &&
+    if (firstSeen && (item.state === 'completed' || item.state === 'failed') &&
+      !(item.endTime > 0 && now - item.endTime < RECENTLY_FINISHED_MS)) {
+      // Restored from history at startup: already announced (or dismissed)
+      // in the run it finished in.
+      this.lastState.set(item.id, item.state);
+      return;
+    }
+    if (!stateChanged && item.state !== 'inProgress') {
+      // Nothing new to show: e.g. a finished download reported again when
+      // its file goes missing.
+      return;
+    }
+    if (!stateChanged &&
       now - (this.lastPublish.get(item.id) ?? 0) < PROGRESS_INTERVAL_MS) {
       return;
     }
