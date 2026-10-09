@@ -214,6 +214,7 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "base/strings/escape.h"
+#include "build/build_config.h"
 #include "url/url_constants.h"
 
 namespace chrome::ohos {
@@ -4217,6 +4218,15 @@ bool IsAuraShellUserAgentPinned(content::WebContents* contents) {
   return contents && PinnedUserAgent::FromWebContents(contents);
 }
 
+// The CPU this build runs on, as a Linux User-Agent and UA-CH name it.
+#if defined(ARCH_CPU_ARM64)
+constexpr char kDesktopSiteCpu[] = "aarch64";
+constexpr char kDesktopSiteArchitecture[] = "arm";
+#else
+constexpr char kDesktopSiteCpu[] = "x86_64";
+constexpr char kDesktopSiteArchitecture[] = "x86";
+#endif
+
 blink::UserAgentOverride AuraShellDesktopSiteUserAgent() {
   blink::UserAgentOverride desktop;
   desktop.ua_string_override =
@@ -4239,9 +4249,14 @@ blink::UserAgentOverride AuraShellDesktopSiteUserAgent() {
     return desktop;  // --user-agent replaced the string; leave it be
   }
   const size_t chrome_end = ohos.find(' ', chrome);
+  //
+  // Both name the CPU the device has, as Chrome on an ARM Linux machine does:
+  // "Linux aarch64" with a UA-CH architecture of arm. Claiming x86 beside an
+  // ARM GPU that WebGL reports was one more contradiction, and the desktop
+  // site still failed Turnstile on a phone with it.
   desktop.ua_string_override = base::StrCat(
-      {"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like "
-       "Gecko) ",
+      {"Mozilla/5.0 (X11; Linux ", kDesktopSiteCpu,
+       ") AppleWebKit/537.36 (KHTML, like Gecko) ",
        std::string_view(ohos).substr(chrome, chrome_end == std::string::npos
                                                  ? std::string::npos
                                                  : chrome_end - chrome),
@@ -4261,7 +4276,7 @@ blink::UserAgentOverride AuraShellDesktopSiteUserAgent() {
         base::StringPrintf("%d.%d.%d", major, minor, bugfix);
   }
   metadata.wow64 = false;
-  metadata.architecture = "x86";
+  metadata.architecture = kDesktopSiteArchitecture;
   metadata.bitness = "64";
   metadata.mobile = false;
   return desktop;

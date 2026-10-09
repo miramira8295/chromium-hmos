@@ -1,4 +1,4 @@
-Name the OpenHarmony version in a phone's User-Agent.
+Chrome's platform sections in the User-Agent, OpenHarmony and ArkWeb at the end.
 
 A phone sends Chrome's reduced Android User-Agent. Append the OpenHarmony
 version as a product token, "... Mobile Safari/537.36 OpenHarmony/7.0",
@@ -6,7 +6,18 @@ so that sites looking for HarmonyOS find it while the platform section
 stays exactly Chrome's: with "OpenHarmony 7.0" inside it, in front of the
 Android token or after it, the phone failed Cloudflare Turnstile. The
 version is the system's (OH_GetOSFullName), major.minor; the client hints
-stay Android. Tablets and PCs are unchanged.
+stay Android.
+
+Tablets, 2in1s and unfolded foldables did the same with ArkWeb's own
+shape, "(Tablet; OpenHarmony 7.0) ... ArkWeb/7.0.0.105", and failed
+Turnstile with 600010 whenever client hints went with it, as ArkWeb itself
+does. They now send Chrome's Linux section naming the real CPU,
+"Mozilla/5.0 (X11; Linux aarch64) ... Safari/537.36 OpenHarmony/7.0
+ArkWeb/7.0.0.105", with the HarmonyOS client hints unchanged; measured on a
+tablet, the X11 section passed with the trailing tokens and with UA-CH
+platform HarmonyOS, the old shape never. navigator.platform says
+"Linux aarch64" to match. The Chrome Web Store user agent no longer adds
+X11 where the section already has it.
 
 Generated against Chromium 154.0.8037.51 after chromium-154-harmonyos.patch.
 
@@ -16,7 +27,86 @@ Apply with:
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
-@@ -294,9 +294,18 @@ std::string BuildOhosUserAgent(const std::string& product, bool mobile) {
+@@ -233,8 +233,18 @@
+       kUseMobileUserAgent);
+ }
+ 
+-// Follows ArkWeb's default User-Agent. Sites such as Baidu recognize
+-// HarmonyOS phones by the ArkWeb token and serve desktop pages otherwise.
++// The CPU as Chrome names it in a Linux User-Agent, for the device this
++// build runs on.
++#if defined(ARCH_CPU_ARM64)
++constexpr char kOhosUserAgentCpu[] = "aarch64";
++#elif defined(ARCH_CPU_X86_64)
++constexpr char kOhosUserAgentCpu[] = "x86_64";
++#else
++#error "Name this CPU as Chrome's Linux User-Agent does."
++#endif
++
++// Sites such as Baidu recognize HarmonyOS by the OpenHarmony and ArkWeb
++// tokens, which every shape below carries.
+ std::string BuildOhosUserAgent(const std::string& product, bool mobile) {
+   // For example "OpenHarmony-7.0.0.105".
+   const char* os_full_name = OH_GetOSFullName();
+@@ -250,15 +260,12 @@
+           ? base::StrCat({components[0], ".", components[1]})
+           : version;
+ 
+-  const std::string device_class =
+-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+-          "ohos-device-class");
+-  std::string_view device_type = "Phone";
+-  if (device_class == "tablet") {
+-    device_type = "Tablet";
+-  } else if (device_class == "2in1") {
+-    device_type = "PC";
+-  }
++  // The OpenHarmony and ArkWeb product tokens, " OpenHarmony/7.0 ArkWeb/
++  // 7.0.0.105", or less of it when the system does not say.
++  const std::string ohos_tokens = base::StrCat(
++      {major_minor.empty() ? std::string()
++                           : base::StrCat({" OpenHarmony/", major_minor}),
++       version.empty() ? std::string() : base::StrCat({" ArkWeb/", version})});
+ 
+   if (!mobile) {
+     // A tablet, a 2in1, an unfolded foldable, or a phone asked for the desktop
+@@ -268,22 +275,20 @@
+     // the desktop page once the token goes, and the tenth (qq.com) serves
+     // tablets the phone page whatever the UA says.
+     //
+-    // This is also the shape HarmonyOS's own ArkWeb sends on these devices,
+-    // which is the point: the OpenHarmony and ArkWeb tokens are how Chinese
+-    // sites recognise the platform, and they are the whole UA here rather
+-    // than decoration on an Android one.
+-    //
+-    // An unfolded foldable reports device_class "phone", so it would be
+-    // labelled Phone in a UA with no Mobile token, which reads as a phone
+-    // asking for the desktop site rather than as the tablet-sized window it
+-    // is. Tablet is the honest label for both.
+-    if (device_type == "Phone") {
+-      device_type = "Tablet";
+-    }
+-    return base::StrCat({"Mozilla/5.0 (", device_type, "; OpenHarmony ",
+-                         major_minor,
++    // The platform section is Chrome's own for Linux, "X11; Linux aarch64",
++    // naming the CPU the device really has, and the OpenHarmony and ArkWeb
++    // tokens -- how Chinese sites recognise the platform -- follow as
++    // products, as they do on the phone. In the section ArkWeb itself sends,
++    // "(Tablet; OpenHarmony 7.0)", Cloudflare Turnstile failed with 600010
++    // whenever client hints went with it, as it does for ArkWeb: a platform
++    // section that matches no Chrome it knows. Measured on a tablet with the
++    // client hints left as they are: the X11 section passed 3/3 with or
++    // without the trailing ArkWeb token and with a UA-CH platform of Linux or
++    // HarmonyOS; the old shape failed every time. The client hints stay
++    // HarmonyOS.
++    return base::StrCat({"Mozilla/5.0 (X11; Linux ", kOhosUserAgentCpu,
+                          ") AppleWebKit/537.36 (KHTML, like Gecko) ", product,
+-                         " Safari/537.36 ArkWeb/", version});
++                         " Safari/537.36", ohos_tokens});
+   }
+ 
+   // A phone. Chrome's own reduced User-Agent, because a UA naming no OS that
+@@ -294,9 +299,18 @@
    // to bot checks (Cloudflare Turnstile failed with 600010). The platform,
    // platform version, navigator.platform and navigator.plugins all follow
    // this string; see GetPlatformForUAMetadata() below.
@@ -36,3 +126,49 @@ diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedd
  }
  #endif  // BUILDFLAG(IS_OHOS)
  
+@@ -612,16 +626,15 @@
+ }
+ 
+ std::string GetOhosStoreUserAgent() {
+-  // The desktop string with X11 added to the platform section, so
+-  // "Mozilla/5.0 (Tablet; OpenHarmony 7.0)" becomes
+-  // "Mozilla/5.0 (Tablet; OpenHarmony 7.0; X11)".
+-  //
+-  // Written as an insertion rather than a fourth branch of
+-  // BuildOhosUserAgent() so that --user-agent, which replaces the whole
+-  // string, still gets the token in the right place.
++  // The desktop string with X11 in its platform section. The desktop
++  // User-Agent now carries Chrome's "X11; Linux ..." section and is used as
++  // it is; a --user-agent without X11, "Mozilla/5.0 (Tablet; OpenHarmony
++  // 7.0)", gets it added: "Mozilla/5.0 (Tablet; OpenHarmony 7.0; X11)".
+   std::string user_agent = GetUserAgentForOhos(/*mobile=*/false);
+   const size_t platform_end = user_agent.find(')');
+-  if (platform_end == std::string::npos) {
++  if (platform_end == std::string::npos ||
++      std::string_view(user_agent).substr(0, platform_end).find("X11") !=
++          std::string_view::npos) {
+     return user_agent;
+   }
+   return base::StrCat({std::string_view(user_agent).substr(0, platform_end),
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -34,10 +34,15 @@
+ #elif BUILDFLAG(IS_FUCHSIA)
+   return "";
+ #elif BUILDFLAG(IS_OHOS)
+-  // Tablets and 2in1s present as HarmonyOS in UA-CH and carry no Android
+-  // token, so the desktop answer is the consistent one. Phones are handled in
+-  // NavigatorBase::platform(), which can see the User-Agent.
++  // Tablets and 2in1s send Chrome's Linux User-Agent, "X11; Linux aarch64",
++  // naming the CPU the device has (BuildOhosUserAgent()), and this says the
++  // same. Phones are handled in NavigatorBase::platform(), which can see the
++  // User-Agent.
++#if defined(ARCH_CPU_ARM64)
++  return "Linux aarch64";
++#else
+   return "Linux x86_64";
++#endif
+ #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+   return "Linux x86_64";
+ #elif BUILDFLAG(IS_IOS)

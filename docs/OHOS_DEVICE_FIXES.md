@@ -37,13 +37,23 @@ HarmonyOS by the ArkWeb User-Agent token.
 - `chrome/browser/chrome_content_browser_client.cc`: phone UI uses Chrome for
   Android viewport behavior and reports touch input (`maxTouchPoints`,
   `ontouchstart`, `(pointer: coarse)`, `(hover: none)`); Ozone OHOS registers
-  no touchscreen device.
-- `components/embedder_support`: OHOS uses ArkWeb's default User-Agent format,
-  for example
-  `Mozilla/5.0 (Phone; OpenHarmony 7.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 ArkWeb/7.0.0.105 Mobile`.
-  On the test phone, Baidu served its desktop page for the previous
-  `(HarmonyOS; arm64)` string and for OpenHarmony strings without the ArkWeb
-  token.
+  no touchscreen device. Tablets and unfolded foldables in the large-screen UI
+  report touch input too (`maxTouchPoints` 10, `ontouchstart`, coarse among
+  the available pointers), keeping Chromium's own primary pointer and hover.
+- `components/embedder_support`: the platform section of the User-Agent is
+  always Chrome's own, with OpenHarmony (and off the phone ArkWeb) as product
+  tokens at the end:
+  phone `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36 OpenHarmony/7.0`
+  (client hints Android, `navigator.platform` `Linux armv81`);
+  tablet, 2in1 and unfolded foldable `Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 OpenHarmony/7.0 ArkWeb/7.0.0.105`
+  (client hints HarmonyOS, architecture arm, `navigator.platform` `Linux aarch64`).
+  ArkWeb's own shape, `(Tablet; OpenHarmony 7.0) ... ArkWeb/...`, failed
+  Cloudflare Turnstile with 600010 whenever client hints were sent, as ArkWeb
+  itself does; with Chrome's section the trailing tokens and the HarmonyOS
+  hints pass. A phone asking for the desktop site sends the same Linux section
+  without the trailing tokens, client hints Linux / arm. Earlier, on the test
+  phone, Baidu served its desktop page for the `(HarmonyOS; arm64)` string and
+  for OpenHarmony strings without the ArkWeb token.
 
 ## Overlay
 

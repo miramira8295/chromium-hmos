@@ -6,15 +6,44 @@ into a focused field on a zoomed-out page, -webkit-text-size-adjust ignored,
 find-in-page jumping between matches, and desktop editing rules. Set them in
 ApplyOhosPhoneWebPreferences, which only runs for the phone UI family.
 
+A tablet, or an unfolded foldable in the large-screen UI, has a
+touchscreen as well that Ozone OHOS does not report: maxTouchPoints read 0
+and pages saw no touch events. Report it for device classes tablet and
+phone (--ohos-device-class) outside the phone UI too, leaving the primary
+pointer and hover as Chromium finds them.
+
 Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
 applied. Apply with:
   git apply ohos-phone-android-web-prefs.patch
 
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index fb82665..8281d82 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -4559,6 +4559,18 @@ bool ApplyOhosPhoneWebPreferences(WebContents* web_contents,
+@@ -4542,6 +4542,23 @@
+                                   content::SiteInstance& main_frame_site,
+                                   WebPreferences* web_prefs) {
+   if (!chrome::ohos::IsAuraShellMobilePhoneUi()) {
++    // A tablet, or an unfolded foldable showing the large-screen UI, has a
++    // touchscreen too, and Ozone OHOS reports it no more than a phone's:
++    // maxTouchPoints read 0 and pages saw no touch events behind a window
++    // that is a tablet. --ohos-device-class says which devices have one (an
++    // unfolded foldable is still "phone"); a 2in1 may not, and keeps the
++    // desktop defaults. The primary pointer and hover stay as Chromium finds
++    // them, since a tablet with a keyboard and mouse attached still hovers.
++    // Not URL-dependent, so it never needs revisiting.
++    const std::string device_class =
++        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++            "ohos-device-class");
++    if (device_class == "tablet" || device_class == "phone") {
++      web_prefs->touch_event_feature_detection_enabled = true;
++      web_prefs->pointer_events_max_touch_points = 10;
++      web_prefs->available_pointer_types |=
++          static_cast<int>(blink::mojom::PointerType::kPointerCoarseType);
++    }
+     return false;
+   }
+ 
+@@ -4559,6 +4576,18 @@
    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverNone;
    web_prefs->default_maximum_page_scale_factor = 5.0f;
  
