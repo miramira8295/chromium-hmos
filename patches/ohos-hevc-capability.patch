@@ -19,7 +19,13 @@ without capabilities and asks DRM Kit for them the first time a page wants
 it (content/browser/media/key_system_support_ohos); the renderer's key
 system plumbing, so far built only with library CDMs, on Windows and on
 Android, is built for OHOS too and describes it with OhosKeySystemInfo.
-Software security and temporary sessions only.
+Software security and temporary sessions only. CdmRegistry::Init(), which
+asks the embedder for its CDMs, ran only with library CDMs or on Android; it
+runs on OHOS too, or WisePlay is never registered.
+
+FFmpeg's demuxer maps DTS as it maps AC-3 -- demuxed only, decoded by the
+platform -- so DTS in a plain MP4 (src=) reaches the AVCodecKit decoder, not
+just DTS through MSE.
 
 Generated against runner source snapshot 37748799880, pinned Chromium
 743f26418a267dd97c3c1c71d786038ae68cfc8f (154.0.8037.51).
@@ -404,3 +410,60 @@ diff --git a/components/cdm/renderer/key_system_support_update.cc b/components/c
  #else
      DLOG(ERROR) << "Unrecognized key system: " << key_system;
  #endif  // BUILDFLAG(IS_ANDROID)
+diff --git a/content/browser/browser_main_loop.cc b/content/browser/browser_main_loop.cc
+--- a/content/browser/browser_main_loop.cc
++++ b/content/browser/browser_main_loop.cc
+@@ -826,6 +826,12 @@
+   // CDM service as it is predominantly used from the IO thread. This must
+   // be called on the main thread since it involves file path checks.
+   CdmRegistry::GetInstance()->Init();
++#elif BUILDFLAG(IS_OHOS)
++  // As on Android, every CDM (WisePlay, through DRM Kit) is part of the OS:
++  // registering them involves no file checks. Without this the embedder's
++  // CDMs are never registered and every key system but Clear Key reads as
++  // unsupported.
++  CdmRegistry::GetInstance()->Init();
+ #endif
+ 
+ #if BUILDFLAG(IS_MAC)
+diff --git a/media/ffmpeg/ffmpeg_common.cc b/media/ffmpeg/ffmpeg_common.cc
+--- a/media/ffmpeg/ffmpeg_common.cc
++++ b/media/ffmpeg/ffmpeg_common.cc
+@@ -145,6 +145,12 @@
+       return AudioCodec::kAC3;
+     case AV_CODEC_ID_EAC3:
+       return AudioCodec::kEAC3;
++#endif
++#if BUILDFLAG(ENABLE_PLATFORM_DTS_AUDIO)
++    // Demuxed only, like AC-3: a platform decoder (on OHOS, AVCodecKit's)
++    // decodes it.
++    case AV_CODEC_ID_DTS:
++      return AudioCodec::kDTS;
+ #endif
+     case AV_CODEC_ID_MP3:
+       return AudioCodec::kMP3;
+@@ -415,6 +421,13 @@
+       sample_format = kSampleFormatMpegHAudio;
+       break;
+ #endif
++#if BUILDFLAG(ENABLE_PLATFORM_DTS_AUDIO)
++    // Demuxed only, so FFmpeg does not fill |sample_fmt| either; the platform
++    // decoder reports what it actually produces.
++    case AudioCodec::kDTS:
++      sample_format = kSampleFormatS16;
++      break;
++#endif
+ 
+     default:
+       break;
+@@ -469,6 +482,10 @@
+   if (codec == AudioCodec::kMpegHAudio)
+     return true;
+ #endif
++#if BUILDFLAG(ENABLE_PLATFORM_DTS_AUDIO)
++  if (codec == AudioCodec::kDTS)
++    return true;
++#endif
+ 
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS)
+   if (codec == AudioCodec::kAAC) {
