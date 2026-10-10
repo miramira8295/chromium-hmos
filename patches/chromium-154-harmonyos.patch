@@ -22584,12 +22584,14 @@ diff --git a/media/capture/BUILD.gn b/media/capture/BUILD.gn
 index 31c10e8ef8..87983b658a 100644
 --- a/media/capture/BUILD.gn
 +++ b/media/capture/BUILD.gn
-@@ -180,6 +180,16 @@ component("capture_lib") {
+@@ -180,6 +180,18 @@ component("capture_lib") {
      "//ui/gfx/geometry",
    ]
  
 +  if (is_ohos) {
 +    sources += [
++      "video/ohos/camera_frame_layout_ohos.cc",
++      "video/ohos/camera_frame_layout_ohos.h",
 +      "video/ohos/video_capture_device_factory_ohos.cc",
 +      "video/ohos/video_capture_device_factory_ohos.h",
 +      "video/ohos/video_capture_device_ohos.cc",
