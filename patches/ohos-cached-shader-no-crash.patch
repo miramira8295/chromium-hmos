@@ -11,6 +11,11 @@ side clears its own shader cache instead (GrShaderCache::Clear) and
 carries on; Skia skips the draw it had no program for and builds the
 program from source the next time.
 
+Log each failing shader's text once and every repeat as one line with its
+hash, the context and the count, and log how many entries each clear
+dropped and how many came off disk: whether one shader fails over and over
+from a refilled cache, or uncached, decides what to fix.
+
 Generated against Chromium 154.0.8037.51.
 
 Apply with:
@@ -19,15 +24,42 @@ Apply with:
 diff --git a/gpu/command_buffer/service/gr_shader_cache.cc b/gpu/command_buffer/service/gr_shader_cache.cc
 --- a/gpu/command_buffer/service/gr_shader_cache.cc
 +++ b/gpu/command_buffer/service/gr_shader_cache.cc
-@@ -191,6 +191,13 @@ void GrShaderCache::EraseFromCache(Iterator it) {
+@@ -12,6 +12,7 @@
+ #include "base/base64.h"
+ #include "base/feature_list.h"
+ #include "base/functional/callback_helpers.h"
++#include "base/logging.h"
+ #include "base/memory_coordinator/memory_coordinator_features.h"
+ #include "base/memory_coordinator/traits.h"
+ #include "base/memory_coordinator/utils.h"
+@@ -169,6 +170,16 @@ void GrShaderCache::PopulateCache(const std::string& key,
+ 
+   CacheData cache_data(MakeData(data));
+   auto it = AddToCache(cache_key, std::move(cache_data));
++#if BUILDFLAG(IS_OHOS)
++  // Whether a shader that failed comes back from disk after the memory
++  // cache was cleared: entries are loaded here, at startup and as clients
++  // appear.
++  static int loaded_from_disk = 0;
++  if (++loaded_from_disk == 1 || loaded_from_disk % 100 == 0) {
++    LOG(WARNING) << "OHOS shader cache: " << loaded_from_disk
++                 << " entries loaded from disk";
++  }
++#endif
+ 
+   // This was loaded off the disk cache, no need to push this back for disk
+   // write.
+@@ -191,6 +202,15 @@ void GrShaderCache::EraseFromCache(Iterator it) {
    store_.Erase(it);
  }
  
-+void GrShaderCache::Clear() {
++size_t GrShaderCache::Clear() {
 +  base::AutoLock auto_lock(lock_);
++  const size_t entries = store_.size();
 +  while (!store_.empty()) {
 +    EraseFromCache(store_.rbegin());
 +  }
++  return entries;
 +}
 +
  void GrShaderCache::CacheClientIdOnDisk(int32_t client_id) {
@@ -36,19 +68,95 @@ diff --git a/gpu/command_buffer/service/gr_shader_cache.cc b/gpu/command_buffer/
 diff --git a/gpu/command_buffer/service/gr_shader_cache.h b/gpu/command_buffer/service/gr_shader_cache.h
 --- a/gpu/command_buffer/service/gr_shader_cache.h
 +++ b/gpu/command_buffer/service/gr_shader_cache.h
-@@ -59,6 +59,8 @@ class RASTER_EXPORT GrShaderCache
+@@ -59,6 +59,9 @@ class RASTER_EXPORT GrShaderCache
    void store(const SkData& key, const SkData& data) override;
  
    void PopulateCache(const std::string& key, const std::string& data);
-+  // Drops every entry, so programs are built from source again.
-+  void Clear();
++  // Drops every entry, so programs are built from source again. Returns how
++  // many there were.
++  size_t Clear();
    void CacheClientIdOnDisk(int32_t client_id);
  
    // base::trace_event::MemoryDumpProvider implementation.
 diff --git a/gpu/command_buffer/service/shared_context_state.cc b/gpu/command_buffer/service/shared_context_state.cc
 --- a/gpu/command_buffer/service/shared_context_state.cc
 +++ b/gpu/command_buffer/service/shared_context_state.cc
-@@ -244,6 +244,19 @@ void SharedContextState::compileError(const char* shader,
+@@ -4,9 +4,15 @@
+ 
+ #include "gpu/command_buffer/service/shared_context_state.h"
+ 
++#include <map>
++#include <string_view>
++
+ #include "base/atomic_sequence_num.h"
+ #include "base/compiler_specific.h"
+ #include "base/debug/dump_without_crashing.h"
++#include "base/hash/hash.h"
++#include "base/no_destructor.h"
++#include "base/synchronization/lock.h"
+ #include "base/immediate_crash.h"
+ #include "base/memory_coordinator/memory_coordinator_features.h"
+ #include "base/memory_coordinator/utils.h"
+@@ -227,15 +233,58 @@ base::AtomicSequenceNumber g_next_command_buffer_id;
+ 
+ }  // anonymous namespace
+ 
++#if BUILDFLAG(IS_OHOS)
++namespace {
++
++// A log that tells one shader failing over and over -- a cache fed by two
++// contexts that disagree, say -- from many shaders failing once each. A
++// shader's text, which runs to kilobytes, is logged the first time only.
++void LogOhosShaderCompileError(const void* context,
++                               const char* shader,
++                               const char* errors,
++                               bool was_cached) {
++  static base::NoDestructor<base::Lock> lock;
++  static base::NoDestructor<std::map<uint32_t, int>> failures;
++  static int total = 0;
++  const uint32_t hash = base::PersistentHash(std::string_view(shader));
++  int repeat = 0;
++  int number = 0;
++  {
++    base::AutoLock auto_lock(*lock);
++    repeat = ++(*failures)[hash];
++    number = ++total;
++  }
++  if (repeat == 1) {
++    LOG(ERROR) << "OHOS shader compile error #" << number << " shader=" << hash
++               << " cached=" << was_cached << " context=" << context
++               << " (first for this shader)\n"
++               << shader << "\nErrors:\n"
++               << errors;
++    return;
++  }
++  const std::string_view all_errors(errors);
++  LOG(ERROR) << "OHOS shader compile error #" << number << " shader=" << hash
++             << " cached=" << was_cached << " context=" << context
++             << " repeat=" << repeat << ": "
++             << all_errors.substr(0, all_errors.find('\n'));
++}
++
++}  // namespace
++#endif  // BUILDFLAG(IS_OHOS)
++
+ void SharedContextState::compileError(const char* shader,
+                                       const char* errors,
+                                       bool shaderWasCached) {
+   if (!context_lost()) {
++#if BUILDFLAG(IS_OHOS)
++    LogOhosShaderCompileError(this, shader, errors, shaderWasCached);
++#else
+     LOG(ERROR) << "Skia shader compilation error (was cached = "
+                << shaderWasCached << ")" << "\n"
+                << "------------------------\n"
+                << shader << "\nErrors:\n"
+                << errors;
++#endif
+ 
+     static crash_reporter::CrashKeyString<8192> shader_key("skia-error-shader");
+     shader_key.Set(shader);
+@@ -244,6 +293,24 @@ void SharedContextState::compileError(const char* shader,
      error_key.Set(errors);
  
      if (shaderWasCached && use_shader_cache_shm_count_ != nullptr) {
@@ -61,14 +169,19 @@ diff --git a/gpu/command_buffer/service/shared_context_state.cc b/gpu/command_bu
 +      // draw it could not make a program for and builds it from source next
 +      // time.
 +      if (gr_shader_cache_) {
-+        gr_shader_cache_->Clear();
++        // How full it was says whether it refilled since the last failure:
++        // the same shader failing again from a refilled cache points at the
++        // cache, failing again uncached at the driver.
++        LOG(ERROR) << "OHOS shader cache cleared after a cached shader failed: "
++                   << gr_shader_cache_->Clear() << " entries, context="
++                   << this;
 +      }
 +      return;
 +#else
        // https://crbug.com/1442633 Sometimes we would fail to compile a cached
        // GLSL shader because of GL driver change. Increase shader cache shm
        // count and crash the GPU process so that the browser process would clear
-@@ -252,6 +265,7 @@ void SharedContextState::compileError(const char* shader,
+@@ -252,6 +319,7 @@ void SharedContextState::compileError(const char* shader,
            use_shader_cache_shm_count_.get());
  
        base::ImmediateCrash();
