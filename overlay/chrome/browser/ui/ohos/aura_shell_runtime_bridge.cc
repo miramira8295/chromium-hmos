@@ -1991,9 +1991,26 @@ void RememberThumbnail(content::WebContents* contents,
   }
 }
 
+// When each tab's cached picture was taken, and of what: the same tab, size,
+// crop and page asked for again this soon gets the picture just taken. The
+// shell asks for the current tab when it settles and again when the grid
+// opens, often within a second of each other.
+constexpr base::TimeDelta kThumbnailReuseWindow = base::Seconds(1);
+
+struct RecentThumbnail {
+  std::string key;
+  base::TimeTicks taken;
+};
+
+std::map<std::string, RecentThumbnail>& RecentThumbnails() {
+  static base::NoDestructor<std::map<std::string, RecentThumbnail>> recent;
+  return *recent;
+}
+
 void ForgetIncognitoThumbnails() {
   for (const std::string& id : IncognitoThumbnailIds()) {
     ThumbnailCache().Erase(ThumbnailCache().Peek(id));
+    RecentThumbnails().erase(id);
   }
   IncognitoThumbnailIds().clear();
 }
@@ -2045,14 +2062,37 @@ class ThumbnailBatch : public base::RefCounted<ThumbnailBatch> {
   base::ListValue items_;
 };
 
-void OnThumbnailCaptured(scoped_refptr<ThumbnailBatch> batch,
-                         base::WeakPtr<content::WebContents> contents,
-                         std::string id,
-                         const content::CopyFromSurfaceResult& result) {
-  std::string png;
-  if (result.has_value()) {
-    png = EncodeThumbnail(result.value().bitmap);
+// Requests waiting on a capture already under way, by capture key. One
+// CopyFromSurface and one encode answer all of them.
+using ThumbnailWaiter = base::OnceCallback<void(std::string png_base64)>;
+
+struct PendingThumbnail {
+  base::TimeTicks started;
+  std::vector<ThumbnailWaiter> waiters;
+};
+
+// A capture is given up on after this long and asked for again, so one whose
+// answer never comes cannot hold every later request for that tab.
+constexpr base::TimeDelta kThumbnailCaptureGiveUp = base::Seconds(3);
+
+std::map<std::string, PendingThumbnail>& PendingThumbnails() {
+  static base::NoDestructor<std::map<std::string, PendingThumbnail>> pending;
+  return *pending;
+}
+
+void FinishThumbnailCapture(base::WeakPtr<content::WebContents> contents,
+                            std::string id,
+                            std::string key,
+                            std::string png) {
+  // Kept only while the tab is there to say whether it is incognito: a
+  // picture of an incognito page must not outlive its window in this cache.
+  if (!png.empty() && contents) {
     RememberThumbnail(contents.get(), id, png);
+    std::map<std::string, RecentThumbnail>& recent = RecentThumbnails();
+    if (recent.size() > 4 * kMaxCachedThumbnails) {
+      recent.clear();
+    }
+    recent[id] = {key, base::TimeTicks::Now()};
   }
   if (png.empty()) {
     // Fall back to whatever was last seen of this tab rather than nothing.
@@ -2061,7 +2101,36 @@ void OnThumbnailCaptured(scoped_refptr<ThumbnailBatch> batch,
       png = cached->second;
     }
   }
-  batch->Add(std::move(id), std::move(png));
+  auto waiting = PendingThumbnails().find(key);
+  if (waiting == PendingThumbnails().end()) {
+    return;
+  }
+  std::vector<ThumbnailWaiter> waiters = std::move(waiting->second.waiters);
+  PendingThumbnails().erase(waiting);
+  for (ThumbnailWaiter& waiter : waiters) {
+    std::move(waiter).Run(png);
+  }
+}
+
+// PNG and Base64 off the UI thread: at grid size they took long enough to
+// hold touch input back, once per tab switch now that the shell keeps its own
+// pictures.
+void OnThumbnailCaptured(base::WeakPtr<content::WebContents> contents,
+                         std::string id,
+                         std::string key,
+                         const content::CopyFromSurfaceResult& result) {
+  if (!result.has_value()) {
+    FinishThumbnailCapture(std::move(contents), std::move(id), std::move(key),
+                           std::string());
+    return;
+  }
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::TaskPriority::USER_VISIBLE,
+       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      base::BindOnce(&EncodeThumbnail, result.value().bitmap),
+      base::BindOnce(&FinishThumbnailCapture, std::move(contents),
+                     std::move(id), std::move(key)));
 }
 
 void SendTabThumbnails(gfx::AcceleratedWidget widget,
@@ -2107,11 +2176,38 @@ void SendTabThumbnails(gfx::AcceleratedWidget widget,
                                                       : std::string());
       continue;
     }
+    const gfx::Rect source =
+        ThumbnailSourceRect(view->GetVisibleViewportSize(), aspect);
+    const gfx::Size output = ThumbnailSizeFor(view, width_vp, scale, aspect);
+    const content::NavigationEntry* entry =
+        contents->GetController().GetLastCommittedEntry();
+    const std::string key = base::StrCat(
+        {id, "|", source.ToString(), "|", output.ToString(), "|",
+         base::NumberToString(entry ? entry->GetUniqueID() : 0)});
+
+    auto recent = RecentThumbnails().find(id);
+    if (recent != RecentThumbnails().end() && recent->second.key == key &&
+        base::TimeTicks::Now() - recent->second.taken <
+            kThumbnailReuseWindow) {
+      auto cached = ThumbnailCache().Get(id);
+      if (cached != ThumbnailCache().end()) {
+        batch->Add(id, cached->second);
+        continue;
+      }
+    }
+
+    PendingThumbnail& pending = PendingThumbnails()[key];
+    const base::TimeTicks now = base::TimeTicks::Now();
+    const bool in_flight = !pending.waiters.empty() &&
+                           now - pending.started < kThumbnailCaptureGiveUp;
+    pending.waiters.push_back(base::BindOnce(&ThumbnailBatch::Add, batch, id));
+    if (in_flight) {
+      continue;
+    }
+    pending.started = now;
     view->CopyFromSurface(
-        ThumbnailSourceRect(view->GetVisibleViewportSize(), aspect),
-        ThumbnailSizeFor(view, width_vp, scale, aspect), base::Seconds(2),
-        base::BindOnce(&OnThumbnailCaptured, batch, contents->GetWeakPtr(),
-                       id));
+        source, output, base::Seconds(2),
+        base::BindOnce(&OnThumbnailCaptured, contents->GetWeakPtr(), id, key));
   }
 }
 
