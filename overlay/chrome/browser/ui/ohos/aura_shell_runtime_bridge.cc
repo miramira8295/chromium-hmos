@@ -1281,9 +1281,10 @@ BrowserTargetState BuildBrowserTargetState(gfx::AcceleratedWidget widget,
 
 // The URL as the shell sees it. The state is rebuilt, serialised and compared
 // on the UI thread up to ten times a second, so its cost is paid in touch
-// latency: one 137 KB data: URL made each rebuild take 25 ms (48 ms worst) instead of 0.7 ms,
-// holding touch input back for up to six frames. The shell only displays it,
-// so a data: URL is reported by its header and anything else is capped.
+// latency: one 137 KB data: URL made each rebuild take 25 ms (48 ms worst)
+// instead of 0.7 ms, holding touch input back for up to six frames. The shell
+// only displays it, so a data: URL is reported by its header and anything else
+// is capped.
 std::string ShellVisibleUrl(const GURL& url) {
   constexpr size_t kMaxShellUrlLength = 2048;
   const std::string& spec = url.possibly_invalid_spec();
@@ -3590,26 +3591,6 @@ void RetryViewportInsetsOnUiThread(uint64_t generation) {
       kViewportInsetRetryInterval);
 }
 
-// Starts the poll for `generation` unless it runs already or the app is in
-// the background. Every rebuild calls this, so coming back to the
-// foreground -- a visibility change, which rebuilds -- starts it again.
-void EnsureStatePoll(uint64_t generation) {
-  if (StatePollGeneration() == generation) {
-    return;
-  }
-  {
-    RuntimeBridgeState& state = GetState();
-    base::AutoLock lock(state.lock);
-    if (!state.app_visible) {
-      return;
-    }
-  }
-  StatePollGeneration() = generation;
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&PollBrowserStateOnUiThread, generation),
-      kBrowserStatePollInterval);
-}
-
 // Starts the retry if a window has an inset and it is not running.
 void EnsureViewportInsetRetry(
     uint64_t generation,
@@ -3654,6 +3635,26 @@ void PollBrowserStateOnUiThread(uint64_t generation) {
     UpdateBrowserStateOnUiThread(generation, StateUpdateReason::kPoll);
   }
   task_runner->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&PollBrowserStateOnUiThread, generation),
+      kBrowserStatePollInterval);
+}
+
+// Starts the poll for `generation` unless it runs already or the app is in
+// the background. Every rebuild calls this, so coming back to the
+// foreground -- a visibility change, which rebuilds -- starts it again.
+void EnsureStatePoll(uint64_t generation) {
+  if (StatePollGeneration() == generation) {
+    return;
+  }
+  {
+    RuntimeBridgeState& state = GetState();
+    base::AutoLock lock(state.lock);
+    if (!state.app_visible) {
+      return;
+    }
+  }
+  StatePollGeneration() = generation;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&PollBrowserStateOnUiThread, generation),
       kBrowserStatePollInterval);
 }
