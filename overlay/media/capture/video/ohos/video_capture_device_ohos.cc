@@ -15,6 +15,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,6 +30,7 @@
 #include <ohcamera/capture_session.h>
 #include <ohcamera/preview_output.h>
 
+#include "base/containers/span.h"
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -36,6 +38,10 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "media/base/video_frame.h"
+#include "media/capture/video/ohos/camera_frame_layout_ohos.h"
+#include "media/capture/video/video_capture_buffer_handle.h"
+#include "third_party/libyuv/include/libyuv/rotate.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace media {
 
@@ -60,104 +66,6 @@ bool HasCameraPermission() {
         dlsym(library, "OH_AT_CheckSelfPermission"));
   }();
   return check_permission && check_permission(kCameraPermission);
-}
-
-bool CopyPlane(const uint8_t* mapped,
-               size_t mapped_size,
-               const OH_NativeBuffer_Plane& plane,
-               int width,
-               int height,
-               uint8_t* destination,
-               bool* corrected_stride) {
-  if (!mapped || !destination || width <= 0 || height <= 0) {
-    return false;
-  }
-
-  size_t row_stride = plane.rowStride;
-  size_t column_stride = plane.columnStride;
-  if (row_stride == 0 || column_stride == 0) {
-    return false;
-  }
-
-  // Some CameraKit YUV_420_SP buffers report chroma rowStride and
-  // columnStride in the opposite fields. Accept that only when the reported
-  // values cannot describe one row and the swapped values can.
-  const size_t row_bytes = (static_cast<size_t>(width) - 1) * column_stride + 1;
-  if (row_stride < row_bytes) {
-    const size_t swapped_row_bytes =
-        (static_cast<size_t>(width) - 1) * row_stride + 1;
-    if (column_stride < swapped_row_bytes) {
-      return false;
-    }
-    std::swap(row_stride, column_stride);
-    *corrected_stride = true;
-  }
-
-  size_t last_byte = plane.offset;
-  const size_t last_row = static_cast<size_t>(height) - 1;
-  const size_t last_column = static_cast<size_t>(width) - 1;
-  if (last_byte >= mapped_size ||
-      (last_row && row_stride > (mapped_size - 1 - last_byte) / last_row)) {
-    return false;
-  }
-  last_byte += last_row * row_stride;
-  if (last_column &&
-      column_stride > (mapped_size - 1 - last_byte) / last_column) {
-    return false;
-  }
-
-  const uint8_t* source = mapped + plane.offset;
-  if (column_stride <= 1) {
-    for (int row = 0; row < height; ++row) {
-      std::memcpy(destination + row * width, source + row * row_stride, width);
-    }
-    return true;
-  }
-
-  for (int row = 0; row < height; ++row) {
-    const uint8_t* source_row = source + row * row_stride;
-    uint8_t* destination_row = destination + row * width;
-    for (int column = 0; column < width; ++column) {
-      destination_row[column] = source_row[column * column_stride];
-    }
-  }
-  return true;
-}
-
-bool CopyInterleavedPlane(const uint8_t* mapped,
-                          size_t mapped_size,
-                          const OH_NativeBuffer_Plane& plane,
-                          int width,
-                          int height,
-                          uint8_t* destination,
-                          bool* corrected_stride) {
-  size_t row_stride = plane.rowStride;
-  if (row_stride < static_cast<size_t>(width) &&
-      plane.columnStride >= static_cast<uint32_t>(width)) {
-    row_stride = plane.columnStride;
-    *corrected_stride = true;
-  }
-  if (!mapped || !destination || width <= 0 || height <= 0 ||
-      row_stride < static_cast<size_t>(width) || plane.offset >= mapped_size ||
-      mapped_size - plane.offset < static_cast<size_t>(width)) {
-    return false;
-  }
-  const size_t last_row = static_cast<size_t>(height) - 1;
-  if (last_row &&
-      row_stride > (mapped_size - plane.offset - width) / last_row) {
-    return false;
-  }
-  const uint8_t* source = mapped + plane.offset;
-  for (int row = 0; row < height; ++row) {
-    std::memcpy(destination + static_cast<size_t>(row) * width,
-                source + static_cast<size_t>(row) * row_stride, width);
-  }
-  return true;
-}
-
-bool IsCrCbFormat(int32_t format) {
-  return format == NATIVEBUFFER_PIXEL_FMT_YCRCB_420_SP ||
-         format == NATIVEBUFFER_PIXEL_FMT_YCRCB_420_P;
 }
 
 bool WaitForFence(int fence_fd) {
@@ -306,6 +214,12 @@ class CaptureDelegateOhos {
       return;
     }
 
+    if (DeliverConverted(mapped_address, buffer_handle, planes, config)) {
+      OH_NativeBuffer_Unmap(native_buffer);
+      release_buffer();
+      return;
+    }
+
     const int width = config.width;
     const int height = config.height;
     const size_t y_size = static_cast<size_t>(width) * height;
@@ -393,6 +307,97 @@ class CaptureDelegateOhos {
   }
 
  private:
+  // A frame used to be copied plane by plane into a vector allocated for it,
+  // and that vector converted and rotated again into a buffer from Chromium's
+  // pool. Now it is read in place and converted and rotated once, into the
+  // pool buffer: one pass over the frame and no allocation. A layout
+  // ResolveYuvLayout() does not describe still takes the copying path.
+  //
+  // Converts the mapped frame straight into a buffer from Chromium's pool and
+  // delivers it. False when its layout needs the copying path; a frame it
+  // took, delivered or dropped, returns true.
+  bool DeliverConverted(void* mapped_address,
+                        const BufferHandle* buffer_handle,
+                        const OH_NativeBuffer_Planes& planes,
+                        const OH_NativeBuffer_Config& config) {
+    const size_t mapped_size = static_cast<size_t>(buffer_handle->size);
+    bool corrected_stride = false;
+    const std::optional<YuvLayout> layout =
+        ResolveYuvLayout(mapped_size, planes, config, &corrected_stride);
+    if (!layout) {
+      if (!logged_copy_fallback_) {
+        logged_copy_fallback_ = true;
+        LOG(WARNING) << "OHOS camera: copying frames, layout not convertible "
+                     << "in place (planes=" << planes.planeCount
+                     << " format=" << config.format << ")";
+      }
+      return false;
+    }
+    if (corrected_stride && !logged_stride_correction_) {
+      logged_stride_correction_ = true;
+      LOG(WARNING) << "OHOS camera: corrected swapped CameraKit YUV strides";
+    }
+
+    const int width = config.width;
+    const int height = config.height;
+    gfx::Size dimensions(width, height);
+    if (rotation_ == 90 || rotation_ == 270) {
+      dimensions = gfx::Size(height, width);
+    }
+    VideoCaptureDevice::Client::Buffer buffer;
+    const VideoCaptureDevice::Client::ReserveResult reserved =
+        client_->ReserveOutputBuffer(dimensions, PIXEL_FORMAT_I420,
+                                     /*frame_feedback_id=*/0, &buffer,
+                                     /*require_new_buffer_id=*/nullptr,
+                                     /*retire_old_buffer_id=*/nullptr);
+    if (reserved != VideoCaptureDevice::Client::ReserveResult::kSucceeded) {
+      client_->OnFrameDropped(
+          reserved == VideoCaptureDevice::Client::ReserveResult::
+                          kMaxBufferCountExceeded
+              ? VideoCaptureFrameDropReason::kBufferPoolMaxBufferCountExceeded
+              : VideoCaptureFrameDropReason::kBufferPoolBufferAllocationFailed);
+      return true;
+    }
+
+    const size_t y_size = dimensions.GetArea();
+    const size_t uv_size =
+        static_cast<size_t>(dimensions.width() / 2) * (dimensions.height() / 2);
+    int converted = -1;
+    {
+      std::unique_ptr<VideoCaptureBufferHandle> access =
+          buffer.handle_provider->GetHandleForInProcessAccess();
+      base::span<uint8_t> destination = access->data();
+      if (destination.size() >= y_size + 2 * uv_size) {
+        const uint8_t* mapped = static_cast<const uint8_t*>(mapped_address);
+        uint8_t* y = destination.data();
+        converted = libyuv::Android420ToI420Rotate(
+            mapped + layout->y.offset, static_cast<int>(layout->y.row_stride),
+            mapped + layout->u.offset, static_cast<int>(layout->u.row_stride),
+            mapped + layout->v.offset, static_cast<int>(layout->v.row_stride),
+            static_cast<int>(layout->u.column_stride), y, dimensions.width(),
+            y + y_size, dimensions.width() / 2, y + y_size + uv_size,
+            dimensions.width() / 2, width, height, RotationModeFor(rotation_));
+      }
+    }
+    if (converted != 0) {
+      client_->OnFrameDropped(
+          VideoCaptureFrameDropReason::kDeviceClientLibyuvConvertToI420Failed);
+      return true;
+    }
+
+    const base::TimeTicks now = base::TimeTicks::Now();
+    if (first_reference_time_.is_null()) {
+      first_reference_time_ = now;
+    }
+    client_->OnIncomingCapturedBufferExt(
+        std::move(buffer),
+        VideoCaptureFormat(dimensions, frame_rate_, PIXEL_FORMAT_I420),
+        gfx::ColorSpace(), now, now - first_reference_time_,
+        /*capture_begin_timestamp=*/std::nullopt, gfx::Rect(dimensions),
+        /*additional_metadata=*/std::nullopt);
+    return true;
+  }
+
   struct FrameSignal {
     scoped_refptr<base::SingleThreadTaskRunner> task_runner;
     base::WeakPtr<CaptureDelegateOhos> delegate;
@@ -586,6 +591,7 @@ class CaptureDelegateOhos {
   int rotation_ = 0;
   bool started_ = false;
   bool logged_stride_correction_ = false;
+  bool logged_copy_fallback_ = false;
   base::WeakPtrFactory<CaptureDelegateOhos> weak_factory_{this};
 };
 

@@ -1,0 +1,22 @@
+Build the OHOS camera's frame layout helpers.
+
+camera_frame_layout_ohos.{h,cc} (in the overlay) read CameraKit's YUV
+frames where they are mapped, so a frame converts and rotates once straight
+into Chromium's capture buffer instead of being copied twice.
+
+Generated against Chromium 154.0.8037.97 with chromium-154-harmonyos.patch
+applied. Apply with:
+  git apply ohos-camera-frame-layout.patch
+
+diff --git a/media/capture/BUILD.gn b/media/capture/BUILD.gn
+--- a/media/capture/BUILD.gn
++++ b/media/capture/BUILD.gn
+@@ -182,6 +182,8 @@ component("capture_lib") {
+ 
+   if (is_ohos) {
+     sources += [
++      "video/ohos/camera_frame_layout_ohos.cc",
++      "video/ohos/camera_frame_layout_ohos.h",
+       "video/ohos/video_capture_device_factory_ohos.cc",
+       "video/ohos/video_capture_device_factory_ohos.h",
+       "video/ohos/video_capture_device_ohos.cc",

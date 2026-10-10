@@ -223,6 +223,7 @@ else
   apply_incremental_patch "${repo_root}/patches/ohos-hevc-capability.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-adaptive-vsync.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-tab-discarding.patch"
+  apply_incremental_patch "${repo_root}/patches/ohos-camera-frame-layout.patch"
 
   # ---- sync overlay into the tree -------------------------------------------
   # The overlay holds whole files the adapter adds or replaces. Copying by
