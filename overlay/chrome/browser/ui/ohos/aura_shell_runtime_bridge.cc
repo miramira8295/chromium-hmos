@@ -2000,7 +2000,17 @@ constexpr base::TimeDelta kThumbnailReuseWindow = base::Seconds(1);
 struct RecentThumbnail {
   std::string key;
   base::TimeTicks taken;
+  // The capture it came from; see NextThumbnailCapture().
+  uint64_t capture = 0;
 };
+
+// Captures are numbered as they start. Their answers come back in any order
+// -- encoding runs on the thread pool -- and a number is how an answer knows
+// whether a later capture has overtaken it.
+uint64_t NextThumbnailCapture() {
+  static uint64_t last = 0;
+  return ++last;
+}
 
 std::map<std::string, RecentThumbnail>& RecentThumbnails() {
   static base::NoDestructor<std::map<std::string, RecentThumbnail>> recent;
@@ -2068,6 +2078,9 @@ using ThumbnailWaiter = base::OnceCallback<void(std::string png_base64)>;
 
 struct PendingThumbnail {
   base::TimeTicks started;
+  // The capture these waiters are waiting on. A capture given up on and
+  // started again gets a new number, and the old one's answer is not theirs.
+  uint64_t capture = 0;
   std::vector<ThumbnailWaiter> waiters;
 };
 
@@ -2083,16 +2096,23 @@ std::map<std::string, PendingThumbnail>& PendingThumbnails() {
 void FinishThumbnailCapture(base::WeakPtr<content::WebContents> contents,
                             std::string id,
                             std::string key,
+                            uint64_t capture,
                             std::string png) {
   // Kept only while the tab is there to say whether it is incognito: a
   // picture of an incognito page must not outlive its window in this cache.
-  if (!png.empty() && contents) {
+  // And only if no later capture of the tab is in it already: a picture of
+  // the page before a navigation, finishing late, must not replace one of the
+  // page after it.
+  std::map<std::string, RecentThumbnail>& recent = RecentThumbnails();
+  auto previous = recent.find(id);
+  const bool newest =
+      previous == recent.end() || previous->second.capture < capture;
+  if (!png.empty() && contents && newest) {
     RememberThumbnail(contents.get(), id, png);
-    std::map<std::string, RecentThumbnail>& recent = RecentThumbnails();
     if (recent.size() > 4 * kMaxCachedThumbnails) {
       recent.clear();
     }
-    recent[id] = {key, base::TimeTicks::Now()};
+    recent[id] = {key, base::TimeTicks::Now(), capture};
   }
   if (png.empty()) {
     // Fall back to whatever was last seen of this tab rather than nothing.
@@ -2102,7 +2122,9 @@ void FinishThumbnailCapture(base::WeakPtr<content::WebContents> contents,
     }
   }
   auto waiting = PendingThumbnails().find(key);
-  if (waiting == PendingThumbnails().end()) {
+  if (waiting == PendingThumbnails().end() ||
+      waiting->second.capture != capture) {
+    // Given up on and started again: the waiters belong to the new capture.
     return;
   }
   std::vector<ThumbnailWaiter> waiters = std::move(waiting->second.waiters);
@@ -2118,10 +2140,11 @@ void FinishThumbnailCapture(base::WeakPtr<content::WebContents> contents,
 void OnThumbnailCaptured(base::WeakPtr<content::WebContents> contents,
                          std::string id,
                          std::string key,
+                         uint64_t capture,
                          const content::CopyFromSurfaceResult& result) {
   if (!result.has_value()) {
     FinishThumbnailCapture(std::move(contents), std::move(id), std::move(key),
-                           std::string());
+                           capture, std::string());
     return;
   }
   base::ThreadPool::PostTaskAndReplyWithResult(
@@ -2130,7 +2153,7 @@ void OnThumbnailCaptured(base::WeakPtr<content::WebContents> contents,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&EncodeThumbnail, result.value().bitmap),
       base::BindOnce(&FinishThumbnailCapture, std::move(contents),
-                     std::move(id), std::move(key)));
+                     std::move(id), std::move(key), capture));
 }
 
 void SendTabThumbnails(gfx::AcceleratedWidget widget,
@@ -2205,9 +2228,11 @@ void SendTabThumbnails(gfx::AcceleratedWidget widget,
       continue;
     }
     pending.started = now;
+    pending.capture = NextThumbnailCapture();
     view->CopyFromSurface(
         source, output, base::Seconds(2),
-        base::BindOnce(&OnThumbnailCaptured, contents->GetWeakPtr(), id, key));
+        base::BindOnce(&OnThumbnailCaptured, contents->GetWeakPtr(), id, key,
+                       pending.capture));
   }
 }
 
