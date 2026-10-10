@@ -291,7 +291,9 @@ constexpr int kMaxBrowserLookupAttempts = 50;
 constexpr base::TimeDelta kBrowserLookupDelay = base::Milliseconds(100);
 constexpr base::TimeDelta kThemeFontRendererRestartDelay =
     base::Milliseconds(250);
-constexpr base::TimeDelta kBrowserStatePollInterval = base::Milliseconds(200);
+// The browser state is rebuilt on events; this poll only catches what no
+// event reported, and stops while the app is in the background.
+constexpr base::TimeDelta kBrowserStatePollInterval = base::Seconds(2);
 // Enough for a shell's startup burst; anything past it is dropped and logged.
 constexpr size_t kMaxPendingCommands = 64;
 
@@ -1278,8 +1280,8 @@ BrowserTargetState BuildBrowserTargetState(gfx::AcceleratedWidget widget,
 }
 
 // The URL as the shell sees it. The state is rebuilt, serialised and compared
-// on the UI thread every 200 ms, so its cost is paid in touch latency: one
-// 137 KB data: URL made each poll take 25 ms (48 ms worst) instead of 0.7 ms,
+// on the UI thread up to ten times a second, so its cost is paid in touch
+// latency: one 137 KB data: URL made each rebuild take 25 ms (48 ms worst) instead of 0.7 ms,
 // holding touch input back for up to six frames. The shell only displays it,
 // so a data: URL is reported by its header and anything else is capped.
 std::string ShellVisibleUrl(const GURL& url) {
@@ -2395,7 +2397,7 @@ bool IsInReaderMode(content::WebContents* contents) {
 
 // Whether the distiller thinks this page is an article. Blink reports this
 // after each navigation and the driver keeps the last answer, so reading it
-// costs nothing -- which matters when the state is polled every 200ms.
+// costs nothing -- which matters when the state is rebuilt this often.
 bool IsReaderModeAvailable(content::WebContents* contents) {
   if (!contents || IsInReaderMode(contents)) {
     return false;
@@ -3123,10 +3125,11 @@ StateUpdateScheduler& GetStateUpdateScheduler() {
 
 void UpdateBrowserStateOnUiThread(uint64_t generation,
                                   StateUpdateReason reason);
-// Defined below, with the inset retry it starts.
+// Defined below, with the inset retry and the poll they start.
 void EnsureViewportInsetRetry(
     uint64_t generation,
     const std::map<gfx::AcceleratedWidget, int>& bottom_insets);
+void EnsureStatePoll(uint64_t generation);
 
 void RunRequestedBrowserStateUpdate(uint64_t generation) {
   GetStateUpdateScheduler().pending = false;
@@ -3177,6 +3180,22 @@ class ScopedBrowserStateUpdate {
   ~ScopedBrowserStateUpdate() { RequestBrowserStateUpdate(); }
 };
 
+// Watches one tab, active or not, for what the tab list reports of every tab:
+// its title and whether it is making a sound. The tab strip hears of both too,
+// but only after Chromium's 200 ms UI coalescing.
+class TabStateWatcher : public content::WebContentsObserver {
+ public:
+  explicit TabStateWatcher(content::WebContents* contents)
+      : content::WebContentsObserver(contents) {}
+
+  void TitleWasSet(content::NavigationEntry* entry) override {
+    RequestBrowserStateUpdate();
+  }
+  void OnAudioStateChanged(bool audible) override {
+    RequestBrowserStateUpdate();
+  }
+};
+
 // Watches one window's tab strip, and the active tab in it, for anything the
 // browser state reports.
 class BrowserStateWatcher : public TabStripModelObserver,
@@ -3187,6 +3206,7 @@ class BrowserStateWatcher : public TabStripModelObserver,
   explicit BrowserStateWatcher(TabStripModel* tabs) : tabs_(tabs) {
     tabs_->AddObserver(this);
     Follow(tabs_->GetActiveWebContents());
+    WatchEveryTab();
   }
   BrowserStateWatcher(const BrowserStateWatcher&) = delete;
   BrowserStateWatcher& operator=(const BrowserStateWatcher&) = delete;
@@ -3197,6 +3217,7 @@ class BrowserStateWatcher : public TabStripModelObserver,
                               const TabStripModelChange& change,
                               const TabStripSelectionChange& selection) override {
     Follow(tab_strip_model->GetActiveWebContents());
+    WatchEveryTab();
     RequestBrowserStateUpdate();
   }
   void OnTabChangedAt(tabs::TabInterface* tab,
@@ -3287,8 +3308,30 @@ class BrowserStateWatcher : public TabStripModelObserver,
     }
   }
 
+  // One TabStateWatcher per tab in the strip, no more and no fewer.
+  void WatchEveryTab() {
+    std::map<content::WebContents*, std::unique_ptr<TabStateWatcher>> watched;
+    for (int index = 0; index < tabs_->count(); ++index) {
+      content::WebContents* contents = tabs_->GetWebContentsAt(index);
+      if (!contents) {
+        continue;
+      }
+      auto existing = tab_watchers_.find(contents);
+      // A watcher whose tab is gone watches nothing, and a new tab at the
+      // same address needs a new one.
+      if (existing != tab_watchers_.end() && existing->second->web_contents()) {
+        watched.emplace(contents, std::move(existing->second));
+      } else {
+        watched.emplace(contents, std::make_unique<TabStateWatcher>(contents));
+      }
+    }
+    tab_watchers_ = std::move(watched);
+  }
+
   const raw_ptr<TabStripModel> tabs_;
   raw_ptr<zoom::ZoomController> zoom_ = nullptr;
+  std::map<content::WebContents*, std::unique_ptr<TabStateWatcher>>
+      tab_watchers_;
 };
 
 std::map<TabStripModel*, std::unique_ptr<BrowserStateWatcher>>&
@@ -3369,6 +3412,7 @@ void UpdateBrowserStateOnUiThread(uint64_t generation,
   const bool mobile = IsMobileUiFamily(ui_family);
   ApplyUserAgentToAllTabs(mobile, /*reload=*/false);
   EnsureViewportInsetRetry(generation, bottom_insets);
+  EnsureStatePoll(generation);
 
   std::vector<std::pair<gfx::AcceleratedWidget, std::string>> snapshots;
   std::vector<std::pair<gfx::AcceleratedWidget, bool>> page_fullscreen;
@@ -3546,6 +3590,26 @@ void RetryViewportInsetsOnUiThread(uint64_t generation) {
       kViewportInsetRetryInterval);
 }
 
+// Starts the poll for `generation` unless it runs already or the app is in
+// the background. Every rebuild calls this, so coming back to the
+// foreground -- a visibility change, which rebuilds -- starts it again.
+void EnsureStatePoll(uint64_t generation) {
+  if (StatePollGeneration() == generation) {
+    return;
+  }
+  {
+    RuntimeBridgeState& state = GetState();
+    base::AutoLock lock(state.lock);
+    if (!state.app_visible) {
+      return;
+    }
+  }
+  StatePollGeneration() = generation;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&PollBrowserStateOnUiThread, generation),
+      kBrowserStatePollInterval);
+}
+
 // Starts the retry if a window has an inset and it is not running.
 void EnsureViewportInsetRetry(
     uint64_t generation,
@@ -3561,12 +3625,24 @@ void EnsureViewportInsetRetry(
       kViewportInsetRetryInterval);
 }
 
+// The generation whose poll is running, or 0 when none is: it stops in the
+// background and is started again by the next rebuild. UI thread only.
+uint64_t& StatePollGeneration() {
+  static uint64_t generation = 0;
+  return generation;
+}
+
 void PollBrowserStateOnUiThread(uint64_t generation) {
+  if (StatePollGeneration() != generation) {
+    return;  // A later generation's poll took over.
+  }
   scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   {
     RuntimeBridgeState& state = GetState();
     base::AutoLock lock(state.lock);
-    if (!state.ui_task_runner || state.browser_generation != generation) {
+    if (!state.ui_task_runner || state.browser_generation != generation ||
+        !state.app_visible) {
+      StatePollGeneration() = 0;
       return;
     }
     task_runner = state.ui_task_runner;
@@ -5109,11 +5185,10 @@ void NotifyAuraShellBrowserStarted() {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner;
   std::vector<std::pair<gfx::AcceleratedWidget, base::DictValue>>
       pending_commands;
-  uint64_t browser_generation = 0;
   {
     base::AutoLock lock(state.lock);
     state.ui_task_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
-    browser_generation = ++state.browser_generation;
+    ++state.browser_generation;
     state.last_browser_state_json.clear();
     ui_task_runner = state.ui_task_runner;
     pending_commands = std::move(state.pending_commands);
@@ -5128,9 +5203,8 @@ void NotifyAuraShellBrowserStarted() {
 
   ApplyUiFamilyOnUiThread(std::move(ui_family));
   ApplyColorSchemeOnUiThread(std::move(color_scheme));
-  ui_task_runner->PostTask(
-      FROM_HERE,
-      base::BindOnce(&PollBrowserStateOnUiThread, browser_generation));
+  ui_task_runner->PostTask(FROM_HERE,
+                           base::BindOnce(&RequestBrowserStateUpdate));
   for (auto& [widget, command] : pending_commands) {
     ui_task_runner->PostTask(
         FROM_HERE, base::BindOnce(&ExecuteBrowserCommandOnUiThread, widget,
