@@ -3098,6 +3098,10 @@ StateUpdateScheduler& GetStateUpdateScheduler() {
 
 void UpdateBrowserStateOnUiThread(uint64_t generation,
                                   StateUpdateReason reason);
+// Defined below, with the inset retry it starts.
+void EnsureViewportInsetRetry(
+    uint64_t generation,
+    const std::map<gfx::AcceleratedWidget, int>& bottom_insets);
 
 void RunRequestedBrowserStateUpdate(uint64_t generation) {
   GetStateUpdateScheduler().pending = false;
@@ -3339,6 +3343,7 @@ void UpdateBrowserStateOnUiThread(uint64_t generation,
 
   const bool mobile = IsMobileUiFamily(ui_family);
   ApplyUserAgentToAllTabs(mobile, /*reload=*/false);
+  EnsureViewportInsetRetry(generation, bottom_insets);
 
   std::vector<std::pair<gfx::AcceleratedWidget, std::string>> snapshots;
   std::vector<std::pair<gfx::AcceleratedWidget, bool>> page_fullscreen;
@@ -3464,6 +3469,73 @@ void UpdateBrowserStateOnUiThread(uint64_t generation,
   }
 }
 
+// --- Resending the keyboard's inset. ---------------------------------------
+//
+// ApplyViewportInsets() resends an inset the page lost, and used to rely on
+// the 200 ms poll to be called again. That is its own timer now, running only
+// while some window has an inset -- the keyboard is up -- and doing nothing
+// but that, so the state poll can slow down without a lost inset waiting for
+// it.
+
+constexpr base::TimeDelta kViewportInsetRetryInterval =
+    base::Milliseconds(200);
+
+// UI thread only.
+bool& ViewportInsetRetryRunning() {
+  static bool running = false;
+  return running;
+}
+
+void RetryViewportInsetsOnUiThread(uint64_t generation) {
+  std::map<gfx::AcceleratedWidget, int> bottom_insets;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner;
+  {
+    RuntimeBridgeState& state = GetState();
+    base::AutoLock lock(state.lock);
+    if (!state.ui_task_runner || state.browser_generation != generation) {
+      ViewportInsetRetryRunning() = false;
+      return;
+    }
+    bottom_insets = state.viewport_bottom_inset;
+    task_runner = state.ui_task_runner;
+  }
+  std::erase_if(bottom_insets,
+                [](const auto& entry) { return entry.second <= 0; });
+  if (bottom_insets.empty()) {
+    ViewportInsetRetryRunning() = false;
+    return;
+  }
+  if (GlobalBrowserCollection* browsers =
+          GlobalBrowserCollection::GetInstance()) {
+    browsers->ForEach([&bottom_insets](BrowserWindowInterface* browser) {
+      const auto inset = bottom_insets.find(GetBrowserWidget(browser));
+      TabStripModel* tabs = browser->GetTabStripModel();
+      if (inset != bottom_insets.end() && tabs) {
+        ApplyViewportInsets(tabs->GetActiveWebContents(), inset->second);
+      }
+      return true;
+    });
+  }
+  task_runner->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&RetryViewportInsetsOnUiThread, generation),
+      kViewportInsetRetryInterval);
+}
+
+// Starts the retry if a window has an inset and it is not running.
+void EnsureViewportInsetRetry(
+    uint64_t generation,
+    const std::map<gfx::AcceleratedWidget, int>& bottom_insets) {
+  if (ViewportInsetRetryRunning() ||
+      std::ranges::none_of(bottom_insets,
+                           [](const auto& entry) { return entry.second > 0; })) {
+    return;
+  }
+  ViewportInsetRetryRunning() = true;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&RetryViewportInsetsOnUiThread, generation),
+      kViewportInsetRetryInterval);
+}
+
 void PollBrowserStateOnUiThread(uint64_t generation) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   {
@@ -3474,7 +3546,12 @@ void PollBrowserStateOnUiThread(uint64_t generation) {
     }
     task_runner = state.ui_task_runner;
   }
-  UpdateBrowserStateOnUiThread(generation, StateUpdateReason::kPoll);
+  // A rebuild an event asked for within the last interval did this tick's
+  // work already: the poll only covers time nothing else did.
+  if (base::TimeTicks::Now() - GetStateUpdateScheduler().last_run >=
+      kBrowserStatePollInterval) {
+    UpdateBrowserStateOnUiThread(generation, StateUpdateReason::kPoll);
+  }
   task_runner->PostDelayedTask(
       FROM_HERE, base::BindOnce(&PollBrowserStateOnUiThread, generation),
       kBrowserStatePollInterval);
