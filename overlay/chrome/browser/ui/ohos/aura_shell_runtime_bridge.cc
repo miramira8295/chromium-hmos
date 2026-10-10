@@ -2996,8 +2996,8 @@ struct StateUpdateScheduler {
 
 // UI thread only.
 StateUpdateScheduler& GetStateUpdateScheduler() {
-  static base::NoDestructor<StateUpdateScheduler> scheduler;
-  return *scheduler;
+  static StateUpdateScheduler scheduler;
+  return scheduler;
 }
 
 void UpdateBrowserStateOnUiThread(uint64_t generation,
