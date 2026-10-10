@@ -183,6 +183,7 @@
 #include "components/find_in_page/find_types.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_result.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_utils.h"
+#include "content/public/browser/media_capture_devices.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/overscroll_configuration.h"
@@ -352,6 +353,13 @@ struct RuntimeBridgeState {
       GUARDED_BY(lock);
   float last_shown_ratio GUARDED_BY(lock) = -1.0f;
   bool pending_shutdown GUARDED_BY(lock) = false;
+
+  bool IsCameraForeground() const EXCLUSIVE_LOCKS_REQUIRED(lock) {
+    return app_visible &&
+           (window_visibility.empty() ||
+            std::ranges::any_of(window_visibility,
+                               [](const auto& item) { return item.second; }));
+  }
 };
 
 RuntimeBridgeState& GetState() {
@@ -5181,6 +5189,7 @@ void NotifyAuraShellBrowserStarted() {
   std::optional<GURL> pending_url;
   std::optional<std::string> pending_theme_font_id;
   bool pending_shutdown = false;
+  bool camera_foreground = true;
   std::string ui_family;
   std::string color_scheme;
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner;
@@ -5200,8 +5209,11 @@ void NotifyAuraShellBrowserStarted() {
     color_scheme = state.color_scheme;
     pending_shutdown = state.pending_shutdown;
     state.pending_shutdown = false;
+    camera_foreground = state.IsCameraForeground();
   }
 
+  content::MediaCaptureDevices::SetApplicationForegroundForOhos(
+      camera_foreground);
   ApplyUiFamilyOnUiThread(std::move(ui_family));
   ApplyColorSchemeOnUiThread(std::move(color_scheme));
   ui_task_runner->PostTask(FROM_HERE,
@@ -6118,6 +6130,7 @@ void SetAuraShellBrowserVisible(gfx::AcceleratedWidget widget, bool visible) {
   {
     RuntimeBridgeState& state = GetState();
     base::AutoLock lock(state.lock);
+    const bool was_camera_foreground = state.IsCameraForeground();
     if (widget == gfx::kNullAcceleratedWidget) {
       state.app_visible = visible;
       if (!visible) {
@@ -6130,6 +6143,17 @@ void SetAuraShellBrowserVisible(gfx::AcceleratedWidget widget, bool visible) {
       }
     }
     ui_task_runner = state.ui_task_runner;
+    const bool is_camera_foreground = state.IsCameraForeground();
+    if (ui_task_runner && was_camera_foreground != is_camera_foreground) {
+      // Post in the same order as visibility transitions, before taking any
+      // early return while applying a window that has not been created yet.
+      // A hidden Pad window must not stop capture in another visible window.
+      ui_task_runner->PostTask(
+          FROM_HERE,
+          base::BindOnce(
+              &content::MediaCaptureDevices::SetApplicationForegroundForOhos,
+              is_camera_foreground));
+    }
   }
   if (ui_task_runner) {
     ui_task_runner->PostTask(

@@ -304,9 +304,17 @@ class CaptureDelegateOhos {
     client_->OnIncomingCapturedData(frame, format, gfx::ColorSpace(), rotation_,
                                     false, now, now - first_reference_time_,
                                     std::nullopt, std::nullopt);
+    LogFirstFrame("copy fallback");
   }
 
  private:
+  void LogFirstFrame(const char* path) {
+    if (!logged_first_frame_) {
+      logged_first_frame_ = true;
+      LOG(WARNING) << "OHOS camera: first frame delivered (" << path << ")";
+    }
+  }
+
   // A frame used to be copied plane by plane into a vector allocated for it,
   // and that vector converted and rotated again into a buffer from Chromium's
   // pool. Now it is read in place and converted and rotated once, into the
@@ -395,6 +403,7 @@ class CaptureDelegateOhos {
         gfx::ColorSpace(), now, now - first_reference_time_,
         /*capture_begin_timestamp=*/std::nullopt, gfx::Rect(dimensions),
         /*additional_metadata=*/std::nullopt);
+    LogFirstFrame("pool conversion");
     return true;
   }
 
@@ -532,6 +541,10 @@ class CaptureDelegateOhos {
                                 : kDefaultFrameRate;
               started_ = true;
               initialized = true;
+              LOG(WARNING) << "OHOS camera: session started "
+                           << selected_profile->size.width << "x"
+                           << selected_profile->size.height
+                           << " rotation=" << rotation_;
             }
           }
         }
@@ -592,6 +605,7 @@ class CaptureDelegateOhos {
   bool started_ = false;
   bool logged_stride_correction_ = false;
   bool logged_copy_fallback_ = false;
+  bool logged_first_frame_ = false;
   base::WeakPtrFactory<CaptureDelegateOhos> weak_factory_{this};
 };
 

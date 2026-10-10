@@ -27757,3 +27757,268 @@ new file mode 100644
 +}  // namespace gpu
 +
 +#endif  // GPU_VULKAN_OHOS_VULKAN_IMPLEMENTATION_OHOS_H_
+
+diff --git a/content/browser/renderer_host/media/media_capture_devices_impl.cc b/content/browser/renderer_host/media/media_capture_devices_impl.cc
+index 26fe879..4c0e927 100644
+--- a/content/browser/renderer_host/media/media_capture_devices_impl.cc
++++ b/content/browser/renderer_host/media/media_capture_devices_impl.cc
+@@ -10,6 +10,10 @@
+ #include "content/public/browser/browser_task_traits.h"
+ #include "content/public/browser/browser_thread.h"
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "content/browser/renderer_host/media/video_capture_manager.h"
++#endif
++
+ namespace content {
+ 
+ namespace {
+@@ -30,6 +34,23 @@ MediaCaptureDevices* MediaCaptureDevices::GetInstance() {
+   return MediaCaptureDevicesImpl::GetInstance();
+ }
+ 
++#if BUILDFLAG(IS_OHOS)
++void MediaCaptureDevices::SetApplicationForegroundForOhos(bool foreground) {
++  CHECK_CURRENTLY_ON(BrowserThread::UI);
++  GetIOThreadTaskRunner({})->PostTask(
++      FROM_HERE,
++      base::BindOnce(
++          [](bool foreground) {
++            // Resolve on IO instead of retaining a manager across shutdown.
++            if (auto* manager = MediaStreamManager::GetInstance()) {
++              manager->video_capture_manager()->SetApplicationForegroundForOhos(
++                  foreground);
++            }
++          },
++          foreground));
++}
++#endif
++
+ MediaCaptureDevicesImpl* MediaCaptureDevicesImpl::GetInstance() {
+   return base::Singleton<MediaCaptureDevicesImpl>::get();
+ }
+diff --git a/content/browser/renderer_host/media/video_capture_manager.cc b/content/browser/renderer_host/media/video_capture_manager.cc
+index 6059c5d..7d0661b 100644
+--- a/content/browser/renderer_host/media/video_capture_manager.cc
++++ b/content/browser/renderer_host/media/video_capture_manager.cc
+@@ -274,6 +274,15 @@ void VideoCaptureManager::QueueStartDevice(
+     scoped_refptr<VideoCaptureController> controller,
+     const media::VideoCaptureParams& params) {
+   CHECK_CURRENTLY_ON(BrowserThread::IO, base::NotFatalUntil::M158);
++#if BUILDFLAG(IS_OHOS)
++  // A permission response or client request may arrive after the app hides.
++  // ResumeDevices() starts this controller once the app is visible again.
++  if (!application_foreground_ &&
++      controller->stream_type() ==
++          blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE) {
++    return;
++  }
++#endif
+   device_start_request_queue_.push_back(
+       CaptureDeviceStartRequest(std::move(controller), session_id, params));
+   if (device_start_request_queue_.size() == 1)
+@@ -438,6 +447,16 @@ void VideoCaptureManager::OnDeviceLaunchAborted() {
+   EmitLogMessage("Launching device has been aborted.", 1);
+   device_start_request_queue_.pop_front();
+   ProcessDeviceStartRequestQueue();
++#if BUILDFLAG(IS_OHOS)
++  // Foreground may return before the background stop finishes aborting a
++  // launch. ResumeDevices() then saw that controller still in the start queue.
++  // Retry after the controller/launcher have unwound their abort callbacks.
++  if (application_foreground_) {
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++        FROM_HERE, base::BindOnce(&VideoCaptureManager::ResumeDevices,
++                                 weak_factory_.GetWeakPtr()));
++  }
++#endif
+ }
+ 
+ void VideoCaptureManager::OnDeviceConnectionLost(
+@@ -1061,6 +1080,24 @@ void VideoCaptureManager::OnApplicationStateChange(
+ }
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++void VideoCaptureManager::SetApplicationForegroundForOhos(bool foreground) {
++  CHECK_CURRENTLY_ON(BrowserThread::IO, base::NotFatalUntil::M158);
++  if (application_foreground_ == foreground) {
++    return;
++  }
++  application_foreground_ = foreground;
++  LOG(WARNING) << "OHOS camera lifecycle: "
++               << (foreground ? "foreground; restoring devices"
++                              : "background; releasing devices");
++  if (foreground) {
++    ResumeDevices();
++  } else {
++    ReleaseDevices();
++  }
++}
++#endif
++
+ void VideoCaptureManager::ReleaseDevices() {
+   CHECK_CURRENTLY_ON(BrowserThread::IO, base::NotFatalUntil::M158);
+ 
+@@ -1077,6 +1114,14 @@ void VideoCaptureManager::ReleaseDevices() {
+ void VideoCaptureManager::ResumeDevices() {
+   CHECK_CURRENTLY_ON(BrowserThread::IO, base::NotFatalUntil::M158);
+ 
++#if BUILDFLAG(IS_OHOS)
++  // Screen unlock and an aborted launch can also request a resume. Neither
++  // may reopen cameras while the application remains hidden or locked.
++  if (!application_foreground_ || is_screen_locked_) {
++    return;
++  }
++#endif
++
+   for (auto& controller : controllers_) {
+     // Do not resume Content Video Capture devices, e.g. Tab or Screen capture.
+     // Do not try to restart already running devices.
+diff --git a/content/browser/renderer_host/media/video_capture_manager.h b/content/browser/renderer_host/media/video_capture_manager.h
+index 2973e3f..8341b11 100644
+--- a/content/browser/renderer_host/media/video_capture_manager.h
++++ b/content/browser/renderer_host/media/video_capture_manager.h
+@@ -223,6 +223,11 @@ class CONTENT_EXPORT VideoCaptureManager
+   void OnApplicationStateChange(base::android::ApplicationState state);
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  // IO thread. Suspend native cameras, keeping controllers and clients alive.
++  void SetApplicationForegroundForOhos(bool foreground);
++#endif
++
+   using EnumerationCallback =
+       base::OnceCallback<void(media::mojom::DeviceEnumerationResult result_code,
+                               const media::VideoCaptureDeviceDescriptors&)>;
+@@ -342,6 +347,10 @@ class CONTENT_EXPORT VideoCaptureManager
+   void ReleaseDevices();
+   void ResumeDevices();
+ 
++#if BUILDFLAG(IS_OHOS)
++  bool application_foreground_ = true;
++#endif
++
+ #if BUILDFLAG(IS_ANDROID)
+   std::unique_ptr<base::android::ApplicationStatusListener>
+       app_status_listener_;
+diff --git a/content/browser/renderer_host/media/video_capture_manager_unittest.cc b/content/browser/renderer_host/media/video_capture_manager_unittest.cc
+index 00b1fcb..8db8573 100644
+--- a/content/browser/renderer_host/media/video_capture_manager_unittest.cc
++++ b/content/browser/renderer_host/media/video_capture_manager_unittest.cc
+@@ -963,6 +963,91 @@ TEST_F(VideoCaptureManagerTest, InvalidateBuffersOnMultipleClientsDisconnect) {
+   vcm_->UnregisterListener(listener_.get());
+ }
+ 
++#if BUILDFLAG(IS_OHOS)
++TEST_F(VideoCaptureManagerTest, OhosForegroundRestartsCameraWithoutNewClient) {
++  EXPECT_CALL(*listener_,
++              Opened(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*listener_,
++              Closed(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*frame_observer_, OnStarted(_)).Times(2);
++
++  const auto session = vcm_->Open(devices_.front());
++  const auto client = StartClient(session, true);
++  ASSERT_TRUE(video_capture_device_factory_->has_active_devices());
++
++  vcm_->SetApplicationForegroundForOhos(false);
++  vcm_->SetApplicationForegroundForOhos(false);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_FALSE(video_capture_device_factory_->has_active_devices());
++  EXPECT_EQ(1u, controllers_.size());
++
++  vcm_->SetApplicationForegroundForOhos(true);
++  vcm_->SetApplicationForegroundForOhos(true);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_TRUE(video_capture_device_factory_->has_active_devices());
++  EXPECT_EQ(1u, controllers_.size());
++
++  vcm_->SetApplicationForegroundForOhos(false);
++  StopClient(client);
++  vcm_->Close(session);
++  vcm_->SetApplicationForegroundForOhos(true);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_FALSE(video_capture_device_factory_->has_active_devices());
++  vcm_->UnregisterListener(listener_.get());
++}
++
++TEST_F(VideoCaptureManagerTest, OhosCameraRequestedWhileHiddenWaitsForForeground) {
++  EXPECT_CALL(*listener_,
++              Opened(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*listener_,
++              Closed(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*frame_observer_, OnStarted(_)).Times(0);
++
++  vcm_->SetApplicationForegroundForOhos(false);
++  const auto session = vcm_->Open(devices_.front());
++  const auto client = StartClient(session, true);
++  EXPECT_FALSE(video_capture_device_factory_->has_active_devices());
++  Mock::VerifyAndClearExpectations(frame_observer_.get());
++
++  EXPECT_CALL(*frame_observer_, OnStarted(_)).Times(1);
++  vcm_->SetApplicationForegroundForOhos(true);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_TRUE(video_capture_device_factory_->has_active_devices());
++
++  StopClient(client);
++  vcm_->Close(session);
++  base::RunLoop().RunUntilIdle();
++  vcm_->UnregisterListener(listener_.get());
++}
++
++TEST_F(VideoCaptureManagerTest, OhosForegroundWhileCameraLaunchIsAborting) {
++  EXPECT_CALL(*listener_,
++              Opened(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*listener_,
++              Closed(blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, _));
++  EXPECT_CALL(*frame_observer_, OnStarted(_)).Times(AnyNumber());
++
++  const auto session = vcm_->Open(devices_.front());
++  const auto client = StartClient(session, true);
++  vcm_->SetApplicationForegroundForOhos(false);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_FALSE(video_capture_device_factory_->has_active_devices());
++
++  // Do not drain tasks: the second hide aborts the restart while foreground
++  // arrives again before that aborted launch has left the manager's queue.
++  vcm_->SetApplicationForegroundForOhos(true);
++  vcm_->SetApplicationForegroundForOhos(false);
++  vcm_->SetApplicationForegroundForOhos(true);
++  base::RunLoop().RunUntilIdle();
++  EXPECT_TRUE(video_capture_device_factory_->has_active_devices());
++
++  StopClient(client);
++  vcm_->Close(session);
++  base::RunLoop().RunUntilIdle();
++  vcm_->UnregisterListener(listener_.get());
++}
++#endif
++
+ #if BUILDFLAG(IS_ANDROID)
+ // Try to open, start, pause and resume a device.
+ TEST_F(VideoCaptureManagerTest, PauseAndResumeDevice) {
+diff --git a/content/public/browser/media_capture_devices.h b/content/public/browser/media_capture_devices.h
+index 1581e3a..1fb69bf 100644
+--- a/content/public/browser/media_capture_devices.h
++++ b/content/public/browser/media_capture_devices.h
+@@ -5,6 +5,7 @@
+ #ifndef CONTENT_PUBLIC_BROWSER_MEDIA_CAPTURE_DEVICES_H_
+ #define CONTENT_PUBLIC_BROWSER_MEDIA_CAPTURE_DEVICES_H_
+ 
++#include "build/build_config.h"
+ #include "content/common/content_export.h"
+ #include "media/base/video_facing.h"
+ #include "third_party/blink/public/common/mediastream/media_stream_request.h"
+@@ -18,6 +19,12 @@ class CONTENT_EXPORT  MediaCaptureDevices {
+   // Get singleton instance of MediaCaptureDevices.
+   static MediaCaptureDevices* GetInstance();
+ 
++#if BUILDFLAG(IS_OHOS)
++  // UI thread. Keep camera tracks while releasing native devices when every
++  // application window is hidden. Recreate the devices on return to foreground.
++  static void SetApplicationForegroundForOhos(bool foreground);
++#endif
++
+   // Return all Audio/Video devices.
+   virtual const blink::MediaStreamDevices& GetAudioCaptureDevices() = 0;
+   virtual const blink::MediaStreamDevices& GetVideoCaptureDevices() = 0;
