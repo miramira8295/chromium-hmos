@@ -9,6 +9,12 @@ of the screen (the magnifier showed the blank area at the bottom as an
 opaque capsule). On OHOS the surface keeps the usual bottom-left origin and
 ANGLE flips it when presenting.
 
+It also carries the OHOS copy of Android's PowerVR ASTC rule (id 971 in
+gpu/config/gpu_driver_bug_list.json) up to Chromium 154.0.8037.97, which
+renamed reset_base_level_for_astc_sub_image to reset_base_level_for_astc_image;
+the old name failed gpu/config/process_json.py. The main patch, which adds
+the rule, has the new version for fresh trees.
+
 Generated against Chromium 154.0.8037.51 with chromium-154-harmonyos.patch
 applied. Apply with:
   git apply ohos-egl-bottom-left-surface.patch
@@ -38,3 +44,25 @@ index 6f03a4e..e32a267 100644
  
    if (surface_origin_ == gfx::SurfaceOrigin::kTopLeft) {
      egl_window_attributes.push_back(EGL_SURFACE_ORIENTATION_ANGLE);
+diff --git a/gpu/config/gpu_driver_bug_list.json b/gpu/config/gpu_driver_bug_list.json
+--- a/gpu/config/gpu_driver_bug_list.json
++++ b/gpu/config/gpu_driver_bug_list.json
+@@ -5000,15 +5000,15 @@
+     {
+       "id": 971,
+       "cr_bugs": [
+-        528131939
++        551708184
+       ],
+-      "description": "[HarmonyOS, from Android rule 483] Reset texture base level before calling glCompressedTexSubImage2D for ASTC textures to work around PowerVR driver bug.",
++      "description": "[HarmonyOS, from Android rule 483] Reset texture base level before calling glCompressedTexImage2D or glCompressedTexSubImage2D for ASTC textures to work around PowerVR driver bug.",
+       "os": {
+         "type": "ohos"
+       },
+       "gl_vendor": "Imagination.*",
+       "features": [
+-        "reset_base_level_for_astc_sub_image"
++        "reset_base_level_for_astc_image"
+       ]
+     },
+     {
