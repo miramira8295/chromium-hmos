@@ -1177,7 +1177,7 @@ index a572716679..2f32f84eec 100644
 +      },
 +      "gl_vendor": "Imagination.*",
 +      "features": [
-+        "reset_base_level_for_astc_sub_image"
++        "reset_base_level_for_astc_image"
 +      ]
 +    },
 +    {
