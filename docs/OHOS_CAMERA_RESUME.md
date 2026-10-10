@@ -62,3 +62,40 @@ OHOS camera: first frame delivered (pool conversion)
 
 这些测试需要支持 OHOS 的 Chromium 测试构建；默认 runner 构建内核与 HAR，
 不执行 content_unittests。源码/补丁检查与 runner 编译结果不能替代设备验收。
+
+## e2ca0bfd 复测及时间轴修正
+
+外壳反馈（Mate 70 Pro+，后置 720p）：仅调用一次 getUserMedia，原轨道及
+srcObject 保持不变，前后台 20/20 恢复连续出帧；耗时 671–848 ms，中位数
+764 ms。每轮 mediaTime 都回跳。此结论仅覆盖该组合；Pad、其余镜头/分辨率
+及录像时间轴未验收。本地未取得完整 RESULTS.md，以上依据外壳转述。
+
+代码确认：CaptureDelegateOhos 每次重建后使用新的 first_reference_time_，
+发送的相对 timestamp 又从 0 开始。VideoCaptureImpl 仅在 timestamp 为 0
+时用持久的 reference_time 基准补算；因此恢复首帧可能时间正确，第二帧又
+回到约 0.067 秒。仅检查恢复首帧不足以发现问题。
+
+时间轴修正放在跨设备重建保留的 VideoCaptureController：OHOS 摄像头的
+每帧 timestamp 统一为 reference_time 减该控制器的首帧参考时间。原生设备、
+缓冲池及采集服务进程重建均不改变基准；两条像素转换路径和多个客户端共用
+该时间轴。后台间隔保留，不将后台 2 秒压成一个帧间隔。新的控制器仍有独立
+基准。屏幕/标签捕获以及没有有效 reference_time 的帧保持原来的行为。
+
+没有改写 reference_time 或 capture_begin_time。MediaRecorder 的
+VideoTrackRecorderImpl::Encoder::StartFrameEncode 使用这两个元数据（优先
+capture_begin_time），MediaRecorderEncoderWrapper 也将采集时间传给封装层；
+不能由网页 mediaTime 回跳直接断言录制文件时间戳已经损坏，仍须录制验收。
+
+补充验收：
+
+- 同一个 video 元素、同一轨道，连续记录 requestVideoFrameCallback 的
+  mediaTime、presentedFrames 和当前阶段。每次返回后至少检查连续 30 帧，
+  整段 mediaTime 不应回跳，后台间隔应保留；重复原来的 20 轮。
+- 同一 MediaRecorder 连续录像，不主动 pause/resume；前台录制 → 回桌面
+  2 秒 → 返回，重复 5 次再停止。检查完整回放、时长、seek 和有声录像的
+  音画同步，并检查文件逐包 PTS/DTS。后台不要求持续采集视频。
+- 补前/后 720p、1080p，Pad 多进程恢复。检查新增轨道正常、停止后不重开。
+
+新增 VideoCaptureControllerTest.OhosCamera* 回归用例，模拟 20 次原生设备/
+缓冲池重建，每次检查时间戳为 0 的首帧和非零的第二帧、后台间隔、参考时间
+保留及空参考时间兼容性。这些是 content_unittests，默认 runner 不执行。

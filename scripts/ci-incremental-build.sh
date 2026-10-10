@@ -225,6 +225,7 @@ else
   apply_incremental_patch "${repo_root}/patches/ohos-tab-discarding.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-camera-frame-layout.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-camera-lifecycle.patch"
+  apply_incremental_patch "${repo_root}/patches/ohos-camera-timeline.patch"
 
   # ---- sync overlay into the tree -------------------------------------------
   # The overlay holds whole files the adapter adds or replaces. Copying by

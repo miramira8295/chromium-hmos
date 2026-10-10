@@ -28022,3 +28022,167 @@ index 1581e3a..1fb69bf 100644
    // Return all Audio/Video devices.
    virtual const blink::MediaStreamDevices& GetAudioCaptureDevices() = 0;
    virtual const blink::MediaStreamDevices& GetVideoCaptureDevices() = 0;
+
+diff --git a/content/browser/renderer_host/media/video_capture_controller.cc b/content/browser/renderer_host/media/video_capture_controller.cc
+index be80737..25881dc 100644
+--- a/content/browser/renderer_host/media/video_capture_controller.cc
++++ b/content/browser/renderer_host/media/video_capture_controller.cc
+@@ -470,6 +470,21 @@ void VideoCaptureController::OnFrameReadyInBuffer(
+   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+                "VideoCaptureController::OnFrameReadyInBuffer");
+ 
++#if BUILDFLAG(IS_OHOS)
++  // The OHOS capture delegate's relative timestamp restarts when the app returns
++  // from the background. The controller (and its tracks) outlives that device.
++  // Anchor every camera frame to the same monotonic reference clock, keeping
++  // the background gap and leaving capture/reference metadata untouched.
++  const auto& reference_time = frame.frame_info->metadata.reference_time;
++  if (stream_type_ == blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE &&
++      reference_time && !reference_time->is_null()) {
++    if (first_camera_reference_time_.is_null()) {
++      first_camera_reference_time_ = *reference_time;
++    }
++    frame.frame_info->timestamp = *reference_time - first_camera_reference_time_;
++  }
++#endif
++
+   // Make ready buffers, get frame contexts and set their feedback IDs.
+   // Transfer ownership of all the frame infos.
+   BufferContext* frame_context;
+diff --git a/content/browser/renderer_host/media/video_capture_controller.h b/content/browser/renderer_host/media/video_capture_controller.h
+index 4f320af..0a1d629 100644
+--- a/content/browser/renderer_host/media/video_capture_controller.h
++++ b/content/browser/renderer_host/media/video_capture_controller.h
+@@ -16,6 +16,7 @@
+ #include "base/time/time.h"
+ #include "base/token.h"
+ #include "base/unguessable_token.h"
++#include "build/build_config.h"
+ #include "content/browser/renderer_host/media/video_capture_controller_event_handler.h"
+ #include "content/browser/renderer_host/media/video_capture_provider.h"
+ #include "content/common/content_export.h"
+@@ -282,6 +283,11 @@ class CONTENT_EXPORT VideoCaptureController
+   bool has_received_frames_;
+   base::TimeTicks time_of_start_request_;
+ 
++#if BUILDFLAG(IS_OHOS)
++  // Kept across native device release/relaunch for the lifetime of the tracks.
++  base::TimeTicks first_camera_reference_time_;
++#endif
++
+   std::optional<media::VideoCaptureFormat> video_capture_format_;
+ 
+   std::optional<url::Origin> first_client_origin_;
+diff --git a/content/browser/renderer_host/media/video_capture_controller_unittest.cc b/content/browser/renderer_host/media/video_capture_controller_unittest.cc
+index 055b90e..c77815a 100644
+--- a/content/browser/renderer_host/media/video_capture_controller_unittest.cc
++++ b/content/browser/renderer_host/media/video_capture_controller_unittest.cc
+@@ -124,6 +124,8 @@ class MockVideoCaptureControllerEventHandler
+     EXPECT_EQ(expected_pixel_format_, buffer.frame_info->pixel_format);
+     EXPECT_EQ(expected_color_space_, buffer.frame_info->color_space);
+     EXPECT_TRUE(buffer.frame_info->metadata.reference_time.has_value());
++    last_timestamp_ = buffer.frame_info->timestamp;
++    last_reference_time_ = buffer.frame_info->metadata.reference_time;
+     DoBufferReady(ControllerIDAndSize(id, buffer.frame_info->coded_size));
+     if (enable_auto_return_buffer_on_buffer_ready_) {
+       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+@@ -146,6 +148,8 @@ class MockVideoCaptureControllerEventHandler
+   media::VideoPixelFormat expected_pixel_format_ = media::PIXEL_FORMAT_I420;
+   gfx::ColorSpace expected_color_space_ = gfx::ColorSpace::CreateREC709();
+   media::VideoCaptureFeedback feedback_;
++  std::optional<base::TimeDelta> last_timestamp_;
++  std::optional<base::TimeTicks> last_reference_time_;
+   bool enable_auto_return_buffer_on_buffer_ready_ = true;
+ };
+ 
+@@ -212,8 +216,11 @@ class VideoCaptureControllerTest
+ #endif  // BUILDFLAG(IS_CHROMEOS)
+   }
+ 
+-  void SendStubFrameToDeviceClient(const media::VideoCaptureFormat format,
+-                                   const gfx::ColorSpace& color_space) {
++  void SendStubFrameToDeviceClient(
++      const media::VideoCaptureFormat format,
++      const gfx::ColorSpace& color_space,
++      base::TimeTicks reference_time = base::TimeTicks(),
++      base::TimeDelta timestamp = base::TimeDelta()) {
+     auto stub_frame = media::VideoFrame::CreateZeroInitializedFrame(
+         format.pixel_format, format.frame_size,
+         gfx::Rect(format.frame_size.width(), format.frame_size.height()),
+@@ -230,7 +237,7 @@ class VideoCaptureControllerTest
+                        stub_frame->format(), stub_frame->coded_size())));
+     device_client_->OnIncomingCapturedData(
+         data_span, format, color_space, rotation, false /* flip_y */,
+-        base::TimeTicks(), base::TimeDelta(),
++        reference_time, timestamp,
+         /*capture_begin_timestamp=*/std::nullopt,
+         /*metadata=*/std::nullopt, frame_feedback_id);
+   }
+@@ -252,6 +259,67 @@ class VideoCaptureControllerTest
+   base::test::ScopedFeatureList feature_list_;
+ };
+ 
++#if BUILDFLAG(IS_OHOS)
++TEST_F(VideoCaptureControllerTest, OhosCameraTimelineSurvivesDeviceRestart) {
++  media::VideoCaptureParams params;
++  params.requested_format = arbitrary_format_;
++  controller_->AddClient(arbitrary_route_id_, {}, client_a_.get(),
++                         arbitrary_session_id_, params, std::nullopt);
++  EXPECT_CALL(*client_a_, DoBufferCreated(_, _)).Times(21);
++  EXPECT_CALL(*client_a_, DoBufferDestroyed(_, _)).Times(21);
++  EXPECT_CALL(*client_a_, DoBufferReady(_)).Times(42);
++
++  const base::TimeTicks origin = base::TimeTicks() + base::Seconds(100);
++  for (int generation = 0; generation <= 20; ++generation) {
++    if (generation > 0) {
++      // Recreate the device client and pool, retaining the controller/client
++      // just as VideoCaptureManager does across application visibility changes.
++      device_client_.reset();
++      base::RunLoop().RunUntilIdle();
++      mock_launched_device_ = nullptr;
++      controller_->ReleaseDeviceAsync(base::DoNothing());
++      InitializeNewDeviceClientAndBufferPoolInstances();
++      auto device = std::make_unique<MockLaunchedVideoCaptureDevice>();
++      mock_launched_device_ = device.get();
++      controller_->OnDeviceLaunched(std::move(device));
++    }
++    // The first timestamp is zero, the second nonzero. Checking only the first
++    // frame would miss the renderer's special fallback for zero timestamps.
++    for (int frame = 0; frame < 2; ++frame) {
++      const auto device_timestamp = base::Milliseconds(frame * 67);
++      const auto elapsed = base::Seconds(generation * 3) + device_timestamp;
++      SendStubFrameToDeviceClient(arbitrary_format_, arbitrary_color_space_,
++                                 origin + elapsed, device_timestamp);
++      base::RunLoop().RunUntilIdle();
++      ASSERT_TRUE(client_a_->last_timestamp_);
++      EXPECT_EQ(elapsed, *client_a_->last_timestamp_);
++      EXPECT_EQ(origin + elapsed, client_a_->last_reference_time_);
++    }
++  }
++  device_client_.reset();
++  base::RunLoop().RunUntilIdle();
++  controller_->RemoveClient(arbitrary_route_id_, client_a_.get());
++}
++
++TEST_F(VideoCaptureControllerTest, OhosCameraNullReferencePreservesTimestamp) {
++  media::VideoCaptureParams params;
++  params.requested_format = arbitrary_format_;
++  controller_->AddClient(arbitrary_route_id_, {}, client_a_.get(),
++                         arbitrary_session_id_, params, std::nullopt);
++  EXPECT_CALL(*client_a_, DoBufferCreated(_, _)).Times(1);
++  EXPECT_CALL(*client_a_, DoBufferDestroyed(_, _)).Times(1);
++  EXPECT_CALL(*client_a_, DoBufferReady(_)).Times(1);
++  SendStubFrameToDeviceClient(arbitrary_format_, arbitrary_color_space_,
++                             base::TimeTicks(), base::Seconds(7));
++  base::RunLoop().RunUntilIdle();
++  ASSERT_TRUE(client_a_->last_timestamp_);
++  EXPECT_EQ(base::Seconds(7), *client_a_->last_timestamp_);
++  device_client_.reset();
++  base::RunLoop().RunUntilIdle();
++  controller_->RemoveClient(arbitrary_route_id_, client_a_.get());
++}
++#endif
++
+ // A simple test of VideoCaptureController's ability to add, remove, and keep
+ // track of clients.
+ TEST_F(VideoCaptureControllerTest, AddAndRemoveClients) {
