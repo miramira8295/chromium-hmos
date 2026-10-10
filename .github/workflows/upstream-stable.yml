@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: hmos-150-adapter
+          ref: hmos-154-adapter
       - id: upstream
         name: Resolve official stable release
         run: scripts/resolve-latest-stable.sh
@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: hmos-150-adapter
+          ref: hmos-154-adapter
       - name: Build native runtime and HAP
         env:
           HARMONYOS_SDK_ROOT: ${{ vars.HARMONYOS_SDK_ROOT }}
