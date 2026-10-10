@@ -166,7 +166,7 @@ struct Browser {
 
 ### `BrowserStateSnapshot`
 
-引擎每 200ms 检查一次状态,有变化才回调。常用字段:
+状态在标签、页面、加载进度、缩放、阅读模式、焦点变化以及外壳每条命令之后重建,最快 100ms 一次,有变化才回调;另有定时检查兜底。常用字段:
 
 | 字段 | 说明 |
 |---|---|
@@ -484,7 +484,7 @@ function report() {
 | `newTab` | `url?` | 新建标签页 |
 | `activateTab` | `index` | 切换标签页 |
 | `closeTab` | `index` | 关闭标签页 |
-| `requestState` | | 让引擎立即推送一次 `BrowserStateSnapshot` |
+| `requestState` | | 让引擎立即推送一次 `BrowserStateSnapshot`,即使没有变化 |
 | `filePickerResult` | `requestId`, `paths`, `fileTypeIndex`, `canceled` | 回复 `filePickerRequested` |
 | `permissionResult` | `requestId`, `granted`, `denied` | 回复 `permissionsRequested` |
 | `systemPermissionState` | `location`: `'allowed' \| 'denied' \| 'notDetermined'` | 上报应用的定位权限状态 |
@@ -925,7 +925,7 @@ pageFullscreenChanged { windowId?: number, fullscreen: boolean }
 `backHandled { handled: true, by: 'fullscreen' }`,随后发 `pageFullscreenChanged
 { fullscreen: false }`。网页自己退出(Esc、页面按钮)也会发这条。
 
-内核在 200ms 一次的状态轮询里读全屏状态,所以事件最多晚 200ms 到。
+内核在网页切换全屏时立即重建状态并发出事件;定时检查兜底。
 
 **下拉刷新(仅手机)**
 
