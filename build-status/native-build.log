@@ -1,0 +1,27 @@
+== 155 uses the complete migrated native snapshot
+info: syncing channel updates for 1.96.1-x86_64-unknown-linux-gnu
+
+  1.96.1-x86_64-unknown-linux-gnu unchanged - rustc 1.96.1 (31fca3adb 2026-06-26)
+
+info: component rust-std for target aarch64-unknown-linux-ohos is up to date
+== syncing overlay
+== 0 overlay file(s) updated
+== engine commit 62b8b945
+Done. Made 41356 targets from 4788 files in 14277ms
+V8 context snapshot: {"enabled": true, "file": "v8_context_snapshot.bin", "pending_tasks": 52}
+V8 builtins PGO: {"enabled": true, "revision": "712e1808de2d7416f1276d0deb1ee4ac978132b8", "version": "15.5.35.25", "profile": "tools/builtins-pgo/profiles/x64.profile", "sha256": "071701f134073b76b7e3c39bdd42042a3bc659cfd1b62920384a6f5c009d1573", "bytes": 5252660, "pending_tasks": 52, "pending_by_action": {"ACTION": 3, "CXX": 37, "AR": 11, "LINK": 1}}
+== building (-j 12)
+== previous build diagnostics (may refer to an older commit)
+[1/5] ACTION //components/resources:about_credits(//build/toolchain/ohos:ohos_clang_arm64)
+[2/2] LINK ./libweb_engine.so
+== built 4 step(s) in 198s, build-id bb0f29f792919aade4eab6b367ab3f985f6d8bb2
+== staging runtime into /root/actions-runner/_work/chromium-hmos/chromium-hmos/overlay/chromium-ui
+ANGLE: statically linked into libweb_engine.so
+staged 55 locale paks
+runtime.version 3f696fd4557a65a6cd568780ddbca660782408852efca6a37a48728d50297842
+staged runtime from /root/chromium-155/src/out/ohos_arm64
+== packaging HAP
+== SKIP_HAP set; building the engine HAR only
+== packaging engine HAR
+== HAR V8 context snapshot matches the native build
+== HAR engine.har (137 MB)
