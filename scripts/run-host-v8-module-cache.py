@@ -125,7 +125,7 @@ try:
                 match = re.search(r'^rule ' + re.escape(rule) + r'\n((?:  .*\n)+)',
                                   definitions, re.MULTILINE)
                 content = re.search(r'^  rspfile_content = (.*)$', match[1], re.MULTILINE) if match else None
-                if not content or content[1] not in ('$in', '$in_newline'):
+                if not content or content[1] not in ('$in', '$in_newline', '${in}', '${in_newline}'):
                     report['response_rule'] = match[1] if match else None
                     raise RuntimeError('Cannot safely reconstruct the linker response file')
                 report['response_rule'] = content[1]
