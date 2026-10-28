@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 
@@ -33,7 +34,8 @@ def query(name):
     for line in lines[2:]:
         if not line.startswith('    '):
             break
-        inputs.append(line.strip().lstrip('| ').strip())
+        if not line.strip().startswith('|'):
+            inputs.append(line.strip())
     return rule, inputs
 
 
@@ -66,13 +68,18 @@ try:
     if cache.exists():
         metadata = json.loads(cache.read_text())
         main_object, compiler, linker = (metadata[name] for name in ['main_object', 'compiler', 'linker'])
+        if 'explicit_inputs' not in metadata:
+            metadata['link_rule'], metadata['explicit_inputs'] = query(target)
+            cache.write_text(json.dumps(metadata))
     else:
         link_rule, inputs = query(target)
         main_object = next(name for name in inputs if name.endswith('/mksnapshot.o'))
         compile_rule, _ = query(main_object)
         compiler = compile_entry(compile_rule, main_object)
         linker = compile_entry(link_rule, target)
-        cache.write_text(json.dumps({'main_object': main_object, 'compiler': compiler, 'linker': linker}))
+        metadata = {'main_object': main_object, 'compiler': compiler, 'linker': linker,
+                    'link_rule': link_rule, 'explicit_inputs': inputs}
+        cache.write_text(json.dumps(metadata))
     main_digest = digest(build / main_object)
     (output / 'toolchain.json').write_text(json.dumps({'main_object': main_object,
         'compiler': compiler, 'linker': linker}))
@@ -104,7 +111,26 @@ try:
     # Expand that object list before comparing normalized input paths.
     expanded = []
     for arg in args:
-        if any(character.isspace() for character in arg) and main_object in arg:
+        if arg.startswith('@'):
+            response_file = build / arg[1:]
+            if response_file.exists():
+                expanded.extend(shlex.split(response_file.read_text()))
+            else:
+                # Ninja -x does not expand GN's quoted @"..." spelling on
+                # every version. Reconstruct only the verified $in rule.
+                rule = metadata['link_rule']
+                definitions = '\n'.join(path.read_text() for path in [
+                    build / 'toolchain.ninja', build / Path(target).parent / 'toolchain.ninja']
+                    if path.exists())
+                match = re.search(r'^rule ' + re.escape(rule) + r'\n((?:  .*\n)+)',
+                                  definitions, re.MULTILINE)
+                content = re.search(r'^  rspfile_content = (.*)$', match[1], re.MULTILINE) if match else None
+                if not content or content[1] not in ('$in', '$in_newline'):
+                    report['response_rule'] = match[1] if match else None
+                    raise RuntimeError('Cannot safely reconstruct the linker response file')
+                report['response_rule'] = content[1]
+                expanded.extend(metadata['explicit_inputs'])
+        elif any(character.isspace() for character in arg) and main_object in arg:
             expanded.extend(shlex.split(arg))
         else:
             expanded.append(arg)
