@@ -61,13 +61,24 @@ original_digest = digest(original)
 main_object = None
 main_digest = None
 try:
-    link_rule, inputs = query(target)
-    main_object = next(name for name in inputs if name.endswith('/mksnapshot.o'))
+    key = digest(build / 'build.ninja') + original_digest
+    cache = Path('/tmp/lumie-host-v8-toolchain-' + hashlib.sha256(key.encode()).hexdigest()[:16] + '.json')
+    if cache.exists():
+        metadata = json.loads(cache.read_text())
+        main_object, compiler, linker = (metadata[name] for name in ['main_object', 'compiler', 'linker'])
+    else:
+        link_rule, inputs = query(target)
+        main_object = next(name for name in inputs if name.endswith('/mksnapshot.o'))
+        compile_rule, _ = query(main_object)
+        compiler = compile_entry(compile_rule, main_object)
+        linker = compile_entry(link_rule, target)
+        cache.write_text(json.dumps({'main_object': main_object, 'compiler': compiler, 'linker': linker}))
     main_digest = digest(build / main_object)
-    compile_rule, _ = query(main_object)
-    compiler = compile_entry(compile_rule, main_object)
-    linker = compile_entry(link_rule, target)
+    (output / 'toolchain.json').write_text(json.dumps({'main_object': main_object,
+        'compiler': compiler, 'linker': linker}))
     args = shlex.split(compiler['command'])
+    report['architecture_flags'] = [arg for arg in args
+        if arg.startswith(('-DV8_TARGET_ARCH', '-DV8_HOST_ARCH', '-DUSE_SIMULATOR'))]
     filtered = []
     index = 0
     while index < len(args):
@@ -89,14 +100,25 @@ try:
     # original executable, symbols file, or response file can be overwritten.
     delimiter = args.index('--')
     args = args[delimiter + 1:]
+    # Some ninja versions preserve quotes around expanded response contents.
+    # Expand that object list before comparing normalized input paths.
+    expanded = []
+    for arg in args:
+        if any(character.isspace() for character in arg) and main_object in arg:
+            expanded.extend(shlex.split(arg))
+        else:
+            expanded.append(arg)
+    args = expanded
     output_index = args.index('-o') + 1
     args[output_index] = str(output / 'probe')
     replacements = 0
     for index, arg in enumerate(args):
-        if arg == main_object:
+        if not arg.startswith('-') and (build / arg).resolve() == (build / main_object).resolve():
             args[index] = str(output / 'probe.o')
             replacements += 1
     if replacements != 1:
+        report['main_object'] = main_object
+        report['matching_link_args'] = [arg[:4000] for arg in args if 'mksnapshot.o' in arg]
         raise RuntimeError(f'Expected one main-object replacement; got {replacements}')
     stage(args, 'link')
     report['probe_sha256'] = digest(output / 'probe')
