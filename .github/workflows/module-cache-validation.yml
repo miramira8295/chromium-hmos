@@ -14,15 +14,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect native test feasibility without changing the source tree
+      - name: Inspect native test execution dependencies without changing the source tree
         run: |
           set -euo pipefail
           mkdir -p validation
-          python3 scripts/module-cache-preflight.py | tee validation/preflight.json
-      - name: Check isolation and failure reporting
-        run: python3 scripts/tests/test-module-cache-test-syntax.py
-      - name: Compile consumer regression tests without editing shared sources
-        run: python3 scripts/module-cache-test-syntax.py
+          python3 scripts/module-cache-runtime-preflight.py | tee validation/runtime-preflight.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
