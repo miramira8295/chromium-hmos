@@ -14,14 +14,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect native test execution dependencies without changing the source tree
+      - name: Link and execute host V8 module cache probes
         run: |
           set -euo pipefail
           mkdir -p validation
-          python3 scripts/module-cache-runtime-preflight.py | tee validation/runtime-preflight.json
+          python3 scripts/run-host-v8-module-cache.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: module-cache-validation
-          path: validation/
+          path: |
+            validation/
+            !validation/host-v8/probe
+            !validation/host-v8/probe.o
           retention-days: 7
