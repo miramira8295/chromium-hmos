@@ -10,7 +10,7 @@ ninja = source / 'third_party/ninja/ninja'
 
 def command(*arguments):
     result = subprocess.run([str(ninja), '-C', str(out), '-t', *arguments],
-                            capture_output=True, text=True, timeout=180)
+                            capture_output=True, text=True, errors='replace', timeout=180)
     return result
 
 
@@ -54,5 +54,8 @@ result = {'test_binary_exists': (out / 'blink_unittests').exists(),
           'last_commands': [line[:4000] for line in lines[-6:]],
           'available_output_dirs': [path.name for path in (source / 'out').iterdir()
                                     if path.is_dir()],
+          'host_v8_candidates': [str(path.relative_to(out))
+                                 for pattern in ['mksnapshot', '*/mksnapshot', '*/d8', '*/cctest']
+                                 for path in out.glob(pattern) if path.is_file()],
           'test_build_config': configs}
 print(json.dumps(result, indent=2))
