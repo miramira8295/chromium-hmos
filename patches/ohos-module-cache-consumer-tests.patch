@@ -18,7 +18,7 @@ diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner_test.c
  #include "third_party/blink/renderer/core/loader/resource/script_resource.h"
  #include "third_party/blink/renderer/core/script/classic_script.h"
  #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-@@ -210,6 +213,169 @@
+@@ -210,6 +213,175 @@
  
  int V8ScriptRunnerTest::counter_ = 0;
  
@@ -100,7 +100,8 @@ diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner_test.c
 +
 +  void ConsumeAndExecute(const Vector<uint8_t>& payload,
 +                         const String& source,
-+                         bool expect_rejection) {
++                         bool expect_rejection,
++                         int expected_value = 42) {
 +    V8TestingScope scope;
 +    auto* handler = MakeGarbageCollected<OhosModuleCacheTrackingHandler>();
 +    auto metadata =
@@ -142,14 +143,16 @@ diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner_test.c
 +            .As<v8::Object>()
 +            ->Get(scope.GetContext(), V8String(scope.GetIsolate(), "result"))
 +            .ToLocal(&result));
-+    EXPECT_EQ(42, result->Int32Value(scope.GetContext()).FromMaybe(-1));
++    EXPECT_EQ(expected_value,
++              result->Int32Value(scope.GetContext()).FromMaybe(-1));
 +    ASSERT_TRUE(
 +        scope.GetContext()
 +            ->Global()
 +            ->Get(scope.GetContext(),
 +                  V8String(scope.GetIsolate(), "__lumieModuleCacheValue"))
 +            .ToLocal(&result));
-+    EXPECT_EQ(42, result->Int32Value(scope.GetContext()).FromMaybe(-1));
++    EXPECT_EQ(expected_value,
++              result->Int32Value(scope.GetContext()).FromMaybe(-1));
 +  }
 +};
 +
@@ -172,7 +175,7 @@ diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner_test.c
 +       TruncatedV8PayloadFallsBackAndClearsCache) {
 +  const auto payload = CreateModuleCache();
 +  ASSERT_GT(payload.size(), 4u);
-+  ConsumeAndExecute(Vector<uint8_t>(base::span(payload).first(1)),
++  ConsumeAndExecute(Vector<uint8_t>(base::span(payload).first(size_t{1})),
 +                    ModuleSource(), true);
 +}
 +
@@ -181,8 +184,11 @@ diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner_test.c
 +  ASSERT_GT(payload.size(), 4u);
 +  // A different source length forces V8's source-length rejection. Source
 +  // hashing/HTTP invalidation is covered separately, not inferred from this.
-+  ConsumeAndExecute(payload, StrCat({ModuleSource(), "\n// updated source\n"}),
-+                    true);
++  ConsumeAndExecute(payload,
++                    StrCat({"globalThis.__lumieModuleCacheValue = 43; "
++                            "export const result = 43; // updated source ",
++                            Code()}),
++                    true, 43);
 +}
 +
  TEST_F(V8ScriptRunnerTest, resourcelessShouldPass) {
