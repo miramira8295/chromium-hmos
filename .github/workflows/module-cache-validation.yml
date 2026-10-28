@@ -1,0 +1,25 @@
+name: Module cache isolated validation
+on:
+  push:
+    branches: [ci/module-cache-validation-155]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chromium-build-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, harmonyos-chromium]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect native test feasibility without changing the source tree
+        run: |
+          mkdir -p validation
+          python3 scripts/module-cache-preflight.py | tee validation/preflight.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: module-cache-preflight
+          path: validation/
+          retention-days: 7
