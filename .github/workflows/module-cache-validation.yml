@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Inspect native test feasibility without changing the source tree
         run: |
+          set -euo pipefail
           mkdir -p validation
           python3 scripts/module-cache-preflight.py | tee validation/preflight.json
       - uses: actions/upload-artifact@v4
