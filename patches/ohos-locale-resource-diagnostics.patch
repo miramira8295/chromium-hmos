@@ -1,0 +1,201 @@
+diff --git a/ui/base/resource/resource_bundle.cc b/ui/base/resource/resource_bundle.cc
+--- a/ui/base/resource/resource_bundle.cc
++++ b/ui/base/resource/resource_bundle.cc
+@@ -20,6 +20,7 @@
+ #include "base/containers/span.h"
+ #include "base/containers/span_reader.h"
+ #include "base/debug/crash_logging.h"
++#include "base/debug/stack_trace.h"
+ #include "base/files/file.h"
+ #include "base/files/file_util.h"
+ #include "base/i18n/bcp47_extensions.h"
+@@ -331,6 +332,14 @@
+   auto data_pack = std::make_unique<DataPack>(k100Percent);
+   CHECK(data_pack->LoadFromFileRegion(std::move(pak_file), region))
+       << "failed to load pak file";
++#if BUILDFLAG(IS_OHOS)
++  const auto probe = data_pack->GetStringView(0x8284);
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 register locale fd-region bundle="
++             << g_shared_instance_ << " pack=" << data_pack.get()
++             << " offset=" << region.offset << " size=" << region.size
++             << " probe_found=" << probe.has_value()
++             << " probe_bytes=" << (probe ? probe->size() : 0);
++#endif
+   g_shared_instance_->locale_resources_data_.push_back(std::move(data_pack));
+   g_shared_instance_->InitDefaultFontList();
+ }
+@@ -528,6 +537,12 @@
+     return std::string();
+   }
+ 
++#if BUILDFLAG(IS_OHOS)
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 load locale bundle=" << this
++             << " pref=" << pref_locale << " resolved=" << app_locale
++             << " path=" << locale_file_path.value()
++             << " crash_on_failure=" << crash_on_failure;
++#endif
+   auto data_pack = std::make_unique<DataPack>(k100Percent);
+   if (auto result = data_pack->LoadFromPathWithError(locale_file_path);
+       !result.has_value() && crash_on_failure) {
+@@ -561,6 +576,14 @@
+     NOTREACHED();
+   }
+ 
++#if BUILDFLAG(IS_OHOS)
++  const auto probe = data_pack->GetStringView(0x8284);
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 register locale path bundle=" << this
++             << " pack=" << data_pack.get() << " path=" << locale_file_path.value()
++             << " encoding=" << data_pack->GetTextEncodingType()
++             << " probe_found=" << probe.has_value()
++             << " probe_bytes=" << (probe ? probe->size() : 0);
++#endif
+   locale_resources_data_.push_back(std::move(data_pack));
+   loaded_locale_ = pref_locale;
+   return app_locale;
+@@ -594,6 +617,11 @@
+ }
+ 
+ void ResourceBundle::UnloadLocaleResources() {
++#if BUILDFLAG(IS_OHOS)
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 unload locale bundle=" << this
++             << " locale=" << loaded_locale_
++             << " count=" << locale_resources_data_.size();
++#endif
+   locale_resources_data_.clear();
+ 
+ #if BUILDFLAG(IS_ANDROID)
+@@ -1103,6 +1131,14 @@
+ 
+   auto data_pack = std::make_unique<DataPack>(scale_factor);
+   if (data_pack->LoadFromPath(pack_path)) {
++#if BUILDFLAG(IS_OHOS)
++    const auto probe = data_pack->GetStringView(0x8284);
++    LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 register common bundle=" << this
++               << " pack=" << data_pack.get() << " path=" << pack_path.value()
++               << " scale=" << scale_factor
++               << " probe_found=" << probe.has_value()
++               << " probe_bytes=" << (probe ? probe->size() : 0);
++#endif
+     AddResourceHandle(std::move(data_pack));
+   } else if (!optional) {
+     LOG(ERROR) << "Failed to load " << pack_path.value()
+@@ -1283,11 +1319,26 @@
+     return std::u16string();
+   }
+ 
++#if BUILDFLAG(IS_OHOS)
++  if (resource_id == 0x8284) {
++    LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 lookup bundle=" << this
++               << " id=" << resource_id << " locale=" << loaded_locale_
++               << " locale_count=" << locale_resources_data_.size();
++  }
++#endif
+   std::optional<std::string_view> data;
+   ResourceHandle::TextEncodingType encoding =
+       locale_resources_data_.at(0)->GetTextEncodingType();
+   for (auto& locale_data : locale_resources_data_) {
+     data = locale_data->GetStringView(static_cast<uint16_t>(resource_id));
++#if BUILDFLAG(IS_OHOS)
++    if (resource_id == 0x8284) {
++      LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 locale lookup pack=" << locale_data.get()
++                 << " found=" << data.has_value()
++                 << " bytes=" << (data ? data->size() : 0)
++                 << " encoding=" << locale_data->GetTextEncodingType();
++    }
++#endif
+     if (data.has_value()) {
+       encoding = locale_data->GetTextEncodingType();
+       break;
+@@ -1297,6 +1348,27 @@
+     // Fall back on the main data pack (shouldn't be any strings here except
+     // in unittests).
+     data = GetRawDataResource(resource_id);
++#if BUILDFLAG(IS_OHOS)
++    LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 locale miss bundle=" << this
++               << " id=" << resource_id << " locale=" << loaded_locale_
++               << " locale_count=" << locale_resources_data_.size()
++               << " fallback_bytes=" << data->size();
++    if (data->empty()) {
++      {
++        base::AutoLock handles_lock(*resource_handles_lock_);
++        LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 common_count=" << resource_handles_.size();
++        for (const auto& pack : resource_handles_) {
++          const auto fallback = pack->GetStringView(static_cast<uint16_t>(resource_id));
++          LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 common lookup pack=" << pack.get()
++                     << " scale=" << pack->GetResourceScaleFactor()
++                     << " found=" << fallback.has_value()
++                     << " bytes=" << (fallback ? fallback->size() : 0);
++        }
++      }
++      LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 missing string stack:\n"
++                 << base::debug::StackTrace().ToString();
++    }
++#endif
+     CHECK(!data->empty())
+         << "Unable to find resource: " << resource_id
+         << ". If this happens in a browser test running on Windows, it may "
+diff --git a/ui/base/resource/data_pack.cc b/ui/base/resource/data_pack.cc
+--- a/ui/base/resource/data_pack.cc
++++ b/ui/base/resource/data_pack.cc
+@@ -276,6 +276,10 @@
+     const base::FilePath& path) {
+   std::unique_ptr<DataPack::DataSource> data_source;
+   ASSIGN_OR_RETURN(data_source, LoadFromPathInternal(path));
++#if BUILDFLAG(IS_OHOS)
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 datapack open pack=" << this
++             << " path=" << path.value() << " bytes=" << data_source->GetLength();
++#endif
+   RETURN_IF_ERROR(LoadImpl(std::move(data_source)),
+                   [](DataPack::FailureReason failure_reason) {
+                     return ErrorState{failure_reason};
+@@ -406,6 +410,12 @@
+       SanityCheckFileAndRegisterResources(header_length, data, data_length));
+ 
+   data_source_ = std::move(data_source);
++#if BUILDFLAG(IS_OHOS)
++  LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 datapack parsed pack=" << this
++             << " version=" << version << " bytes=" << data_length
++             << " resources=" << resource_count_ << " aliases=" << alias_count_
++             << " encoding=" << text_encoding_type_;
++#endif
+   return base::ok();
+ }
+ 
+@@ -443,6 +453,37 @@
+ std::optional<std::string_view> DataPack::GetStringView(
+     uint16_t resource_id) const {
+   const Entry* target = LookupEntryById(resource_id);
++#if BUILDFLAG(IS_OHOS)
++  if (resource_id == 0x8284) {
++    LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 datapack lookup pack=" << this
++               << " id=" << resource_id << " resources=" << resource_count_
++               << " aliases=" << alias_count_ << " encoding=" << text_encoding_type_
++               << " bytes=" << (data_source_ ? data_source_->GetLength() : 0)
++               << " target=" << target;
++    if (!target) {
++      // An independent linear scan distinguishes a missing ID from bsearch
++      // failure or a changed ordering of the mapped table. Do not change lookup.
++      for (size_t i = 0; i < resource_count_; ++i) {
++        const Entry& entry = UNSAFE_TODO(resource_table_[i]);
++        if (entry.resource_id == resource_id) {
++          LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 linear resource found index=" << i
++                     << " offset=" << entry.file_offset;
++        }
++      }
++      for (size_t i = 0; i < alias_count_; ++i) {
++        const Alias& alias = UNSAFE_TODO(alias_table_[i]);
++        if (alias.resource_id == resource_id) {
++          LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 linear alias found index=" << i
++                     << " entry=" << alias.entry_index;
++        }
++      }
++    } else {
++      const Entry* next = UNSAFE_TODO(target + 1);
++      LOG(ERROR) << "OHOS_RESOURCE_PROBE_V1 datapack offsets start=" << target->file_offset
++                 << " end=" << next->file_offset;
++    }
++  }
++#endif
+   if (!target)
+     return std::nullopt;
+ 

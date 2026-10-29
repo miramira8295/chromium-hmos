@@ -228,6 +228,7 @@ else
   apply_incremental_patch "${repo_root}/patches/ohos-autofill-follows-keyboard.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-autofill-popup-above-keyboard.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-child-startup-resources.patch"
+  apply_incremental_patch "${repo_root}/patches/ohos-locale-resource-diagnostics.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-csv-import-lifecycle.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-memfd-shared-memory.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-child-exit-observation.patch"
