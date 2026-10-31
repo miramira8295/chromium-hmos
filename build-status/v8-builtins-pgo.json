@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "revision": "b3d6849efaf11696198e15b32290e6d6b0d540c1",
+  "version": "15.4.80.20",
+  "profile": "tools/builtins-pgo/profiles/x64.profile",
+  "sha256": "5461d50d84d15934bd4383a0e78b4b8a6e8d22be2f49d34b58ada77541f79114",
+  "bytes": 5269057,
+  "pending_tasks": 64,
+  "pending_by_action": {
+    "CXX": 40,
+    "ACTION": 4,
+    "AR": 15,
+    "RUST": 3,
+    "LINK": 2
+  }
+}
