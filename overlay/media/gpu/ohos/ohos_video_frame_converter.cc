@@ -322,8 +322,8 @@ void OhosVideoFrameConverter::Convert(uint32_t generation,
   frame->metadata().ycbcr_info = graphite_info;
   frame->metadata().read_lock_fences_enabled = true;
   frame->metadata().power_efficient = true;
-  frame->metadata().is_webgpu_compatible =
-      usage.Has(gpu::SHARED_IMAGE_USAGE_WEBGPU_READ);
+  // Chromium 157 derives WebGPU import eligibility from SharedImage usage.
+  // The WEBGPU_READ bit was set on the native allocation above.
   if ((images_created_ + images_reused_) % 300 == 0) {
     LogCacheStats();
   }

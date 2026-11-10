@@ -203,7 +203,7 @@ jobs:
           # file and line as well as the symbol.
           #
           # 476 MB raw, ~138 MB gzipped, so it goes up compressed.
-          sym="${CHROMIUM_SRC:-/root/chromium-154/src}/out/ohos_arm64/exe.unstripped/libweb_engine.so"
+          sym="${CHROMIUM_SRC:-/root/chromium-157/src}/out/ohos_arm64/exe.unstripped/libweb_engine.so"
           if [ -f "$sym" ]; then
             gzip -1 -c "$sym" > /tmp/libweb_engine.unstripped.so.gz
             gh release upload "$tag" /tmp/libweb_engine.unstripped.so.gz --clobber

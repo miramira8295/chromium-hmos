@@ -31,7 +31,7 @@ jobs:
           import subprocess
           import tarfile
 
-          root = Path(os.environ.get('CHROMIUM_SRC', '/root/chromium-154/src'))
+          root = Path(os.environ.get('CHROMIUM_SRC', '/root/chromium-157/src'))
           paths = '''
           out/ohos_arm64/args.gn
           components/viz/service/display_embedder/skia_output_surface_impl.cc

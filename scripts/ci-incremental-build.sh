@@ -25,14 +25,14 @@
 #   SKIP_HAR=1     scripts/ci-incremental-build.sh   # HAP but no engine HAR
 #
 # Environment:
-#   CHROMIUM_SRC   default /root/chromium-154/src
+#   CHROMIUM_SRC   default /root/chromium-157/src
 #   OUT_DIR        default out/ohos_arm64
 #   NINJA_JOBS     default 16
 
 set -uo pipefail
 
 readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly src="${CHROMIUM_SRC:-/root/chromium-154/src}"
+readonly src="${CHROMIUM_SRC:-/root/chromium-157/src}"
 readonly out="${OUT_DIR:-out/ohos_arm64}"
 readonly jobs="${NINJA_JOBS:-16}"
 readonly status_dir="${repo_root}/build-status"
@@ -168,7 +168,7 @@ if [[ -n "${PACKAGE_ONLY:-}" ]]; then
 else
   compiled_here=true
 
-  if [[ "${CHROMIUM_MAJOR:-154}" == 157 ]]; then
+  if [[ "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
     # Preparation applies the rebased snapshot, including the shared patches
     # recorded by checksum in migration-157/manifest.json. Replaying the 155
     # hunks here would restore interfaces removed by Chromium 157.
@@ -181,7 +181,7 @@ else
   apply_incremental_patch "${repo_root}/patches/ohos-shell-preloading.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-extension-settings-sync.patch"
 
-  if [[ "${CHROMIUM_MAJOR:-154}" == 155 ]]; then
+  if [[ "${CHROMIUM_MAJOR:-157}" == 155 ]]; then
     say "155 uses the complete migrated native snapshot"
     bash "${repo_root}/scripts/setup-adblock-rust.sh" || die "Rust toolchain setup failed"
   else
@@ -351,7 +351,7 @@ else
   apply_incremental_patch "${repo_root}/patches/ohos-phone-fullscreen-hint.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-security-assistants.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-file-type-component.patch"
-  apply_incremental_patch "${repo_root}/patches/ohos-file-type-danger-${CHROMIUM_MAJOR:-154}.patch"
+  apply_incremental_patch "${repo_root}/patches/ohos-file-type-danger-${CHROMIUM_MAJOR:-157}.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-origin-trials-component.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-hyphenation-component.patch"
   apply_incremental_patch "${repo_root}/patches/ohos-crowd-deny-component.patch"
@@ -442,7 +442,7 @@ else
   # Check the new native execution paths before a public-header rebuild can
   # spend an hour reaching them. Ninja still regenerates GN inputs normally.
   migration_checks=()
-  if [[ "${CHROMIUM_MAJOR:-154}" == 155 ]]; then
+  if [[ "${CHROMIUM_MAJOR:-157}" == 155 ]]; then
     # Exercise the moved GPU interfaces and OHOS integration before the full
     # browser link graph can spend hours reaching an incompatible declaration.
     migration_checks=(

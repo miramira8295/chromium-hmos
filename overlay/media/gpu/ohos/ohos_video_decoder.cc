@@ -1373,7 +1373,7 @@ void OhosVideoDecoder::ConvertBrowserFrame(
     frame->metadata().read_lock_fences_enabled =
         !browser_sii_->GetCapabilities()
              .supports_ohos_graphite_video_native_buffers;
-    frame->metadata().is_webgpu_compatible = allow_webgpu_native_video_;
+    // WEBGPU_READ on the SharedImage carries import eligibility in 157.
   }
   WaitBrowserFrameLease(generation, std::move(receiver), std::move(pixmap),
                         std::move(frame), overlay_token);
