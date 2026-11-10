@@ -13,7 +13,7 @@
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
 #include "base/timer/timer.h"
-#include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/overlay_plane_data.h"
 #include "ui/gl/presenter.h"
 #include "ui/ozone/platform/ohos/ohos_native_pixmap.h"
@@ -209,7 +209,7 @@ class Presenter final : public gl::Presenter {
     return true;
   }
   bool ScheduleOverlayPlane(gl::OverlayImage image,
-                            std::unique_ptr<gfx::GpuFence> fence,
+                            gfx::GpuFenceHandle fence,
                             const gfx::OverlayPlaneData& data) override {
     const unsigned plane = data.z_order == -1 ? 1 : 0;
     if (!image || (data.z_order != 0 && data.z_order != -1) ||
@@ -233,7 +233,7 @@ class Presenter final : public gl::Presenter {
                  << " eligible=" << (image && EligibleVideo(*image, data.color_space))
                  << " software=" << (image && IsOhosSoftwareVideoOverlay(*image))
                  << " content=" << (image ? GetOhosSoftwareVideoFrame(*image) : 0)
-                 << " acquire_fence=" << bool(fence)
+                 << " acquire_fence=" << !fence.is_null()
                  << " colorspace=" << data.color_space.ToString();
       invalid_reason_ = "schedule-rejected";
       invalid_ = true;
@@ -287,9 +287,9 @@ class Presenter final : public gl::Presenter {
       // may reuse content even when its original acquire fence is re-exported.
       plane.reuse = previous.image &&
           (i ? previous.content == video_content
-             : !item.fence && previous.image.get() == item.image.get());
+             : item.fence.is_null() && previous.image.get() == item.image.get());
       if (plane.reuse)
-        item.fence.reset();  // The retained read already waited on this producer.
+        item.fence.Reset();  // The retained read already waited on this producer.
       plane.content = i ? video_content :
           (plane.reuse ? previous.content : sequence_);
       flight->content[i] = plane.content;
@@ -343,8 +343,8 @@ class Presenter final : public gl::Presenter {
       last_[1] = {};
     // Parcel FDs precede both acquire fences, in plane order.
     for (unsigned i = 0; i < 2; ++i)
-      if (scheduled_[i] && scheduled_[i]->fence) {
-        auto fence = scheduled_[i]->fence->GetGpuFenceHandle().Clone();
+      if (scheduled_[i] && !scheduled_[i]->fence.is_null()) {
+        auto fence = scheduled_[i]->fence.Clone();
         if (!fence.is_null()) {
           (i ? p.video : p.primary).has_fence = 1;
           flight->message->fds.push_back(fence.Release().release());
@@ -393,7 +393,7 @@ class Presenter final : public gl::Presenter {
   }
   struct Scheduled {
     gl::OverlayImage image;
-    std::unique_ptr<gfx::GpuFence> fence;
+    gfx::GpuFenceHandle fence;
     gfx::OverlayPlaneData data;
   };
   struct Last {

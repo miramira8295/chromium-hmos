@@ -29,6 +29,8 @@
 #include <utility>
 #include <vector>
 
+#include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/files/scoped_file.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -601,8 +603,7 @@ class OhosNativePixmap : public gfx::NativePixmap {
   bool ScheduleOverlayPlane(
       gfx::AcceleratedWidget widget,
       const gfx::OverlayPlaneData& overlay_plane_data,
-      std::vector<gfx::GpuFence> acquire_fences,
-      std::vector<gfx::GpuFence> release_fences) override {
+      gfx::GpuFenceHandle acquire_fence) override {
     return false;
   }
   gfx::NativePixmapHandle ExportHandle() const override {
@@ -722,10 +723,19 @@ class OhosClientNativePixmap : public gfx::ClientNativePixmap {
     mapped_ = false;
   }
   size_t GetNumberOfPlanes() const override { return handle_.planes.size(); }
-  void* GetMemoryAddress(size_t plane) const override {
-    return mapping_ && plane < handle_.planes.size()
-               ? mapping_ + handle_.planes[plane].offset
-               : nullptr;
+  base::span<uint8_t> GetMemoryAsSpan(size_t plane) override {
+    if (!mapped_ || !mapping_ || plane >= handle_.planes.size()) {
+      return {};
+    }
+    const auto& layout = handle_.planes[plane];
+    if (layout.offset > mapping_size_ ||
+        layout.size > mapping_size_ - layout.offset) {
+      return {};
+    }
+    // SAFETY: mmap created mapping_size_ accessible bytes. Both the offset
+    // and plane length are checked against that allocation above.
+    return UNSAFE_BUFFERS(base::span(mapping_, mapping_size_))
+        .subspan(layout.offset, layout.size);
   }
   int GetStride(size_t plane) const override {
     return plane < handle_.planes.size()
@@ -734,9 +744,6 @@ class OhosClientNativePixmap : public gfx::ClientNativePixmap {
   }
   gfx::NativePixmapHandle CloneHandleForIPC() const override {
     return gfx::CloneHandleForIPC(handle_);
-  }
-  uint64_t GetPlaneSize(size_t plane) const override {
-    return plane < handle_.planes.size() ? handle_.planes[plane].size : 0;
   }
 
  private:
