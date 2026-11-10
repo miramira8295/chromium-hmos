@@ -2452,48 +2452,6 @@ index fc4780bf65bb3df4c76555e72dce2110bf0bde0a..47f392120e271f67b8fcbaed0fad6cc6
  arm64e-apple-ios
  arm-unknown-linux-gnueabi
  arm-unknown-linux-gnueabihf
-diff --git a/cc/paint/paint_image.cc b/cc/paint/paint_image.cc
-index 1226d8d70d6eee48ce46cf7c48bd808b9b09c69b..9ad935661bb09d420553f42d3bccfd8dd44ef3b5 100644
---- a/cc/paint/paint_image.cc
-+++ b/cc/paint/paint_image.cc
-@@ -14,6 +14,7 @@
- #include "base/hash/hash.h"
- #include "base/logging.h"
- #include "base/types/optional_util.h"
-+#include "build/build_config.h"
- #include "cc/paint/paint_image_builder.h"
- #include "cc/paint/paint_image_generator.h"
- #include "cc/paint/paint_record.h"
-@@ -378,6 +379,16 @@ gfx::ContentColorUsage PaintImage::GetContentColorUsage() const {
-     return gfx::ContentColorUsage::kSRGB;
-   }
- 
-+#if BUILDFLAG(IS_OHOS)
-+  // Float canvases can carry HDR values with an SDR transfer function. CPU
-+  // canvas snapshots must retain the same HDR classification as composited
-+  // canvas resources, whose explicit extended-range metadata selects HDR.
-+  if (hdr_metadata_.extended_range &&
-+      hdr_metadata_.extended_range->current_headroom > 1.f) {
-+    return gfx::ContentColorUsage::kHDR;
-+  }
-+#endif
-+
-   // Gainmap images are always HDR.
-   if (HasGainmapInfo()) {
-     return gfx::ContentColorUsage::kHDR;
-@@ -507,6 +518,12 @@ std::string PaintImage::FrameKey::ToString() const {
- }
- 
- float PaintImage::GetMaximumRenderedHdrHeadroom() const {
-+#if BUILDFLAG(IS_OHOS)
-+  if (hdr_metadata_.extended_range &&
-+      hdr_metadata_.extended_range->current_headroom > 1.f) {
-+    return std::log2(hdr_metadata_.extended_range->current_headroom);
-+  }
-+#endif
-   if (HasGainmapInfo()) {
-     const SkGainmapInfo& gainmap_info = GetGainmapInfo();
-     return std::log2(
 diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
 index f1d133b6cda978b105c6110b279fdd75a1b2f061..7213c84d9c72bb91e19ed0a791a392d6be0d55ee 100644
 --- a/chrome/BUILD.gn
@@ -37975,18 +37933,17 @@ index ecf3031e47c26ce2639a0256d090eac1399d61ef..234e56a059b133a55b99aff82221c8fc
    void InitializeForRecording(cc::PaintCanvas* canvas) const override;
    void RecordingCleared() override;
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
-index df1cbf59370e1d88ed545ace792133e1a0d23a3c..8023ca3526947a151016bbe7eae8a994b3f11de4 100644
+index df1cbf59370e1d88ed545ace792133e1a0d23a3c..fd7c493c0f3abe8a6bb58b2ec612a5ca26db7039 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
-@@ -1015,6 +1015,25 @@ void CanvasRenderingContext2D::UpdateElementAccessibility(const Path& path,
+@@ -1015,6 +1015,24 @@ void CanvasRenderingContext2D::UpdateElementAccessibility(const Path& path,
    ax_object_cache->SetCanvasObjectBounds(canvas_element, element, element_rect);
  }
  
 +#if BUILDFLAG(IS_OHOS)
 +void CanvasRenderingContext2D::SetHdrMetadata(
 +    const gfx::HDRMetadata& hdr_metadata) {
-+  const bool unchanged = hdr_metadata ==
-+      ohos_hdr_metadata_.value_or(color_params_.GetGfxHdrMetadata());
++  const bool unchanged = hdr_metadata == GetEffectiveHdrMetadata();
 +  ohos_hdr_metadata_ = hdr_metadata;
 +  if (unchanged) {
 +    return;
@@ -38005,7 +37962,7 @@ index df1cbf59370e1d88ed545ace792133e1a0d23a3c..8023ca3526947a151016bbe7eae8a994
    canvas()->OnAccelerationDisabled();
  
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.h b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.h
-index 1b81f30622aba3baece31e60c632b2addfd3991a..eba0c3a8da73b03b704490a5404730c5f71d148a 100644
+index 1b81f30622aba3baece31e60c632b2addfd3991a..dfca5aff716c28bb57424e87563595c266853ee7 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.h
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.h
 @@ -36,6 +36,7 @@
@@ -38024,21 +37981,22 @@ index 1b81f30622aba3baece31e60c632b2addfd3991a..eba0c3a8da73b03b704490a5404730c5
  
  // IWYU pragma: no_include "third_party/blink/renderer/platform/heap/visitor.h"
  
-@@ -129,6 +131,13 @@ class MODULES_EXPORT CanvasRenderingContext2D final
+@@ -129,6 +131,14 @@ class MODULES_EXPORT CanvasRenderingContext2D final
  
    V8RenderingContext* AsV8RenderingContext() final;
  
 +#if BUILDFLAG(IS_OHOS)
 +  void SetHdrMetadata(const gfx::HDRMetadata&) override;
 +  gfx::HDRMetadata GetEffectiveHdrMetadata() const override {
-+    return ohos_hdr_metadata_.value_or(color_params_.GetGfxHdrMetadata());
++    return ohos_hdr_metadata_.value_or(
++        BaseRenderingContext2D::GetEffectiveHdrMetadata());
 +  }
 +#endif
 +
    bool ShouldAntialias() const;
    void SetShouldAntialias(bool);
  
-@@ -324,6 +333,10 @@ class MODULES_EXPORT CanvasRenderingContext2D final
+@@ -324,6 +334,10 @@ class MODULES_EXPORT CanvasRenderingContext2D final
    bool needs_context_lost_event_ = false;
  
   private:
@@ -38310,7 +38268,7 @@ index 7fe68c83075f22815fa9db0d925558a617ef3580..cae323be4a02eb0dd50e45f5ca93d980
    auto* callback = MakeWGPUOnceCallback(resolver->WrapCallbackInScriptScope(
        BindOnce(&GPUBuffer::OnMapAsyncCallback, WrapPersistent(this))));
 diff --git a/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc b/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
-index 7114c19dd0ab02cf42d22509505b3ac1eb2a140f..75ec4627533ea973b0481376a6aef6aa307487f7 100644
+index 7114c19dd0ab02cf42d22509505b3ac1eb2a140f..375b2e87429fa48b0a47fa639f63f4d383932dad 100644
 --- a/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
 +++ b/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
 @@ -7,6 +7,9 @@
@@ -38467,7 +38425,7 @@ index 7114c19dd0ab02cf42d22509505b3ac1eb2a140f..75ec4627533ea973b0481376a6aef6aa
 +      swap_texture_descriptor_.format != wgpu::TextureFormat::RGBA16Float) {
 +    // The GL presentation blit is clamped SDR, even when the application's
 +    // float texture has extended range. Do not label that 8-bit image as HDR.
-+    presentation_hdr_metadata.extended_range.reset();
++    presentation_hdr_metadata.Reset();
 +  }
 +#endif
 +
@@ -38689,18 +38647,19 @@ index 6781015c43c451b9be03dcab46a9594a1cb0126e..1cac29fb08b87ad53b5531ce2660259e
    SkFontConfigInterface::FontIdentity font_identity;
    font_identity.fID = config_id;
 diff --git a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-index ae0b424490cee22afb2447b8819ae867757c6012..ddbb357b1697d0a819684d9869d3883e20c2aab9 100644
+index ae0b424490cee22afb2447b8819ae867757c6012..b59da83f0d857b382dc7d57186fc757a7b0139d0 100644
 --- a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
 +++ b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,8 @@
  #include "base/feature_list.h"
  #include "base/task/single_thread_task_runner.h"
  #include "base/trace_event/trace_event.h"
 +#include "build/build_config.h"
++#include "cc/paint/tone_map_util.h"
  #include "components/viz/common/quads/compositor_frame.h"
  #include "components/viz/common/quads/texture_draw_quad.h"
  #include "components/viz/common/resources/release_callback.h"
-@@ -28,6 +29,7 @@
+@@ -28,6 +30,7 @@
  #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
  #include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
  #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -38708,7 +38667,7 @@ index ae0b424490cee22afb2447b8819ae867757c6012..ddbb357b1697d0a819684d9869d3883e
  #include "ui/gfx/geometry/point_f.h"
  #include "ui/gfx/geometry/size_f.h"
  #include "ui/gfx/mojom/presentation_feedback.mojom-blink.h"
-@@ -156,6 +158,20 @@ void CanvasResourceDispatcher::PrepareFrame(
+@@ -156,6 +159,20 @@ void CanvasResourceDispatcher::PrepareFrame(
      sii->VerifySyncToken(resource.mutable_sync_token());
    }
  
@@ -38720,8 +38679,8 @@ index ae0b424490cee22afb2447b8819ae867757c6012..ddbb357b1697d0a819684d9869d3883e
 +  // transfer HDR metadata, without promoting ordinary P3 SDR to HDR.
 +  frame->metadata.content_color_usage =
 +      resource.GetColorSpace().GetContentColorUsage();
-+  if (resource.hdr_metadata.extended_range &&
-+      resource.hdr_metadata.extended_range->current_headroom > 1.f) {
++  if (cc::ToneMapUtil::IsHDR(resource.GetColorSpace(),
++                             resource.hdr_metadata)) {
 +    frame->metadata.content_color_usage = gfx::ContentColorUsage::kHDR;
 +  }
 +#endif

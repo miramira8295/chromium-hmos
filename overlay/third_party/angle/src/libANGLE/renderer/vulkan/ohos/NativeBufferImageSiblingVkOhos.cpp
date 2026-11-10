@@ -349,8 +349,8 @@ angle::Result NativeBufferImageSiblingVkOhos::initImpl(DisplayVk *displayVk)
     VkImageFormatListCreateInfoKHR imageFormatListInfoStorage;
     vk::ImageHelper::ImageFormats imageFormats;
     const void *imageCreateInfoPNext = vk::ImageHelper::DeriveCreateInfoPNext(
-        displayVk, actualFormatID, &externalMemoryImageCreateInfo, &imageFormatListInfoStorage,
-        &imageFormats, formatReinterpretability, &imageCreateFlags);
+        displayVk, intendedFormatID, actualFormatID, &externalMemoryImageCreateInfo,
+        &imageFormatListInfoStorage, &imageFormats, formatReinterpretability, &imageCreateFlags);
 
     ANGLE_TRY(mImage->initExternal(
         displayVk, gl::TextureType::_2D, vkExtents, intendedFormatID, actualFormatID, 1, usage,

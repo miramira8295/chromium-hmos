@@ -495,6 +495,8 @@ else
     # These interfaces changed in 157. Compile the real production objects
     # early so API migration failures do not wait behind the full link graph.
     migration_checks+=(
+      obj/cc/paint/paint/paint_image.o
+      obj/third_party/blink/renderer/platform/platform/canvas_resource_dispatcher.o
       obj/third_party/dawn/src/dawn/native/sources/RenderPipelineVk.o
       obj/third_party/dawn/src/dawn/native/sources/SharedTextureMemoryVk.o
       obj/components/viz/service/service/image_context_impl.o
