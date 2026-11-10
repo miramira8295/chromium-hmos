@@ -5,10 +5,11 @@ set -euo pipefail
 readonly project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly version="${1:?usage: $0 VERSION REVISION}"
 readonly revision="${2:?usage: $0 VERSION REVISION}"
-if [[ "$version" == 155.* && -f "${project_root}/scripts/check-155-adapter.py" ]]; then
+readonly engine_major="${CHROMIUM_MAJOR:-${version%%.*}}"
+if [[ "$engine_major" == 155 && -f "${project_root}/scripts/check-155-adapter.py" ]]; then
   exec python3 "${project_root}/scripts/check-155-adapter.py" "$version" "$revision"
 fi
-if [[ "$version" == 157.* ]]; then
+if [[ "$engine_major" == 157 ]]; then
   exec python3 "${project_root}/scripts/check-157-adapter.py" "$version" "$revision"
 fi
 readonly work_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/chromium-adapter-check.XXXXXX")"
