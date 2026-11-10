@@ -442,6 +442,7 @@ else
   # Check the new native execution paths before a public-header rebuild can
   # spend an hour reaching them. Ninja still regenerates GN inputs normally.
   migration_checks=()
+  preflight_failures=1
   if [[ "${CHROMIUM_MAJOR:-157}" == 155 || "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
     # Exercise the moved GPU interfaces and OHOS integration before the full
     # browser link graph can spend hours reaching an incompatible declaration.
@@ -492,6 +493,12 @@ else
     )
   fi
   if [[ "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
+    # All production OHOS overlay objects from the pinned 157 GN graph.
+    # Catch platform API changes before building tens of thousands of common
+    # dependencies. Unit-test targets stay in the full build graph.
+    mapfile -t overlay_checks < "$repo_root/config/native-checks-157.txt"
+    migration_checks+=("${overlay_checks[@]}")
+    preflight_failures=10
     # These interfaces changed in 157. Compile the real production objects
     # early so API migration failures do not wait behind the full link graph.
     migration_checks+=(
@@ -512,7 +519,7 @@ else
       obj/third_party/blink/renderer/modules/webgpu/webgpu/external_texture_helper.o
     )
   fi
-  ( cd "$src" && third_party/ninja/ninja -C "$out" -j "$jobs" -k 1 \
+  ( cd "$src" && third_party/ninja/ninja -C "$out" -j "$jobs" -k "$preflight_failures" \
       obj/chrome/common/ohos/adblock/execution/decision_throttle.o \
       obj/chrome/browser/core/adblock.o obj/chrome/renderer/renderer/adblock.o \
       obj/chrome/browser/core/translation.o "${migration_checks[@]}" && \
