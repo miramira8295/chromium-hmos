@@ -33274,10 +33274,10 @@ index 60cb16ff8026e95f9b93da444f82f71033437cfa..224a507ba1494128f42032bf6d32e0e8
    } else {
      sources += [ "gpu_mojo_media_client_stubs.cc" ]
    }
-diff --git a/media/renderers/video_resource_updater.cc b/media/renderers/video_resource_updater.cc
+diff --git a/media/gfx/video_resource_updater.cc b/media/gfx/video_resource_updater.cc
 index f8d44c021ef76c3a932182da0b9535fcbcff1445..5266025d7317a70d16e05e930c9b0ecba7a1de69 100644
---- a/media/renderers/video_resource_updater.cc
-+++ b/media/renderers/video_resource_updater.cc
+--- a/media/gfx/video_resource_updater.cc
++++ b/media/gfx/video_resource_updater.cc
 @@ -848,8 +848,10 @@ VideoFrameExternalResource VideoResourceUpdater::CreateForHardwareFrame(
          viz::TransferableResource::SynchronizationType::kGpuCommandsCompleted;
    }
@@ -33290,10 +33290,10 @@ index f8d44c021ef76c3a932182da0b9535fcbcff1445..5266025d7317a70d16e05e930c9b0ecb
    transfer_resource.is_backed_by_surface_view =
        video_frame->metadata().in_surface_view;
  #endif
-diff --git a/media/video/mappable_shared_image_video_frame_pool.cc b/media/video/mappable_shared_image_video_frame_pool.cc
+diff --git a/media/gfx/mappable_shared_image_video_frame_pool.cc b/media/gfx/mappable_shared_image_video_frame_pool.cc
 index 28a94af18b0e339c8178f914fc4a5ac8075dafd6..99dc351e1b844f1ad9adfe371d7d7c26f5f0ad85 100644
---- a/media/video/mappable_shared_image_video_frame_pool.cc
-+++ b/media/video/mappable_shared_image_video_frame_pool.cc
+--- a/media/gfx/mappable_shared_image_video_frame_pool.cc
++++ b/media/gfx/mappable_shared_image_video_frame_pool.cc
 @@ -1100,6 +1100,14 @@ scoped_refptr<VideoFrame> MappableSharedImageVideoFramePool::PoolImpl::
        gpu::SHARED_IMAGE_USAGE_WEBGPU_READ);
  #endif
