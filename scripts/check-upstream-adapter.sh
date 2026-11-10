@@ -8,6 +8,9 @@ readonly revision="${2:?usage: $0 VERSION REVISION}"
 if [[ "$version" == 155.* && -f "${project_root}/scripts/check-155-adapter.py" ]]; then
   exec python3 "${project_root}/scripts/check-155-adapter.py" "$version" "$revision"
 fi
+if [[ "$version" == 157.* ]]; then
+  exec python3 "${project_root}/scripts/check-157-adapter.py" "$version" "$revision"
+fi
 readonly work_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/chromium-adapter-check.XXXXXX")"
 readonly checkout="${work_root}/src"
 readonly report="${project_root}/upstream-compatibility.md"

@@ -1,9 +1,6 @@
 name: Inspect runtime sources
 
 on:
-  push:
-    branches: [hmos-157-adapter, hmos-155-adapter]
-    paths: ['.github/workflows/inspect-runtime.yml']
   workflow_dispatch:
 
 permissions:
