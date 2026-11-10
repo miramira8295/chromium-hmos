@@ -30395,7 +30395,7 @@ index 22995789987f8e7649c085a871df7609d34a61bc..a7b2fa6a503024285291f68ccb9e5a37
    return image_info;
  }
 diff --git a/gpu/command_buffer/service/vulkan_in_process_context_provider.cc b/gpu/command_buffer/service/vulkan_in_process_context_provider.cc
-index c9a0e3edc52c6ef7a310cbbd672213e956c74440..cf81327710ed587720f610ff4f0fee6f24855507 100644
+index c9a0e3edc52c6ef7a310cbbd672213e956c74440..ccd36a2f49a06461a93dc7ed738a3102222d3f05 100644
 --- a/gpu/command_buffer/service/vulkan_in_process_context_provider.cc
 +++ b/gpu/command_buffer/service/vulkan_in_process_context_provider.cc
 @@ -5,10 +5,12 @@
@@ -30430,7 +30430,7 @@ index c9a0e3edc52c6ef7a310cbbd672213e956c74440..cf81327710ed587720f610ff4f0fee6f
  namespace gpu {
  
  namespace {
-@@ -116,6 +123,242 @@ skgpu::VulkanBackendContext GetBackendContextParams(
+@@ -116,6 +123,243 @@ skgpu::VulkanBackendContext GetBackendContextParams(
  
  }  // namespace
  
@@ -30612,7 +30612,7 @@ index c9a0e3edc52c6ef7a310cbbd672213e956c74440..cf81327710ed587720f610ff4f0fee6f
 +void DescribeOhosSkiaVulkanFailure(
 +    const skgpu::VulkanBackendContext& context,
 +    const std::vector<const char*>& instance_extensions,
-+    const std::vector<const char*>& device_extensions) {
++    const gfx::ExtensionSet& device_extensions) {
 +  uint32_t instance_version = 0;
 +  auto enumerate_instance_version =
 +      reinterpret_cast<PFN_vkEnumerateInstanceVersion>(context.fGetProc(
@@ -30642,8 +30642,9 @@ index c9a0e3edc52c6ef7a310cbbd672213e956c74440..cf81327710ed587720f610ff4f0fee6f
 +  }
 +  LOG(ERROR) << "OHOS Vulkan: instance extensions:" << extensions;
 +  extensions.clear();
-+  for (const char* name : device_extensions) {
-+    extensions += std::string(" ") + name;
++  for (const auto& name : device_extensions) {
++    extensions += " ";
++    extensions += name;
 +  }
 +  LOG(ERROR) << "OHOS Vulkan: device extensions:" << extensions;
 +
@@ -30673,14 +30674,18 @@ index c9a0e3edc52c6ef7a310cbbd672213e956c74440..cf81327710ed587720f610ff4f0fee6f
  // static
  scoped_refptr<VulkanInProcessContextProvider>
  VulkanInProcessContextProvider::Create(
-@@ -242,6 +485,12 @@ bool VulkanInProcessContextProvider::InitializeGrContext(
+@@ -242,6 +486,16 @@ bool VulkanInProcessContextProvider::InitializeGrContext(
    auto backend_context = GetBackendContextParams(
        vulkan_implementation_, device_queue_.get(), vk_extensions);
    gr_context_ = GrDirectContexts::MakeVulkan(backend_context, context_options);
 +#if BUILDFLAG(IS_OHOS)
 +  if (!gr_context_) {
-+    DescribeOhosSkiaVulkanFailure(backend_context, instance_extensions,
-+                                  device_extensions);
++    DescribeOhosSkiaVulkanFailure(
++        backend_context,
++        vulkan_implementation_->GetVulkanInstance()
++            ->vulkan_info()
++            .enabled_instance_extensions,
++        device_queue_->enabled_extensions());
 +  }
 +#endif
  

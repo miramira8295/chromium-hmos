@@ -80,6 +80,8 @@
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
+#include "components/sessions/core/command_storage_read_status.h"
+#include "components/sessions/core/session_service_commands.h"
 #include "components/sessions/core/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "components/sessions/core/tab_restore_service.h"
@@ -2783,7 +2785,9 @@ void RestoreLastSessionTabs(gfx::AcceleratedWidget widget,
   service->GetLastSession(base::BindOnce(
       [](decltype(answer) answer, gfx::AcceleratedWidget widget,
          std::vector<std::unique_ptr<sessions::SessionWindow>> windows,
-         SessionID active_window_id, bool read_error) {
+         SessionID active_window_id,
+         sessions::CommandStorageReadStatus read_status,
+         sessions::SessionReplayResult replay_result) {
         BrowserWindowInterface* browser = FindBrowserForWidget(widget);
         const sessions::SessionWindow* main = nullptr;
         for (const auto& window : windows) {
@@ -2796,7 +2800,8 @@ void RestoreLastSessionTabs(gfx::AcceleratedWidget widget,
         TabStripModel* tabs = browser ? browser->GetTabStripModel() : nullptr;
         if (!main || !tabs) {
           LOG(WARNING) << "OHOS last session has no main window to restore"
-                       << (read_error ? " (read error)" : "");
+                       << " read_status=" << static_cast<int>(read_status)
+                       << " replay_result=" << static_cast<int>(replay_result);
           answer(widget, 0);
           return;
         }
