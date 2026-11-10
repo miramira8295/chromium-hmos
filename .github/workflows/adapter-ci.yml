@@ -24,6 +24,8 @@ jobs:
         run: python3 scripts/tests/test-ci-engine-selection.py
       - name: Preserve completed 155 objects across snapshot retries
         run: python3 scripts/tests/test-155-snapshot.py
+      - name: Verify 157 migration cannot access stable engine trees
+        run: python3 scripts/tests/test-157-isolation.py
       - name: Verify public tree
         run: scripts/verify-public-tree.sh
       - name: Check scripts
