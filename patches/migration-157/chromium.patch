@@ -41031,10 +41031,16 @@ index 70ba89cb3c7287d60d30b5e2361f03ffc66ee152..40e22dff7c55ecd7a4a0c83f3520ff8e
  }
  
 diff --git a/ui/webui/webui_features.gni b/ui/webui/webui_features.gni
-index 80aea6de6e35cccc93df2ebadce192bb8374a015..9298e820deb99b4d9b5e2487a003c89e25619bbc 100644
+index 80aea6de6e35cccc93df2ebadce192bb8374a015..b41231985c10538b6aa3f936c7c795ecb9db2bf5 100644
 --- a/ui/webui/webui_features.gni
 +++ b/ui/webui/webui_features.gni
-@@ -54,7 +54,7 @@ if (enable_cast_receiver || is_cast_android || is_castos) {
+@@ -49,12 +49,12 @@ if (enable_cast_receiver || is_cast_android || is_castos) {
+     # Enable the WebUI version of the History page.
+     enable_webui_history =
+         target_os == "win" || target_os == "mac" || target_os == "linux" ||
+-        target_os == "chromeos" || is_desktop_android
++        target_os == "chromeos" || target_os == "ohos" || is_desktop_android
+ 
      # Enable the WebUI version of the New Tab Page.
      enable_webui_ntp =
          target_os == "win" || target_os == "mac" || target_os == "linux" ||
