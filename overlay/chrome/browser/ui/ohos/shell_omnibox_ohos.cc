@@ -67,20 +67,21 @@ constexpr int kMaxTopSitesCount = 20;
 // mode, zero-suggest, document and history-cluster providers whose results
 // need desktop omnibox UI (chips, keyword mode, action buttons) the shell
 // does not draw.
-constexpr AutocompleteProvider::Type kProviderTypes = AutocompleteProvider::Type::kBookmark |
-                               AutocompleteProvider::Type::kBuiltin |
-                               AutocompleteProvider::Type::kHistoryQuick |
-                               AutocompleteProvider::Type::kHistoryUrl |
-                               AutocompleteProvider::Type::kSearch |
-                               AutocompleteProvider::Type::kShortcuts |
-                               AutocompleteProvider::Type::kOpenTab;
+constexpr AutocompleteProvider::Type kProviderTypes =
+    AutocompleteProvider::Type::kBookmark |
+    AutocompleteProvider::Type::kBuiltin |
+    AutocompleteProvider::Type::kHistoryQuick |
+    AutocompleteProvider::Type::kHistoryUrl |
+    AutocompleteProvider::Type::kSearch |
+    AutocompleteProvider::Type::kShortcuts |
+    AutocompleteProvider::Type::kOpenTab;
 
 // --- Chromium API wrappers: a rename in a future milestone touches only
 // these. ---------------------------------------------------------------------
 
 std::unique_ptr<AutocompleteController> CreateController(Profile* profile) {
   AutocompleteControllerConfig config;
-  config.provider_types = kProviderTypes;
+  config.provider_types = static_cast<int>(kProviderTypes);
   // Desktop only runs OpenTabProvider inside the @tabs scope; the shell has
   // no scopes, so open tabs are suggested alongside everything else.
   config.unscoped_open_tab_suggestions = true;
