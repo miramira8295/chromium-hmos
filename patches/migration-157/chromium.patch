@@ -8448,6 +8448,32 @@ index 53978a30bb275483b82a324974df8e4f8d87ccb2..d746d3f40de20cd66006b15755596445
  
  source_set("bubble_controller_base") {
    public = [ "bubble_controller_base.h" ]
+diff --git a/chrome/browser/ui/autofill/autofill_ai/BUILD.gn b/chrome/browser/ui/autofill/autofill_ai/BUILD.gn
+index 49e60855cb8fa27e232ebbb473db6f7cab8e2cb3..88106ab82324d3e48e1995240da1f0df58bf10a5 100644
+--- a/chrome/browser/ui/autofill/autofill_ai/BUILD.gn
++++ b/chrome/browser/ui/autofill/autofill_ai/BUILD.gn
+@@ -8,7 +8,7 @@ if (is_android) {
+   import("//build/config/android/rules.gni")
+ }
+ 
+-assert(is_win || is_mac || is_linux || is_chromeos || is_android)
++assert(is_win || is_mac || is_linux || is_chromeos || is_android || is_ohos)
+ 
+ if (is_android) {
+   java_cpp_enum("autofill_ai_ui_java_enums") {
+diff --git a/chrome/browser/ui/autofill/email_verifier/BUILD.gn b/chrome/browser/ui/autofill/email_verifier/BUILD.gn
+index d04de6781159efa25fddd68356ad8d7c9ffb3b0d..8087b78bdaa261a1aaf7d567385cd56a2667f774 100644
+--- a/chrome/browser/ui/autofill/email_verifier/BUILD.gn
++++ b/chrome/browser/ui/autofill/email_verifier/BUILD.gn
+@@ -2,7 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
+-assert(is_win || is_mac || is_linux || is_chromeos)
++assert(is_win || is_mac || is_linux || is_chromeos || is_ohos)
+ 
+ source_set("email_verifier") {
+   public = [
 diff --git a/chrome/browser/ui/autofill/payments/BUILD.gn b/chrome/browser/ui/autofill/payments/BUILD.gn
 index ec8378acc9b51ed12deb55ca04a154252fd268e0..4e4c7898b3d48bca08a8f5371c307669bc9b3de2 100644
 --- a/chrome/browser/ui/autofill/payments/BUILD.gn
@@ -10737,6 +10763,19 @@ index 231521a9a909170fea6eff03b408c6540f63c6a1..d2038a5218c9dfb7deab36b28554e599
  
  source_set("autofill_ai") {
    public = [
+diff --git a/chrome/browser/ui/views/autofill/one_time_tokens/BUILD.gn b/chrome/browser/ui/views/autofill/one_time_tokens/BUILD.gn
+index 5e6b78f994fa190de5edf37490eef5dbff5297bb..99749374567675af311332b054acabf475e2c739 100644
+--- a/chrome/browser/ui/views/autofill/one_time_tokens/BUILD.gn
++++ b/chrome/browser/ui/views/autofill/one_time_tokens/BUILD.gn
+@@ -2,7 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
+-assert(is_win || is_mac || is_linux || is_chromeos)
++assert(is_win || is_mac || is_linux || is_chromeos || is_ohos)
+ 
+ source_set("one_time_tokens") {
+   public = [ "gmail_otp_opt_in_bubble_view.h" ]
 diff --git a/chrome/browser/ui/views/autofill/payments/BUILD.gn b/chrome/browser/ui/views/autofill/payments/BUILD.gn
 index fa9bb15e51c1204c99b5809a184ad9033a352480..cf8d42ec0860f9f57ce14a1061fe5d531134c1e0 100644
 --- a/chrome/browser/ui/views/autofill/payments/BUILD.gn
