@@ -31072,10 +31072,10 @@ index 2854acc63625a941aa4975acd148864c89684bd8..d322f6923bf7aa4dbe295c28d7e245a3
      kOsAny
    };
 diff --git a/gpu/config/gpu_driver_bug_list.json b/gpu/config/gpu_driver_bug_list.json
-index cbcd25002b09d4a768b8a5a47892aa1ed2097e36..42495e1a6a6010f4035e6e992a9fbc4cbab077a4 100644
+index cbcd25002b09d4a768b8a5a47892aa1ed2097e36..a0e0ca6af2d8bf166e1ca94bf969d98d7443056b 100644
 --- a/gpu/config/gpu_driver_bug_list.json
 +++ b/gpu/config/gpu_driver_bug_list.json
-@@ -3674,6 +3674,1214 @@
+@@ -3674,6 +3674,1199 @@
        "features": [
          "check_graphics_reset_status_after_readback"
        ]
@@ -31273,21 +31273,6 @@ index cbcd25002b09d4a768b8a5a47892aa1ed2097e36..42495e1a6a6010f4035e6e992a9fbc4c
 +      "gl_vendor": "Imagination.*",
 +      "features": [
 +        "gl_clear_broken"
-+      ]
-+    },
-+    {
-+      "id": 913,
-+      "description": "[HarmonyOS, from Android rule 97] Multisampling has poor performance in Intel BayTrail",
-+      "cr_bugs": [
-+        443517
-+      ],
-+      "os": {
-+        "type": "ohos"
-+      },
-+      "gl_vendor": "Intel.*",
-+      "gl_renderer": "Intel.*BayTrail",
-+      "features": [
-+        "disable_chromium_framebuffer_multisample"
 +      ]
 +    },
 +    {

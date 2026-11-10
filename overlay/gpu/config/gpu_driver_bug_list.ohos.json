@@ -208,21 +208,6 @@
     ]
   },
   {
-    "id": 97,
-    "description": "Multisampling has poor performance in Intel BayTrail",
-    "cr_bugs": [
-      443517
-    ],
-    "os": {
-      "type": "android"
-    },
-    "gl_vendor": "Intel.*",
-    "gl_renderer": "Intel.*BayTrail",
-    "features": [
-      "disable_chromium_framebuffer_multisample"
-    ]
-  },
-  {
     "id": 98,
     "description": "PowerVR SGX 540 drivers throw GL_OUT_OF_MEMORY error when a buffer object's size is set to 0",
     "cr_bugs": [
