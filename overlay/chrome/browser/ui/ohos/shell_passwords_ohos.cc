@@ -242,7 +242,7 @@ class ShellPasswords : public SavedPasswordsPresenter::Observer {
     base::DictValue event;
     event.Set("event", "passwordRevealed");
     event.Set("id", id);
-    event.Set("password", base::UTF16ToUTF8(entry->password));
+    event.Set("password", base::UTF16ToUTF8(entry->password.secure_value()));
     event.Set("note", base::UTF16ToUTF8(entry->note));
     target.Send(std::move(event));
   }
@@ -262,7 +262,8 @@ class ShellPasswords : public SavedPasswordsPresenter::Observer {
       updated.username = base::UTF8ToUTF16(*username);
     }
     if (const std::string* password = command.FindString("password")) {
-      updated.password = base::UTF8ToUTF16(*password);
+      updated.password =
+          password_manager::PasswordString(base::UTF8ToUTF16(*password));
     }
     if (const std::string* note = command.FindString("note")) {
       updated.note = base::UTF8ToUTF16(*note);

@@ -85,6 +85,13 @@ void TextDetectionOhos::Create(
                               std::move(receiver));
 }
 
+void TextDetectionOhos::EnsureReady(EnsureReadyCallback callback) {
+  // CoreVision handles initialization when recognition is requested. The
+  // browser-side service needs the ArkTS dispatcher, which registers shape
+  // detection together with the other system services.
+  std::move(callback).Run(ohos_system_service::IsAvailable());
+}
+
 void TextDetectionOhos::Detect(const SkBitmap& bitmap,
                                DetectCallback callback) {
   std::optional<DetectionImage> image = PrepareRgbaImage(bitmap);

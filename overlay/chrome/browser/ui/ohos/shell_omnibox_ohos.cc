@@ -67,13 +67,13 @@ constexpr int kMaxTopSitesCount = 20;
 // mode, zero-suggest, document and history-cluster providers whose results
 // need desktop omnibox UI (chips, keyword mode, action buttons) the shell
 // does not draw.
-constexpr int kProviderTypes = AutocompleteProvider::TYPE_BOOKMARK |
-                               AutocompleteProvider::TYPE_BUILTIN |
-                               AutocompleteProvider::TYPE_HISTORY_QUICK |
-                               AutocompleteProvider::TYPE_HISTORY_URL |
-                               AutocompleteProvider::TYPE_SEARCH |
-                               AutocompleteProvider::TYPE_SHORTCUTS |
-                               AutocompleteProvider::TYPE_OPEN_TAB;
+constexpr AutocompleteProvider::Type kProviderTypes = AutocompleteProvider::Type::kBookmark |
+                               AutocompleteProvider::Type::kBuiltin |
+                               AutocompleteProvider::Type::kHistoryQuick |
+                               AutocompleteProvider::Type::kHistoryUrl |
+                               AutocompleteProvider::Type::kSearch |
+                               AutocompleteProvider::Type::kShortcuts |
+                               AutocompleteProvider::Type::kOpenTab;
 
 // --- Chromium API wrappers: a rename in a future milestone touches only
 // these. ---------------------------------------------------------------------
@@ -100,25 +100,25 @@ void StopController(AutocompleteController* controller) {
   controller->Stop(AutocompleteStopReason::kClobbered);
 }
 
-const char* ShellMatchType(AutocompleteMatchType::Type type) {
+const char* ShellMatchType(omnibox::AutocompleteMatchType type) {
   switch (type) {
-    case AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED:
-    case AutocompleteMatchType::SEARCH_HISTORY:
-    case AutocompleteMatchType::SEARCH_SUGGEST:
-    case AutocompleteMatchType::SEARCH_SUGGEST_ENTITY:
-    case AutocompleteMatchType::SEARCH_SUGGEST_TAIL:
-    case AutocompleteMatchType::SEARCH_SUGGEST_PERSONALIZED:
-    case AutocompleteMatchType::SEARCH_SUGGEST_PROFILE:
-    case AutocompleteMatchType::SEARCH_OTHER_ENGINE:
+    case omnibox::AutocompleteMatchType::kSearchWhatYouTyped:
+    case omnibox::AutocompleteMatchType::kSearchHistory:
+    case omnibox::AutocompleteMatchType::kSearchSuggest:
+    case omnibox::AutocompleteMatchType::kSearchSuggestEntity:
+    case omnibox::AutocompleteMatchType::kSearchSuggestTail:
+    case omnibox::AutocompleteMatchType::kSearchSuggestPersonalized:
+    case omnibox::AutocompleteMatchType::kSearchSuggestProfile:
+    case omnibox::AutocompleteMatchType::kSearchOtherEngine:
       return "search";
-    case AutocompleteMatchType::HISTORY_URL:
-    case AutocompleteMatchType::HISTORY_TITLE:
-    case AutocompleteMatchType::HISTORY_BODY:
-    case AutocompleteMatchType::HISTORY_KEYWORD:
+    case omnibox::AutocompleteMatchType::kHistoryUrl:
+    case omnibox::AutocompleteMatchType::kHistoryTitle:
+    case omnibox::AutocompleteMatchType::kHistoryBody:
+    case omnibox::AutocompleteMatchType::kHistoryKeyword:
       return "history";
-    case AutocompleteMatchType::BOOKMARK_TITLE:
+    case omnibox::AutocompleteMatchType::kBookmarkTitle:
       return "bookmark";
-    case AutocompleteMatchType::OPEN_TAB:
+    case omnibox::AutocompleteMatchType::kOpenTab:
       return "openTab";
     default:
       return "url";

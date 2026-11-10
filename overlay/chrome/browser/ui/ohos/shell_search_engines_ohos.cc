@@ -71,7 +71,7 @@ base::DictValue EngineToShell(const TemplateURL& engine,
                               bool is_default,
                               const SearchTermsData& search_terms_data) {
   base::DictValue item;
-  item.Set("id", ToShellId(engine.id()));
+  item.Set("id", ToShellId(engine.id().value()));
   item.Set("name", engine.short_name());
   item.Set("keyword", engine.keyword());
   item.Set("url", engine.url());
@@ -195,7 +195,7 @@ PerProfile<PendingEngineQueries>& PendingPerProfile() {
 
 TemplateURL* FindEngine(TemplateURLService* service, int64_t id) {
   for (TemplateURL* engine : service->GetTemplateURLs()) {
-    if (engine->id() == id) {
+    if (engine->id() == TemplateURLID(id)) {
       return engine;
     }
   }

@@ -25,6 +25,7 @@ class TextDetectionOhos : public shape_detection::mojom::TextDetection {
       mojo::PendingReceiver<shape_detection::mojom::TextDetection> receiver);
 
   // shape_detection::mojom::TextDetection:
+  void EnsureReady(EnsureReadyCallback callback) override;
   void Detect(const SkBitmap& bitmap, DetectCallback callback) override;
 };
 
