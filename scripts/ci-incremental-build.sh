@@ -442,7 +442,7 @@ else
   # Check the new native execution paths before a public-header rebuild can
   # spend an hour reaching them. Ninja still regenerates GN inputs normally.
   migration_checks=()
-  if [[ "${CHROMIUM_MAJOR:-157}" == 155 ]]; then
+  if [[ "${CHROMIUM_MAJOR:-157}" == 155 || "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
     # Exercise the moved GPU interfaces and OHOS integration before the full
     # browser link graph can spend hours reaching an incompatible declaration.
     migration_checks=(
@@ -489,6 +489,20 @@ else
       obj/third_party/dawn/src/dawn/native/sources/SamplerVk.o
       obj/third_party/angle/src/libANGLE/renderer/vulkan/angle_vulkan_backend/DisplayVkOhos.o
       obj/third_party/angle/src/libANGLE/renderer/vulkan/angle_vulkan_backend/NativeBufferImageSiblingVkOhos.o
+    )
+  fi
+  if [[ "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
+    # These interfaces changed in 157. Compile the real production objects
+    # early so API migration failures do not wait behind the full link graph.
+    migration_checks+=(
+      obj/third_party/dawn/src/dawn/native/sources/RenderPipelineVk.o
+      obj/third_party/dawn/src/dawn/native/sources/SharedTextureMemoryVk.o
+      obj/components/viz/service/service/image_context_impl.o
+      obj/components/viz/service/service/skia_output_surface_impl.o
+      obj/gpu/command_buffer/service/gles2_sources/shared_context_state.o
+      obj/third_party/blink/renderer/modules/canvas/canvas/base_rendering_context_2d.o
+      obj/third_party/blink/renderer/modules/canvas/canvas/canvas_rendering_context_2d.o
+      obj/third_party/blink/renderer/modules/webgpu/webgpu/external_texture_helper.o
     )
   fi
   ( cd "$src" && third_party/ninja/ninja -C "$out" -j "$jobs" -k 1 \
