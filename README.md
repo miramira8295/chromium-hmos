@@ -104,9 +104,10 @@ checksums as a GitHub prerelease. HAP signing stays on the developer machine.
 
 ## Build through CI
 
-Push source changes to `hmos-155-adapter`. GitHub Actions prepares the isolated
-`/root/chromium-155/src` tree, builds the native runtime and packages the engine
-HAR. Both release branches share the existing self-hosted runner and serialize
+Push 157 changes to `hmos-157-adapter`; GitHub Actions builds the native runtime
+and packages the engine HAR in `/root/chromium-157/src`. Continue pushing 155
+changes to `hmos-155-adapter`, which retains `/root/chromium-155/src` and its own
+build cache. Both branches share the existing self-hosted runner and serialize
 native work through the same concurrency group. Manual dispatch can upload a
 verification HAR without publishing a prerelease.
 
