@@ -7264,45 +7264,6 @@ index 69efc9593ea78cf7a3d3026c8c13e9f9e5dfe90d..a73b610b6952a29b771d0272251f85a1
    accessor syncStatus: SyncStatus = {statusAction: StatusAction.NO_ACTION};
  
    // <if expr="_google_chrome and not is_chromeos">
-diff --git a/chrome/browser/resources/settings/privacy_page/security/security_page.html b/chrome/browser/resources/settings/privacy_page/security/security_page.html
-index ee6059097c7f0514562f536f3e3020989910f837..3ca7aad61c368b98a537689ec07f7f0c3fe9115c 100644
---- a/chrome/browser/resources/settings/privacy_page/security/security_page.html
-+++ b/chrome/browser/resources/settings/privacy_page/security/security_page.html
-@@ -298,12 +298,14 @@
-         on-click="onManageCertificatesClick_" external>
-     </cr-link-row>
- 
-+    <!-- <if expr="not is_ohos"> -->
-     <cr-link-row id="advancedProtectionProgramLink" class="hr"
-         label="$i18n{advancedProtectionProgramTitle}"
-         sub-label="$i18n{advancedProtectionProgramDesc}"
-         on-click="onAdvancedProtectionProgramLinkClick_"
-         external>
-     </cr-link-row>
-+    <!-- </if> -->
-     <template is="dom-if" if="[[showDisableSafebrowsingDialog_]]" restamp>
-       <settings-simple-confirmation-dialog
-           title-text="$i18n{safeBrowsingDisableDialog}"
-diff --git a/chrome/browser/resources/settings/privacy_page/security/security_page_v2.html b/chrome/browser/resources/settings/privacy_page/security/security_page_v2.html
-index 9069773a9aecffde4e67de3fc608acf47160611c..255da053bdb65dbfd8370082ab99bb6b5435cd61 100644
---- a/chrome/browser/resources/settings/privacy_page/security/security_page_v2.html
-+++ b/chrome/browser/resources/settings/privacy_page/security/security_page_v2.html
-@@ -544,6 +544,7 @@
-         on-click="onManageCertificatesClick_" external>
-     </cr-link-row>
-   </settings-section>
-+  <!-- <if expr="not is_ohos"> -->
-   <settings-section>
-     <cr-link-row id="advancedProtectionProgramLinkRow" class="box"
-         start-icon="settings20:gshield"
-@@ -552,6 +553,7 @@
-       <div slot="label">$i18nRaw{securityAdvancedProtectionProgramLabel}</div>
-     </cr-link-row>
-   </settings-section>
-+  <!-- </if> -->
-   <template is="dom-if" if="[[showDisableSafebrowsingDialog_]]" restamp>
-     <settings-simple-confirmation-dialog
-         title-text="$i18n{safeBrowsingDisableDialog}"
 diff --git a/chrome/browser/resources/signin/history_sync_optin/BUILD.gn b/chrome/browser/resources/signin/history_sync_optin/BUILD.gn
 index bae4b8012840f8a2250d6c5e5cc12719e50b3a42..e2a638764ef94368161e5f4536e6b77a88f01be5 100644
 --- a/chrome/browser/resources/signin/history_sync_optin/BUILD.gn
@@ -40045,3 +40006,22 @@ index e6974ebf47ee5e7aace1e1d5604986501ec0a43a..5988e7f30caa3392bc3fe70bcc88638e
    GetAcquireFence(acquire_fence);
    return true;
  }
+diff --git a/chrome/browser/resources/settings/privacy_page/security/security_page.html b/chrome/browser/resources/settings/privacy_page/security/security_page.html
+index f1ab6776017dbd0117f6f7e8345fad8a071c0eea..d1988c8addc17e92849087f2e24074234d426db2 100644
+--- a/chrome/browser/resources/settings/privacy_page/security/security_page.html
++++ b/chrome/browser/resources/settings/privacy_page/security/security_page.html
+@@ -213,12 +213,14 @@ import {HttpsFirstModeSetting} from './security_page.js';
+         @click="${this.onManageCertificatesClick_}" external>
+     </cr-link-row>
+ 
++    <!-- <if expr="not is_ohos"> -->
+     <cr-link-row id="advancedProtectionProgramLink" class="hr"
+         label="$i18n{advancedProtectionProgramTitle}"
+         sub-label="$i18n{advancedProtectionProgramDesc}"
+         @click="${this.onAdvancedProtectionProgramLinkClick_}"
+         external>
+     </cr-link-row>
++    <!-- </if> -->
+     ${this.showDisableSafebrowsingDialog_ ? html`
+       <settings-simple-confirmation-dialog
+           title-text="$i18n{safeBrowsingDisableDialog}"
