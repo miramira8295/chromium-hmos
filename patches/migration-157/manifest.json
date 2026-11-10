@@ -7,8 +7,8 @@
     {
       "path": ".",
       "patch": "chromium.patch",
-      "sha256": "aa4334cfd450f7b25b57e23388ffcc0a390dfa918957ca9984e77f1795b92762",
-      "bytes": 1755176,
+      "sha256": "4830c271a281ad715036502ecb900a53c18f4a1c8d81574be44ea74de9bbe242",
+      "bytes": 1756946,
       "source_base": "7d4508cbfffd289d7015f7703bce215d3ab123bf"
     },
     {
@@ -28,8 +28,8 @@
     {
       "path": "third_party/dawn",
       "patch": "third_party_dawn.patch",
-      "sha256": "54d98fc0efb740731d7d3e742749238a521cbe74203d1320399bce95a7c2c8e7",
-      "bytes": 129968,
+      "sha256": "c82e6ef4f19aadd523625c388010e73e412cb5bbfb7464499cb30f2340cc7013",
+      "bytes": 129973,
       "source_base": "106245fa2b9e1cf8b59b1bb8e010af3c7ca8b600"
     },
     {

@@ -1747,7 +1747,7 @@ index 830782263df5738a125ad624885267489d30730d..8d64d0ff90ad8f3cefd9692f2b9ad001
      ExternalMemoryDmaBuf,
      ExternalMemoryZirconHandle,
 diff --git a/src/dawn/native/vulkan/VulkanFunctions.cpp b/src/dawn/native/vulkan/VulkanFunctions.cpp
-index 1406c763330f30780614499d47b01dfd8bde2643..9b9e01a4407368cd4cb85feec8d685a483971ef7 100644
+index 1406c763330f30780614499d47b01dfd8bde2643..c8a93ce66e4822cf2b75d60acabb313cee13816f 100644
 --- a/src/dawn/native/vulkan/VulkanFunctions.cpp
 +++ b/src/dawn/native/vulkan/VulkanFunctions.cpp
 @@ -470,6 +470,16 @@ MaybeError VulkanFunctions::LoadDeviceProcs(VkInstance instance,
@@ -1759,7 +1759,7 @@ index 1406c763330f30780614499d47b01dfd8bde2643..9b9e01a4407368cd4cb85feec8d685a4
 +        GetNativeBufferPropertiesOHOS = AsVkFn<GetNativeBufferPropertiesOHOSFn>(
 +            GetDeviceProcAddr(device, "vkGetNativeBufferPropertiesOHOS"));
 +        if (GetNativeBufferPropertiesOHOS == nullptr) {
-+            return DAWN_INTERNAL_ERROR("Couldn't get proc vkGetNativeBufferPropertiesOHOS");
++            return DAWN_UNRECOVERABLE_ERROR("Couldn't get proc vkGetNativeBufferPropertiesOHOS");
 +        }
 +    }
 +#endif  // defined(__OHOS__)

@@ -2536,7 +2536,7 @@ index e7b9327ce3fd4664d5e152b44cff1cf859b57fe7..b13381a9d6f34fc0f80c839e3f74b28e
  #define IDC_VIEW_MENU 57327
  #define IDC_FILE_MENU 57326
 diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
-index 0447c4084b0cbddf4d5b2c230a1a704437254701..f5034e2da522079ce1f4225461b281b5d9cf03ad 100644
+index 0447c4084b0cbddf4d5b2c230a1a704437254701..27ab414632c012ee8c87764553869b80cb262636 100644
 --- a/chrome/app/chrome_main_delegate.cc
 +++ b/chrome/app/chrome_main_delegate.cc
 @@ -40,6 +40,11 @@
@@ -2623,7 +2623,7 @@ index 0447c4084b0cbddf4d5b2c230a1a704437254701..f5034e2da522079ce1f4225461b281b5
  
    // Only allow disabling web security via the command-line flag if the user has
    // specified a distinct profile directory. This still enables tests to disable
-@@ -1686,19 +1733,45 @@ void ChromeMainDelegate::PreSandboxStartup() {
+@@ -1686,19 +1733,48 @@ void ChromeMainDelegate::PreSandboxStartup() {
              base::i18n::GetKnownLanguageTag("en-US")));
      const std::string loaded_locale = locale;
  #else
@@ -2656,7 +2656,10 @@ index 0447c4084b0cbddf4d5b2c230a1a704437254701..f5034e2da522079ce1f4225461b281b5
 +        ui::ResourceBundle::GetSharedInstance().AddDataPackFromFileRegion(
 +            base::File(std::move(fd)), region, pack.scale);
 +      }
-+      base::i18n::SetICUDefaultLocale(locale);
++      base::i18n::SetDefaultIcuLocale(
++          base::i18n::DefaultIcuLocaleSetterKey(),
++          base::i18n::GetLanguageTagFromString(locale).value_or(
++              base::i18n::GetKnownLanguageTag("en-US")));
 +      loaded_locale = locale;
 +      LOG(WARNING) << "OHOS child startup resource bundle ready";
 +    } else
@@ -2678,7 +2681,7 @@ index 0447c4084b0cbddf4d5b2c230a1a704437254701..f5034e2da522079ce1f4225461b281b5
    // Zygote needs to call InitCrashReporter() in RunZygote().
    if (process_type != switches::kZygoteProcess &&
        !command_line.HasSwitch(switches::kDisableCrashpadForTesting)) {
-@@ -1723,7 +1796,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
+@@ -1723,7 +1799,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
          v8::TryHandleWebAssemblyTrapPosix);
  #endif  // BUILDFLAG(IS_ANDROID)
    }
@@ -7988,7 +7991,7 @@ index 7d4c893cbcd995c48a00631f9cbfd736fb188e63..43ae19a7bd83896b79834dac7dc4fc34
  }
  
 diff --git a/chrome/browser/signin/signin_promo_util.h b/chrome/browser/signin/signin_promo_util.h
-index 40c3bf25fdeb0fbdd9bdad9087692e37b6844dba..a6ea89b2221c5ae31ace7257a941a6fc813a68e2 100644
+index 40c3bf25fdeb0fbdd9bdad9087692e37b6844dba..bda69a4382f7903b355238794d9a0ec724342d8e 100644
 --- a/chrome/browser/signin/signin_promo_util.h
 +++ b/chrome/browser/signin/signin_promo_util.h
 @@ -75,12 +75,6 @@ bool IsSignInPromo(signin_metrics::AccessPoint access_point);
@@ -8004,7 +8007,7 @@ index 40c3bf25fdeb0fbdd9bdad9087692e37b6844dba..a6ea89b2221c5ae31ace7257a941a6fc
  // Structure containing information needed for the promos.
  struct ProfileMenuAvatarButtonPromoInfo {
    // Different promo types that can be shown in the ProfileMenu and
-@@ -109,6 +103,14 @@ struct ProfileMenuAvatarButtonPromoInfo {
+@@ -109,6 +103,19 @@ struct ProfileMenuAvatarButtonPromoInfo {
        default;
  };
  
@@ -8016,10 +8019,15 @@ index 40c3bf25fdeb0fbdd9bdad9087692e37b6844dba..a6ea89b2221c5ae31ace7257a941a6fc
 +        signin_metrics::AccessPoint::kHistorySyncOptinExpansionPillOnStartup;
 +
 +#if BUILDFLAG(ENABLE_DICE_SUPPORT)
++// Records that the sign in promo was shown, either for the account used for the
++// promo, or for the profile if there is no account available.
++void RecordSignInPromoShown(signin_metrics::AccessPoint access_point,
++                            Profile* profile);
++
  // Records the show count at which the AvatarButton was showing `promo_type`
  // for `gaia_id` that lead to the promo being accepted. `gaia_id` may be empty
  // which will record the value from the Profile prefs.
-@@ -117,12 +119,6 @@ void RecordAvatarButtonPromoAcceptedAtPromoShownCount(
+@@ -117,12 +124,6 @@ void RecordAvatarButtonPromoAcceptedAtPromoShownCount(
      const GaiaId& gaia_id,
      PrefService& prefs);
  
@@ -25175,7 +25183,7 @@ index 013e51bcd02237d806d5923575a91967c7f1959d..010a60d43f4a5566ec55b63d608ce27d
          remote->BindNewPipeAndPassReceiver(),
          ServiceProcessHost::Options()
 diff --git a/content/browser/speech/speech_recognition_manager_impl.cc b/content/browser/speech/speech_recognition_manager_impl.cc
-index ed1d1d516a0d29f832224690a07f73b0c9974a7b..1ce020edd4bf9a5670d5b6ab0c22a35529e49d00 100644
+index ed1d1d516a0d29f832224690a07f73b0c9974a7b..d0978bf52b4152eb1757f617877bfcfd0714822b 100644
 --- a/content/browser/speech/speech_recognition_manager_impl.cc
 +++ b/content/browser/speech/speech_recognition_manager_impl.cc
 @@ -59,6 +59,13 @@
@@ -25407,7 +25415,7 @@ index ed1d1d516a0d29f832224690a07f73b0c9974a7b..1ce020edd4bf9a5670d5b6ab0c22a355
  namespace {
  
  SpeechRecognitionManagerImpl* g_speech_recognition_manager_impl;
-@@ -820,6 +1035,26 @@ int SpeechRecognitionManagerImpl::CreateSession(
+@@ -820,6 +1035,30 @@ int SpeechRecognitionManagerImpl::CreateSession(
    session->context = config.initial_context;
    session->use_microphone = !audio_forwarder_config.has_value();
  
@@ -25425,7 +25433,11 @@ index ed1d1d516a0d29f832224690a07f73b0c9974a7b..1ce020edd4bf9a5670d5b6ab0c22a355
 +        base::BindOnce(
 +            &FrameSessionTracker::CreateObserverForSession,
 +            config.initial_context.global_id, session_id,
++            /*use_microphone=*/true,
 +            base::BindRepeating(&SpeechRecognitionManagerImpl::AbortSessionImpl,
++                                weak_factory_.GetWeakPtr()),
++            base::BindRepeating(&SpeechRecognitionManagerImpl::
++                                    AbortSessionForPermissionRevocation,
 +                                weak_factory_.GetWeakPtr())));
 +    return session_id;
 +  }
@@ -35689,10 +35701,10 @@ index 2aad768a501faead0248c1e7d8644fc75f592518..08501baf38f6ef0586cf4af74d6447a7
    // Like kUtility but allows loading of platform runtime library.
    [EnableIf=is_chromeos|is_linux|is_mac|is_win] kPlatformRuntime,
 diff --git a/sandbox/policy/sandbox_type.cc b/sandbox/policy/sandbox_type.cc
-index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..22c5277db66edb3c1c81cca60118a3a5411fc391 100644
+index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..394b202fc21e09371efe461aab066b6b094c2698 100644
 --- a/sandbox/policy/sandbox_type.cc
 +++ b/sandbox/policy/sandbox_type.cc
-@@ -35,7 +35,7 @@ constexpr char kServiceSandboxWithJit[] = "service_with_jit";
+@@ -35,11 +35,13 @@ constexpr char kServiceSandboxWithJit[] = "service_with_jit";
  constexpr char kSpeechRecognitionSandbox[] = "speech_recognition";
  
  #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
@@ -35700,8 +35712,14 @@ index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..22c5277db66edb3c1c81cca60118a3a5
 +    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_OHOS)
  constexpr char kPrintBackendSandbox[] = "print_backend";
  constexpr char kScreenAISandbox[] = "screen_ai";
++#if !BUILDFLAG(IS_OHOS)
  constexpr char kPlatformRuntimeSandbox[] = "platform_runtime";
-@@ -176,7 +176,7 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
+ #endif
++#endif
+ 
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
+ // The XR Device Service hosts the OpenXR runtime; it is sandboxed on Windows
+@@ -176,10 +178,12 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
      case Sandbox::kWebNNModelCompilation:
  #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)
  #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
@@ -35709,8 +35727,13 @@ index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..22c5277db66edb3c1c81cca60118a3a5
 +    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_OHOS)
      case Sandbox::kPrintBackend:
      case Sandbox::kScreenAI:
++#if !BUILDFLAG(IS_OHOS)
      case Sandbox::kPlatformRuntime:
-@@ -276,7 +276,7 @@ std::string StringFromUtilitySandboxType(Sandbox sandbox_type) {
++#endif
+ #endif
+     case Sandbox::kSpeechRecognition:
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
+@@ -276,14 +280,16 @@ std::string StringFromUtilitySandboxType(Sandbox sandbox_type) {
      case Sandbox::kSpeechRecognition:
        return kSpeechRecognitionSandbox;
  #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
@@ -35719,7 +35742,16 @@ index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..22c5277db66edb3c1c81cca60118a3a5
      case Sandbox::kPrintBackend:
        return kPrintBackendSandbox;
      case Sandbox::kScreenAI:
-@@ -418,7 +418,7 @@ sandbox::mojom::Sandbox UtilitySandboxTypeFromString(
+       return kScreenAISandbox;
++#if !BUILDFLAG(IS_OHOS)
+     case Sandbox::kPlatformRuntime:
+       return kPlatformRuntimeSandbox;
+ #endif
++#endif
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
+     case Sandbox::kOnDeviceTranslation:
+       return kOnDeviceTranslationSandbox;
+@@ -418,17 +424,19 @@ sandbox::mojom::Sandbox UtilitySandboxTypeFromString(
      return Sandbox::kSpeechRecognition;
    }
  #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
@@ -35728,6 +35760,18 @@ index 2d61c0c52ecb3d14c7ae01a2d00259595528acc3..22c5277db66edb3c1c81cca60118a3a5
    if (sandbox_string == kPrintBackendSandbox) {
      return Sandbox::kPrintBackend;
    }
+   if (sandbox_string == kScreenAISandbox) {
+     return Sandbox::kScreenAI;
+   }
++#if !BUILDFLAG(IS_OHOS)
+   if (sandbox_string == kPlatformRuntimeSandbox) {
+     return Sandbox::kPlatformRuntime;
+   }
+ #endif
++#endif
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
+   if (sandbox_string == kOnDeviceTranslationSandbox) {
+     return Sandbox::kOnDeviceTranslation;
 diff --git a/services/cert_verifier/cert_verifier_service_factory.cc b/services/cert_verifier/cert_verifier_service_factory.cc
 index 26e6bf32bbb0de2be72a10d473e36026b992acfa..1c981bf95362b134db381a92ebee5ba57829be67 100644
 --- a/services/cert_verifier/cert_verifier_service_factory.cc
@@ -36527,7 +36571,7 @@ index 6c4ce55bb9ce84df51c00526badcc3b7e42bec44..d65f0e52fd93ca51ca94bf8ef66f29cc
    // LINT.ThenChange(//tools/metrics/histograms/metadata/webnn/enums.xml:ContextBackendUma)
  
 diff --git a/services/webnn/webnn_context_provider_impl.cc b/services/webnn/webnn_context_provider_impl.cc
-index 997fbfc988172f202be2b9bd005d884ac753b7cd..b94f58af83fbadf6374747caf1ae89a0335d3d00 100644
+index 997fbfc988172f202be2b9bd005d884ac753b7cd..da288f6b6b1b43ff5d6403730940290eac5821cb 100644
 --- a/services/webnn/webnn_context_provider_impl.cc
 +++ b/services/webnn/webnn_context_provider_impl.cc
 @@ -52,6 +52,10 @@
@@ -36557,7 +36601,7 @@ index 997fbfc988172f202be2b9bd005d884ac753b7cd..b94f58af83fbadf6374747caf1ae89a0
    // Each context gets a GPU sequence that must be destroyed on the GPU main
    // thread. See `sequences_` and `pending_sequences_` comments in the header
    // for the full sequence lifecycle.
-@@ -468,6 +481,28 @@ void WebNNContextProviderImpl::CreateWebNNContext(
+@@ -468,6 +481,29 @@ void WebNNContextProviderImpl::CreateWebNNContext(
  
    RecordDeviceType(options->device);
  
@@ -36578,7 +36622,8 @@ index 997fbfc988172f202be2b9bd005d884ac753b7cd..b94f58af83fbadf6374747caf1ae89a0
 +                       AsWeakPtr(), std::move(callback), std::move(remote),
 +                       mojo::ScopedDataPipeProducerHandle(),
 +                       mojo::ScopedDataPipeConsumerHandle(), sequence_id,
-+                       command_buffer_id));
++                       command_buffer_id,
++                       /*compiler_context_remote=*/mojo::NullRemote()));
 +    return;
 +  }
 +#endif
