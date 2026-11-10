@@ -495,6 +495,7 @@ else
     # These interfaces changed in 157. Compile the real production objects
     # early so API migration failures do not wait behind the full link graph.
     migration_checks+=(
+      obj/base/base/sampling_profiler_thread_token.o
       obj/chrome/browser/core/device_authenticator_ohos.o
       obj/chrome/browser/password_manager/impl/chrome_password_manager_client.o
       obj/media/gfx/gfx/video_resource_updater.o
