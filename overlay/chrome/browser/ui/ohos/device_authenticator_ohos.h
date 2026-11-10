@@ -28,6 +28,10 @@ namespace chrome::ohos {
 std::unique_ptr<device_reauth::DeviceAuthenticator> MakeOhosDeviceAuthenticator(
     const device_reauth::DeviceAuthParams& params);
 
+// Chromium 157 separates capability checks from authentication requests.
+std::unique_ptr<device_reauth::DeviceAuthAvailabilityChecker>
+MakeOhosDeviceAuthAvailabilityChecker();
+
 // Whether this device can ask at all: false when the user has set no lock
 // screen and enrolled no biometric -- then the passwords open without a
 // prompt, as the product decided -- and false while the shell has not said.

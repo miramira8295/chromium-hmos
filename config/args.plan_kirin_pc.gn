@@ -27,7 +27,6 @@ enable_basic_print_dialog = false
 enable_screen_ai_service = true
 enable_widevine = false
 enterprise_cloud_content_analysis = false
-enterprise_client_certificates = true
 enterprise_local_content_analysis = false
 use_aura = true
 toolkit_views = true

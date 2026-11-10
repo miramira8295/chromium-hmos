@@ -42,8 +42,12 @@ def main():
         try:
             # Unported repositories still need the 155 base; rebased patches
             # record the actual 157 DEPS revision as their source base.
-            subprocess.run(['git', '-C', str(target), '-c', 'gc.auto=0', 'fetch',
-                            '--depth=1', 'origin', entry['source_base']], check=True)
+            base_present = subprocess.run(
+                ['git', '-C', str(target), 'cat-file', '-e',
+                 entry['source_base'] + '^{commit}'], capture_output=True)
+            if base_present.returncode:
+                subprocess.run(['git', '-C', str(target), '-c', 'gc.auto=0', 'fetch',
+                                '--depth=1', 'origin', entry['source_base']], check=True)
             snapshot.apply_snapshot(target, patch)
             receipt.write_text(expected + '\n')
         except subprocess.CalledProcessError as error:

@@ -1130,7 +1130,7 @@ class FilterHost : public mojom::Filter {
       auto* process = content::RenderProcessHost::FromID(process_);
       if (!process || !initiator.SchemeIsHTTPOrHTTPS() ||
           !content::ChildProcessSecurityPolicy::GetInstance()
-               ->CanAccessDataForOrigin(process->GetID(),
+               ->CanAccessDataForOrigin(process->GetDeprecatedID(),
                                         url::Origin::Create(initiator))) {
         std::move(callback).Run(mojom::Decision::New());
         return;

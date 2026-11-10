@@ -114,6 +114,15 @@ void WatchForScreenLock() {
   LOG(WARNING) << "OHOS password auth: watching for screen lock=" << watching;
 }
 
+class DeviceAuthAvailabilityCheckerOhos
+    : public device_reauth::DeviceAuthAvailabilityChecker {
+ public:
+  bool CanAuthenticateWithBiometrics() override { return false; }
+  bool CanAuthenticateWithBiometricOrScreenLock() override {
+    return DeviceCanAuthenticate();
+  }
+};
+
 class DeviceAuthenticatorOhos
     : public DeviceAuthenticatorCommon {
  public:
@@ -254,6 +263,14 @@ std::unique_ptr<device_reauth::DeviceAuthenticator> MakeOhosDeviceAuthenticator(
 
 bool CanAuthenticateOnThisDevice() {
   return DeviceCanAuthenticate();
+}
+
+std::unique_ptr<device_reauth::DeviceAuthAvailabilityChecker>
+MakeOhosDeviceAuthAvailabilityChecker() {
+  if (!ohos_system_service::IsAvailable()) {
+    return nullptr;
+  }
+  return std::make_unique<DeviceAuthAvailabilityCheckerOhos>();
 }
 
 void RefreshAuthenticationAvailability() {

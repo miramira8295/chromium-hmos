@@ -61,3 +61,14 @@ mkdir -p "$src/out/ohos_arm64"
 if [[ ! -f "$src/out/ohos_arm64/args.gn" ]]; then
   cp "$repo_root/config/args.plan_kirin_pc.gn" "$src/out/ohos_arm64/args.gn"
 fi
+# Chromium 157 removed this build argument; provisioning is no longer gated
+# by it. Retain all other persistent 157 build choices, including the PGO path.
+python3 - "$src/out/ohos_arm64/args.gn" <<'PY'
+from pathlib import Path
+import re, sys
+path = Path(sys.argv[1])
+before = path.read_text()
+after = re.sub(r'^\s*enterprise_client_certificates\s*=.*\n', '', before, flags=re.M)
+if after != before:
+    path.write_text(after)
+PY
