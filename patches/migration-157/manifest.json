@@ -7,9 +7,9 @@
     {
       "path": ".",
       "patch": "chromium.patch",
-      "sha256": "f4889ee4e2da45107a7273030eb77c5d25dcdb34949fd2f7ba0719c744f4f527",
-      "bytes": 1709366,
-      "source_base": "f043649a0ef1fd96e48d56ddbfc8a4a99aa2ca37"
+      "sha256": "d85e333e1240289c3abf53e4505ebf25a472986abf9b5b3cc3394de741d43091",
+      "bytes": 1753870,
+      "source_base": "7d4508cbfffd289d7015f7703bce215d3ab123bf"
     },
     {
       "path": "v8",
@@ -21,16 +21,16 @@
     {
       "path": "third_party/angle",
       "patch": "third_party_angle.patch",
-      "sha256": "e897927c9ec337504b714d3f801cac85329c9861b41177096cd04129f6f49e3a",
-      "bytes": 41176,
-      "source_base": "cccf60cde32c911b017a315b82235df61da5057b"
+      "sha256": "b3e7c4b1ceee6fd721749f8fb170c7bb68950f6602c6d66416e5cc032ec6de8c",
+      "bytes": 41192,
+      "source_base": "c56e2a4a9b8cb0040920c995a268be559ba53f1c"
     },
     {
       "path": "third_party/dawn",
       "patch": "third_party_dawn.patch",
-      "sha256": "2c8b1cc673ba9dd0a9d63a2bf9fd392fac1bd1d265b16b0b917043517f548db4",
-      "bytes": 125901,
-      "source_base": "42d0e90fe3552a2a8e95ca8e506bc19bbda12729"
+      "sha256": "54d98fc0efb740731d7d3e742749238a521cbe74203d1320399bce95a7c2c8e7",
+      "bytes": 129968,
+      "source_base": "106245fa2b9e1cf8b59b1bb8e010af3c7ca8b600"
     },
     {
       "path": "third_party/ffmpeg",
@@ -42,9 +42,9 @@
     {
       "path": "third_party/pdfium",
       "patch": "third_party_pdfium.patch",
-      "sha256": "c9cc5123cd7a58647ee9f39e500eab7c35869dfe92af1dd7f9f4f484bb42e75d",
-      "bytes": 2464,
-      "source_base": "39f0ed4a657e53ed743a16d10d77dec086a08e03"
+      "sha256": "ad786e31553ca45f39101ae00e67cbf8c1f2626158e3bb05fd26103fc3ebf29a",
+      "bytes": 2566,
+      "source_base": "a4d199fba716a1edcc5d032a1d875f9a8ef2c283"
     },
     {
       "path": "third_party/perfetto",
@@ -56,9 +56,9 @@
     {
       "path": "third_party/skia",
       "patch": "third_party_skia.patch",
-      "sha256": "8e106a3c028198ad7ac4d8e71b77dc4e914212ad29b58ca73e4fc61acca857d2",
-      "bytes": 11293,
-      "source_base": "29ed1e87a0a50f3d8347e988842d9d59e7573efa"
+      "sha256": "01814b055790fb28784edba37f4a86c8e8de92c6b4fa14ce6d56a16973b03250",
+      "bytes": 11271,
+      "source_base": "851b8fee76806e84c668d40bdaf17a6468e1ce6f"
     },
     {
       "path": "third_party/vulkan-loader/src",
@@ -157,5 +157,59 @@
   "moved_native_files": {
     "components/viz/common/gpu/vulkan_in_process_context_provider.cc": "gpu/command_buffer/service/vulkan_in_process_context_provider.cc"
   },
-  "resolved_deps_conflicts": 1
+  "resolved_deps_conflicts": 1,
+  "included_incremental_patches": [
+    {
+      "patch": "ohos-secure-dns-ech.patch",
+      "sha256": "0a437c380247a3f802803437650a8566a7938155b979566cff12366b82782745"
+    },
+    {
+      "patch": "ohos-https-first-warning.patch",
+      "sha256": "42aaf08296d94e94d5e3d10be15b4abd730e6e7771c77b3eba6fed45c55019c4"
+    },
+    {
+      "patch": "ohos-shell-preloading.patch",
+      "sha256": "9e439ffe68c811f8625fcedfe67fdebbd882be3c1e696916a47ff0dfe86806a0"
+    },
+    {
+      "patch": "ohos-extension-settings-sync.patch",
+      "sha256": "9215eac9a5860a2782c37fb57fdbfae4ca173d14527aa77f4b2d83bab2cc845d"
+    },
+    {
+      "patch": "ohos-standard-user-agent.patch",
+      "sha256": "ca2c5a3ddc7883f220b0ab5af37f5faf72767eb651f44175aacaa82d06566a1e"
+    },
+    {
+      "patch": "ohos-phone-fullscreen-hint.patch",
+      "sha256": "1c794339d252c88b68fa15d430b63e3459159b7dafd8b279d6285dfcafec1059"
+    },
+    {
+      "patch": "ohos-security-assistants.patch",
+      "sha256": "04020e98cb9e08c09a00c425d40ae1189ac7b6b5b520b3dd32059a83dec3de2d"
+    },
+    {
+      "patch": "ohos-file-type-component.patch",
+      "sha256": "cfb4f151a992cb2e7e70de92701c1aaf60870c6055d58df66af675b4d4513512"
+    },
+    {
+      "patch": "ohos-file-type-danger-155.patch",
+      "sha256": "a7a622a939816e0c0671f090b0b13236be7f1681701a9af179c0a77b4d5e93ba"
+    },
+    {
+      "patch": "ohos-origin-trials-component.patch",
+      "sha256": "5286332beca4364c93e86261eba315ccf72ce2c41f03dd8dabfb57734cd4019b"
+    },
+    {
+      "patch": "ohos-hyphenation-component.patch",
+      "sha256": "f02e4983420418a5684ed63c4bae2bc08f792770db70e5e67db4bd08b58fae49"
+    },
+    {
+      "patch": "ohos-crowd-deny-component.patch",
+      "sha256": "cca3d6e66ec9b2436ba66151826296b0d3ab27b98ed2b57c40e00b514e2a1036"
+    },
+    {
+      "patch": "ohos-software-video-overlay.patch",
+      "sha256": "d56365ca153d863e7b1c3ed4ae3d9fe5557b8d41e304b538599253b40f8a1eb7"
+    }
+  ]
 }

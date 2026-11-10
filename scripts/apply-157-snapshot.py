@@ -19,6 +19,10 @@ def main():
     if src != Path('/root/chromium-157/src'):
         raise ValueError('157 migration must never modify another engine tree')
     manifest = json.loads((ROOT / 'patches/migration-157/manifest.json').read_text())
+    for entry in manifest['included_incremental_patches']:
+        patch = ROOT / 'patches' / entry['patch']
+        if hashlib.sha256(patch.read_bytes()).hexdigest() != entry['sha256']:
+            raise ValueError(f'Shared patch changed; port it to the 157 snapshot: {patch.name}')
     def git(target, *args):
         return subprocess.check_output(['git', '-C', str(target), *args], text=True).strip()
     if git(src, 'rev-parse', 'HEAD') != manifest['target_revision']:
@@ -36,7 +40,8 @@ def main():
         if receipt.exists() and receipt.read_text().strip() == expected:
             continue
         try:
-            # A three-way merge requires the original 155 blobs as well as 157.
+            # Unported repositories still need the 155 base; rebased patches
+            # record the actual 157 DEPS revision as their source base.
             subprocess.run(['git', '-C', str(target), '-c', 'gc.auto=0', 'fetch',
                             '--depth=1', 'origin', entry['source_base']], check=True)
             snapshot.apply_snapshot(target, patch)

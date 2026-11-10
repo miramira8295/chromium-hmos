@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify the full native snapshot against its pinned 157 upstream files."""
 import json
+import hashlib
 from contextlib import nullcontext
 import os
 from pathlib import Path
@@ -11,6 +12,10 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 manifest = json.loads((ROOT / 'patches/migration-157/manifest.json').read_text())
+for entry in manifest['included_incremental_patches']:
+    data = (ROOT / 'patches' / entry['patch']).read_bytes()
+    if hashlib.sha256(data).hexdigest() != entry['sha256']:
+        raise SystemExit(f"Port changed shared patch to 157: {entry['patch']}")
 version, revision = sys.argv[1:3]
 patch = ROOT / 'patches/migration-157/chromium.patch'
 report = ROOT / 'upstream-compatibility.md'
@@ -36,8 +41,6 @@ with (nullcontext(os.environ['ADAPTER_CHECK_WORKDIR']) if os.environ.get('ADAPTE
         result = git('checkout', '-q', '--detach', revision, check=False)
     if result.returncode == 0:
         result = git('apply', '--3way', '--whitespace=nowarn', str(patch), check=False)
-    if result.returncode == 0:
-        result = git('apply', str(ROOT / 'patches/ohos-standard-user-agent.patch'), check=False)
     compatible = result.returncode == 0
     details = result.stdout[-18000:]
     report.write_text(f'# Chromium 157 snapshot compatibility\n\n- Version: `{version}`\n'

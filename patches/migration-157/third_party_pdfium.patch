@@ -1,8 +1,8 @@
 diff --git a/core/fxge/BUILD.gn b/core/fxge/BUILD.gn
-index 00c8cfe942493658d332f0c360bcec3a20b4cb83..e63098c1666f7cc179891b405e7a57fa3a73dff6 100644
+index e0b518f82be75d81db4c3e652324e3f2af306da3..8e7a08727abdeae560da051ae80e5a39a6661ff5 100644
 --- a/core/fxge/BUILD.gn
 +++ b/core/fxge/BUILD.gn
-@@ -163,7 +163,7 @@ source_set("fxge") {
+@@ -173,7 +173,7 @@ source_set("fxge") {
      ]
    }
  
@@ -12,10 +12,10 @@ index 00c8cfe942493658d332f0c360bcec3a20b4cb83..e63098c1666f7cc179891b405e7a57fa
        "android/cfx_androidfontinfo.cpp",
        "android/cfx_androidfontinfo.h",
 diff --git a/core/fxge/cfx_face.cpp b/core/fxge/cfx_face.cpp
-index 5df12aa0b2e3ab418a535cf7eb2ee8ca3d1164e3..87444db02e1f0510e58568408e270946df2b2eb5 100644
+index 8f68046027b93a331751df3376df04b81b3bc8b8..b3db545e3327b909ec24f52b009ffb5f575f53c2 100644
 --- a/core/fxge/cfx_face.cpp
 +++ b/core/fxge/cfx_face.cpp
-@@ -534,7 +534,8 @@ std::optional<std::array<uint32_t, 4>> CFX_Face::GetOs2UnicodeRange() {
+@@ -868,7 +868,8 @@ std::optional<std::array<uint32_t, 4>> CFX_Face::GetOs2UnicodeRange() {
  }
  #endif  // defined(PDF_ENABLE_XFA)
  
@@ -24,10 +24,10 @@ index 5df12aa0b2e3ab418a535cf7eb2ee8ca3d1164e3..87444db02e1f0510e58568408e270946
 +    BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OHOS)
  std::optional<std::array<uint32_t, 2>> CFX_Face::GetOs2CodePageRange() {
  #if defined(PDF_ENABLE_FONTATIONS)
-   if (IsFontations()) {
-@@ -1198,7 +1199,8 @@ void CFX_Face::AdjustVariationParams(int glyph_index,
-   FT_Set_MM_Design_Coordinates(rec, 2, coords);
+   if (CFX_GEModule::IsFontations()) {
+@@ -2065,7 +2066,8 @@ void CFX_Face::AdjustSubstFontTransform(const CFX_SubstFont* subst_font,
  }
+ #endif  // defined(PDF_ENABLE_FONTATIONS)
  
 -#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
 +#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || \
@@ -36,10 +36,10 @@ index 5df12aa0b2e3ab418a535cf7eb2ee8ca3d1164e3..87444db02e1f0510e58568408e270946
    uint32_t style = 0;
    if (IsBold()) {
 diff --git a/core/fxge/cfx_face.h b/core/fxge/cfx_face.h
-index d80e910890521f757434a313d9e2a6fce3413411..10a020fccf81ec4a0872383506ad29194f9e3014 100644
+index 3f8403df02a19e8dc91d5e605dda455f1bc1b07e..973994cbcecca756abad2f1fb9cb3789e0774301 100644
 --- a/core/fxge/cfx_face.h
 +++ b/core/fxge/cfx_face.h
-@@ -138,7 +138,8 @@ class CFX_Face final : public Retainable, public Observable {
+@@ -142,7 +142,8 @@ class CFX_Face final : public Retainable, public Observable {
    void SetCharMapByIndex(size_t index);
    bool SelectCharMap(fxge::FontEncoding encoding);
  
@@ -49,9 +49,9 @@ index d80e910890521f757434a313d9e2a6fce3413411..10a020fccf81ec4a0872383506ad2919
    // Returns enum FontStyle values.
    uint32_t GetFontStyle();
  
-@@ -187,7 +188,7 @@ class CFX_Face final : public Retainable, public Observable {
-   bool IsFontations() const;
- #endif
+@@ -200,7 +201,7 @@ class CFX_Face final : public Retainable, public Observable {
+   // it is large enough to hold the data.
+   size_t GetSfntTable(uint32_t table, pdfium::span<uint8_t> buffer);
  
 -#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
 +#if defined(PDF_ENABLE_XFA) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OHOS)

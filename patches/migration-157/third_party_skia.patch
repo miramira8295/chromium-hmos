@@ -59,19 +59,19 @@ index d8b540e35f46ee1b2e5826a99f3f72b31461bc8a..7d8a996e7e75e56e6097e405c0cc2dce
      auto [baseColorType, _] = TextureFormatColorTypeInfo(format);
      if (baseColorType != kUnknown_SkColorType && baseColorType == targetColorType) {
 diff --git a/src/ports/SkFontMgr_custom.cpp b/src/ports/SkFontMgr_custom.cpp
-index bd813535489a789a034c789d45be0f5cae7ef7c1..0e059f2dc35841c6fced5abb8ca9cb1bfbf6e757 100644
+index c57977ef208558b26718294348f626981c419471..165e0594446518a0f2c3e96c262764f369691e35 100644
 --- a/src/ports/SkFontMgr_custom.cpp
 +++ b/src/ports/SkFontMgr_custom.cpp
-@@ -19,6 +19,8 @@
- #include "src/core/SkFontDescriptor.h"
+@@ -20,6 +20,8 @@
  #include "src/ports/SkFontMgr_custom.h"
  
+ #include <array>
 +#include <cstring>
 +
  #include <limits>
  #include <memory>
  
-@@ -187,11 +189,90 @@ sk_sp<SkTypeface> SkFontMgr_Custom::onMatchFamilyStyle(const char familyName[],
+@@ -188,11 +190,90 @@ sk_sp<SkTypeface> SkFontMgr_Custom::onMatchFamilyStyle(const char familyName[],
      return sset->matchStyle(fontStyle);
  }
  

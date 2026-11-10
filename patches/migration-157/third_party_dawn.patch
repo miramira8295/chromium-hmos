@@ -1,18 +1,18 @@
 diff --git a/scripts/dawn_features.gni b/scripts/dawn_features.gni
-index b4437502c646bf45de31bfc1fddb8d8f962c603e..84f6c9f1e2450d84d9336194f93532b6be086e60 100644
+index 9605846a7f07a2e29eb6ffe6504a8cf8d724d0e4..03b2345cc4c604f3b54cb748cf0ad7348cfe07ab 100644
 --- a/scripts/dawn_features.gni
 +++ b/scripts/dawn_features.gni
-@@ -132,7 +132,7 @@ declare_args() {
+@@ -160,7 +160,7 @@ declare_args() {
    # Disables vulkan when compiling for UWP, since UWP only supports d3d
-   dawn_enable_vulkan =
-       dawn_maximal || is_linux || is_chromeos || (is_win && !dawn_is_winuwp) ||
--      is_fuchsia || is_android || dawn_use_swiftshader
-+      is_fuchsia || is_android || is_ohos || dawn_use_swiftshader
+   dawn_enable_vulkan = dawn_maximal != false || is_linux || is_chromeos ||
+                        (is_win && !dawn_is_winuwp) || is_fuchsia ||
+-                       is_android || dawn_use_swiftshader
++                       is_android || is_ohos || dawn_use_swiftshader
  
    # Enables error injection for faking failures to native API calls
-   dawn_enable_error_injection =
+   dawn_enable_error_injection = is_debug || use_fuzzing_engine
 diff --git a/src/dawn/common/BUILD.gn b/src/dawn/common/BUILD.gn
-index b940fb13adcddf2730ef5f6ea4c3ca6ced7b9d85..5bbc927f67ceb944de5b1e9225b642e249202a75 100644
+index 6669c9ea2f9caff08b9770657a830e739a431882..89b9c063de8d72a882a8f78950ff860ae37d8941 100644
 --- a/src/dawn/common/BUILD.gn
 +++ b/src/dawn/common/BUILD.gn
 @@ -152,7 +152,7 @@ dawn_generator("dawn_gpu_info_gen") {
@@ -25,10 +25,10 @@ index b940fb13adcddf2730ef5f6ea4c3ca6ced7b9d85..5bbc927f67ceb944de5b1e9225b642e2
    static_library("common") {
      sources = [
 diff --git a/src/dawn/native/BUILD.gn b/src/dawn/native/BUILD.gn
-index a46390ef8c51ecb3e08e1543375a8e070eb7857b..a1e051915f83051d6f7748a4f7c54b53f035e8cb 100644
+index df48386e67b04f2f31ea7e2f7cd9b7fde0fedf2a..672e06e870e8cb0d82adb8fa799ce2e4f5a5e729 100644
 --- a/src/dawn/native/BUILD.gn
 +++ b/src/dawn/native/BUILD.gn
-@@ -1021,7 +1021,8 @@ source_set("sources") {
+@@ -1003,7 +1003,8 @@ source_set("sources") {
        "vulkan/external_semaphore/SemaphoreServiceImplementation.h",
      ]
  
@@ -38,7 +38,7 @@ index a46390ef8c51ecb3e08e1543375a8e070eb7857b..a1e051915f83051d6f7748a4f7c54b53
        sources += [
          "vulkan/external_semaphore/SemaphoreServiceImplementationFD.cpp",
          "vulkan/external_semaphore/SemaphoreServiceImplementationFD.h",
-@@ -1032,7 +1033,7 @@ source_set("sources") {
+@@ -1014,7 +1015,7 @@ source_set("sources") {
            "vulkan/external_memory/MemoryServiceImplementationAHardwareBuffer.cpp",
            "vulkan/external_memory/MemoryServiceImplementationAHardwareBuffer.h",
          ]
@@ -92,10 +92,10 @@ index 63aa76b816b8f6b2f4802d68639a7ec470c2deac..0a52fe0f9c80138629f728e816fdc71a
                                                     IndirectDrawIndex indirectDrawIndex) const;
  
 diff --git a/src/dawn/native/IndirectDrawValidationEncoder.cpp b/src/dawn/native/IndirectDrawValidationEncoder.cpp
-index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd48984c79 100644
+index dd6ddca1316021f97b77ec999ac0b74ae920fb82..0032fb3aa01e43b5928e70dec5ebccc85b527e42 100644
 --- a/src/dawn/native/IndirectDrawValidationEncoder.cpp
 +++ b/src/dawn/native/IndirectDrawValidationEncoder.cpp
-@@ -65,6 +65,7 @@ constexpr uint32_t kValidationEnabled = 4;
+@@ -66,6 +66,7 @@ constexpr uint32_t kValidationEnabled = 4;
  constexpr uint32_t kIndirectFirstInstanceEnabled = 8;
  constexpr uint32_t kUseFirstIndexToEmulateIndexBufferOffset = 16;
  constexpr uint32_t kIndirectDrawCountBuffer = 32;
@@ -103,7 +103,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
  
  // Equivalent to the IndirectDraw struct defined in the shader below.
  struct IndirectDraw {
-@@ -112,6 +113,7 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
+@@ -113,6 +114,7 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
      const kValidationEnabled = 4u;
      const kIndirectFirstInstanceEnabled = 8u;
      const kUseFirstIndexToEmulateIndexBufferOffset = 16u;
@@ -111,7 +111,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
      const kIndirectDrawCountBuffer = 32u;  // if set, drawCount is read from a buffer
  
      struct MultiDrawConstants {
-@@ -164,6 +166,9 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
+@@ -165,6 +167,9 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
          if (bool(flags & kDuplicateBaseVertexInstance)) {
              numParams = numParams + 2u;
          }
@@ -121,7 +121,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
          return numParams;
      }
  
-@@ -198,6 +203,31 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
+@@ -199,6 +204,31 @@ static const char sRenderValidationShaderSource[] = DAWN_MULTILINE(
          if (bool(batch.flags & kUseFirstIndexToEmulateIndexBufferOffset)) {
              outputParams.data[outIndex + kFirstIndexEntry] += batch.draws[drawIndex].indexOffsetAsNumElements;
          }
@@ -153,7 +153,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
      }
  
      fn set_pass_multi(drawIndex: u32) {
-@@ -506,6 +536,12 @@ MaybeError EncodeIndirectDrawValidationCommands(DeviceBase* device,
+@@ -520,6 +550,12 @@ MaybeUnknownError EncodeIndirectDrawValidationCommands(DeviceBase* device,
  
          uint64_t outputIndirectSize =
              GetOutputIndirectDrawSize(config.drawType, config.duplicateBaseVertexInstance);
@@ -166,7 +166,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
  
          for (const IndirectDrawMetadata::IndirectValidationBatch& batch :
               validationInfo.GetBatches()) {
-@@ -553,7 +589,7 @@ MaybeError EncodeIndirectDrawValidationCommands(DeviceBase* device,
+@@ -567,7 +603,7 @@ MaybeUnknownError EncodeIndirectDrawValidationCommands(DeviceBase* device,
              newPass.drawType = config.drawType;
              newPass.batchDataSize = newBatch.dataSize;
              newPass.batches.push_back(newBatch);
@@ -175,7 +175,7 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
              if (config.duplicateBaseVertexInstance) {
                  newPass.flags |= kDuplicateBaseVertexInstance;
              }
-@@ -677,7 +713,13 @@ MaybeError EncodeIndirectDrawValidationCommands(DeviceBase* device,
+@@ -697,7 +733,13 @@ MaybeUnknownError EncodeIndirectDrawValidationCommands(DeviceBase* device,
  
                  // Save the args that point to the validated values in the indirectDrawMetadata.
                  indirectDrawMetadata->SetValidatedIndirectDrawArgs(
@@ -191,11 +191,11 @@ index 89fb3244819d24de0605d53bda21e6f04d8b22e9..baa6cd4b3411c5a9996b1a3d596acecd
                      outputParamsOffset += kDrawIndexedIndirectSize;
                  } else {
 diff --git a/src/dawn/native/PassResourceUsage.h b/src/dawn/native/PassResourceUsage.h
-index cb78519fb7c93a3d85b42849d64f14c0c798a966..663be2ebc1077b479cbca252e8549ca84c5f5fd3 100644
+index 69ff442dfc07fb0c32bebc5e4aeaaaac12d6a17c..aba09fdb31debdf4f0558300c9ed7bab3eacb8e9 100644
 --- a/src/dawn/native/PassResourceUsage.h
 +++ b/src/dawn/native/PassResourceUsage.h
-@@ -105,6 +105,7 @@ struct RenderPassResourceUsage : public SyncScopeResourceUsage {
-     std::vector<QuerySetBase*> querySets;
+@@ -109,6 +109,7 @@ struct RenderPassResourceUsage : public SyncScopeResourceUsage {
+     std::vector<raw_ptr<QuerySetBase>> querySets;
      std::vector<ityp::vector<QueryIndex, bool>> queryAvailabilities;
      bool usesFramebufferFetch = false;
 +    bool usesZeroColorWriteATC = false;
@@ -203,11 +203,11 @@ index cb78519fb7c93a3d85b42849d64f14c0c798a966..663be2ebc1077b479cbca252e8549ca8
  
  using RenderPassUsages = ityp::vector<PassIndex, RenderPassResourceUsage>;
 diff --git a/src/dawn/native/PassResourceUsageTracker.cpp b/src/dawn/native/PassResourceUsageTracker.cpp
-index 1df06f006d0434157be2d0ae727ad8f4a23fb846..bd691ff47c4a818234db872a6847d5c7766bb5dc 100644
+index 4d41eefd3378e7d93f3ba75dbecd839c318d2bdf..184b53a913653e86c0866bd3509a68f3135abd33 100644
 --- a/src/dawn/native/PassResourceUsageTracker.cpp
 +++ b/src/dawn/native/PassResourceUsageTracker.cpp
-@@ -335,6 +335,7 @@ RenderPassResourceUsage RenderPassResourceUsageTracker::AcquireResourceUsage() {
-     mQueryAvailabilities.clear();
+@@ -369,6 +369,7 @@ RenderPassResourceUsage RenderPassResourceUsageTracker::AcquireResourceUsage() {
+     mPassTrackerID = kInvalidPassTrackerID;
  
      result.usesFramebufferFetch = mFramebufferFetchUsed;
 +    result.usesZeroColorWriteATC = mZeroColorWriteATCUsed;
@@ -215,10 +215,10 @@ index 1df06f006d0434157be2d0ae727ad8f4a23fb846..bd691ff47c4a818234db872a6847d5c7
      return result;
  }
 diff --git a/src/dawn/native/PassResourceUsageTracker.h b/src/dawn/native/PassResourceUsageTracker.h
-index b073f5580bc61c8f4ae852c99f8920a7e103bc07..bd105c65cc08938e88ae690f28c0d09bf7ac92d1 100644
+index fbcd4e54fd1987942ccd2570044faebc4f724d85..44637d5b3f0aab1b5098f16d515a9265024dc5ca 100644
 --- a/src/dawn/native/PassResourceUsageTracker.h
 +++ b/src/dawn/native/PassResourceUsageTracker.h
-@@ -115,6 +115,7 @@ class RenderPassResourceUsageTracker : public SyncScopeUsageTracker {
+@@ -137,6 +137,7 @@ class RenderPassResourceUsageTracker : public SyncScopeUsageTracker {
      const QueryAvailabilityMap& GetQueryAvailabilityMap() const;
  
      void MarkFramebufferFetchUsed();
@@ -226,8 +226,8 @@ index b073f5580bc61c8f4ae852c99f8920a7e103bc07..bd105c65cc08938e88ae690f28c0d09b
  
      RenderPassResourceUsage AcquireResourceUsage();
  
-@@ -127,6 +128,7 @@ class RenderPassResourceUsageTracker : public SyncScopeUsageTracker {
-     QueryAvailabilityMap mQueryAvailabilities;
+@@ -153,6 +154,7 @@ class RenderPassResourceUsageTracker : public SyncScopeUsageTracker {
+     PassTrackerID mPassTrackerID = kInvalidPassTrackerID;
  
      bool mFramebufferFetchUsed = false;
 +    bool mZeroColorWriteATCUsed = false;
@@ -235,10 +235,10 @@ index b073f5580bc61c8f4ae852c99f8920a7e103bc07..bd105c65cc08938e88ae690f28c0d09b
  
  }  // namespace dawn::native
 diff --git a/src/dawn/native/RenderEncoderBase.cpp b/src/dawn/native/RenderEncoderBase.cpp
-index d05e6d4e0dd5080d30e861fa8b4ac9529788227a..443be406eebef46f4f4c536565200277fe08aca4 100644
+index d08527ed3dec5ab5311a2751d744c270c7cbc1b9..991804d9c478dfb86ff08dda4f4e22085b255478 100644
 --- a/src/dawn/native/RenderEncoderBase.cpp
 +++ b/src/dawn/native/RenderEncoderBase.cpp
-@@ -563,6 +563,9 @@ void RenderEncoderBase::APISetPipeline(RenderPipelineBase* pipeline) {
+@@ -570,6 +570,9 @@ void RenderEncoderBase::APISetPipeline(RenderPipelineBase* pipeline) {
  
              mCommandBufferState.SetRenderPipeline(pipeline);
  
@@ -249,7 +249,7 @@ index d05e6d4e0dd5080d30e861fa8b4ac9529788227a..443be406eebef46f4f4c536565200277
                  mUsageTracker.MarkFramebufferFetchUsed();
              }
 diff --git a/src/dawn/native/RenderPassEncoder.cpp b/src/dawn/native/RenderPassEncoder.cpp
-index 9a63bd7bb0a2aabee322ef69aa16a04ace0d2a03..800be5d22f4f1f1a2246bf8951d87db0c51911f7 100644
+index 3907be6ad9d596faebeaab9f3a8767a9ad5fadd2..71335de6e81529a66d26adec181af1d2a5629d84 100644
 --- a/src/dawn/native/RenderPassEncoder.cpp
 +++ b/src/dawn/native/RenderPassEncoder.cpp
 @@ -419,6 +419,9 @@ void RenderPassEncoder::APIExecuteBundles(Span<RenderBundleBase* const> renderBu
@@ -263,7 +263,7 @@ index 9a63bd7bb0a2aabee322ef69aa16a04ace0d2a03..800be5d22f4f1f1a2246bf8951d87db0
                      mUsageTracker.MarkFramebufferFetchUsed();
                  }
 diff --git a/src/dawn/native/RenderPipeline.h b/src/dawn/native/RenderPipeline.h
-index 7919fedc6f7e618671ba342ed0a8a4fd5d307ce3..bd60b148a5544296a229a5c5cd77a9f3ca2b963f 100644
+index 705677d22373ff02ef9fbca58ef36e4170a39f1e..a69ea8fdce3f5e243593af5d5f21cb951956e323 100644
 --- a/src/dawn/native/RenderPipeline.h
 +++ b/src/dawn/native/RenderPipeline.h
 @@ -133,6 +133,17 @@ class RenderPipelineBase : public PipelineBase,
@@ -298,12 +298,12 @@ index a2dadad790365808aaad3f67fb0069dda5bf497f..29182482f9f5728994c966656fe3a9af
  #endif
  
 diff --git a/src/dawn/native/Toggles.cpp b/src/dawn/native/Toggles.cpp
-index ec5eb8e72c6023414b3b1963daa6efa35a28d1f0..240f36793171418c5111896aa7736a63d5a41f79 100644
+index dc3a8aab7e671ea95298c8024f2955641c106886..c9a28fc87d59a418601462721e4dfd1a2fb7699a 100644
 --- a/src/dawn/native/Toggles.cpp
 +++ b/src/dawn/native/Toggles.cpp
-@@ -948,7 +948,30 @@ static constexpr ToggleEnumAndInfoList kToggleNameAndInfoList = {{
-       "boolean vectors fail.",
-       "https://crbug.com/540789158", ToggleStage::Device}},
+@@ -977,7 +977,30 @@ static constexpr ToggleEnumAndInfoList kToggleNameAndInfoList = {{
+       "footprint of the texture is 4 GiB or larger. Works around a PowerVR driver bug.",
+       "https://crbug.com/497202432", ToggleStage::Device}},
  
 +    {Toggle::OhosNativeYuvHardwareProbe,
 +     {"ohos_native_yuv_hardware_probe",
@@ -333,12 +333,12 @@ index ec5eb8e72c6023414b3b1963daa6efa35a28d1f0..240f36793171418c5111896aa7736a63
  
  }  // anonymous namespace
 diff --git a/src/dawn/native/Toggles.h b/src/dawn/native/Toggles.h
-index 3f3ea8b363f5212018525d4a6c39bba949627e7e..005ca0638e6e74b0312470f57aacf7b0aded46f7 100644
+index bf97d6b9f8d30122516ad7336965395500ed5287..eeeb2e56e844122a4ae18e152355706303eb46bd 100644
 --- a/src/dawn/native/Toggles.h
 +++ b/src/dawn/native/Toggles.h
-@@ -231,6 +231,13 @@ enum class Toggle {
-     AutoMapBackendBuffer,
-     PolyfillBoolVecDynamicStore,
+@@ -235,6 +235,13 @@ enum class Toggle {
+     VulkanRelaxMaxInterStageShaderVariables,
+     Limit3DTexturePotFootprintTo4GB,
  
 +
 +    OhosNativeYuvHardwareProbe,
@@ -364,7 +364,7 @@ index ece869bc98db7e2faad92bf759fe43f5a94648bf..737d93e672a619e6dc49049a33beccc0
  #endif
  
 diff --git a/src/dawn/native/vulkan/BackendVk.cpp b/src/dawn/native/vulkan/BackendVk.cpp
-index a93ea4f996be0520f7ee1b8ff216eb4c8c11fb3d..202a1e3bdcba626126fb29a65c7ce28e3886a496 100644
+index d3706bd03f2ac4cc24796aad5421d95685d1c18e..4396d93bddac68ed6b225e908ad9f4b1065aad5d 100644
 --- a/src/dawn/native/vulkan/BackendVk.cpp
 +++ b/src/dawn/native/vulkan/BackendVk.cpp
 @@ -58,7 +58,9 @@ constexpr char kSwiftshaderLibName[] = "libvk_swiftshader.dylib";
@@ -387,7 +387,7 @@ index a93ea4f996be0520f7ee1b8ff216eb4c8c11fb3d..202a1e3bdcba626126fb29a65c7ce28e
      // info.
      ScopedEnvironmentVar vkICDFilenames;
 diff --git a/src/dawn/native/vulkan/CommandBufferVk.cpp b/src/dawn/native/vulkan/CommandBufferVk.cpp
-index 1598a39a6cc797f4d45d46636a9753d2023135d8..6f5fb0c0b8b53ce6c82670e894d0718a4985311f 100644
+index f0ef87de6e200560f20d21d3d9fd48a55aa05320..4d340e9b123e894c8df5faf703f84fdd9aeba5ef 100644
 --- a/src/dawn/native/vulkan/CommandBufferVk.cpp
 +++ b/src/dawn/native/vulkan/CommandBufferVk.cpp
 @@ -31,6 +31,8 @@
@@ -617,7 +617,7 @@ index 1598a39a6cc797f4d45d46636a9753d2023135d8..6f5fb0c0b8b53ce6c82670e894d0718a
                      vk.CmdDrawIndexedIndirect(commands, indirectBuffer->GetHandle(),
                                                validatedDraw.indirectOffset, 1, 0);
 diff --git a/src/dawn/native/vulkan/DeviceVk.cpp b/src/dawn/native/vulkan/DeviceVk.cpp
-index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33346534aa 100644
+index d6f535d9a5904308a88bd4002124b5fc1dabd5ab..f0e2423438bd80008504ef2effcdcfd3ea3251f2 100644
 --- a/src/dawn/native/vulkan/DeviceVk.cpp
 +++ b/src/dawn/native/vulkan/DeviceVk.cpp
 @@ -28,6 +28,7 @@
@@ -627,8 +627,8 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
 +#include <string_view>
  #include <utility>
  
- #include "dawn/dawn_version.h"
-@@ -67,6 +68,7 @@
+ #include "absl/cleanup/cleanup.h"
+@@ -68,6 +69,7 @@
  #include "src/dawn/native/vulkan/TextureVk.h"
  #include "src/dawn/native/vulkan/UtilsVulkan.h"
  #include "src/dawn/native/vulkan/VulkanError.h"
@@ -636,7 +636,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
  #include "src/utils/log.h"
  #include "src/utils/non_copyable.h"
  #include "src/utils/numeric.h"
-@@ -85,6 +87,71 @@ struct NoopDrawFunction<R(VKAPI_PTR*)(Args...)> {
+@@ -86,6 +88,71 @@ struct NoopDrawFunction<R(VKAPI_PTR*)(Args...)> {
  
  }  // namespace
  
@@ -708,7 +708,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
  // static
  ResultOrError<Ref<Device>> Device::Create(AdapterBase* adapter,
                                            const UnpackedPtr<DeviceDescriptor>& descriptor,
-@@ -416,6 +483,44 @@ FramebufferFetchHelper* Device::GetFramebufferFetchHelper() {
+@@ -411,6 +478,44 @@ FramebufferFetchHelper* Device::GetFramebufferFetchHelper() {
      return mFramebufferFetchHelper.get();
  }
  
@@ -753,7 +753,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
  Ref<FencedDeleter>& Device::GetFencedDeleter() {
      return mDeleter;
  }
-@@ -612,7 +717,18 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice vkPhysica
+@@ -607,7 +712,18 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice vkPhysica
          usedKnobs.features.geometryShader = VK_TRUE;
      }
  
@@ -773,7 +773,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
          DAWN_CHECK(mDeviceInfo.features.drawIndirectFirstInstance == VK_TRUE);
          usedKnobs.features.drawIndirectFirstInstance = VK_TRUE;
      }
-@@ -675,7 +791,11 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice vkPhysica
+@@ -663,7 +779,11 @@ ResultOrError<VulkanDeviceKnobs> Device::CreateDevice(VkPhysicalDevice vkPhysica
  
      if ((HasFeature(Feature::YCbCrVulkanSamplers) ||
           HasFeature(Feature::OpaqueYCbCrAndroidForExternalTexture)) &&
@@ -786,7 +786,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
          usedKnobs.samplerYCbCrConversionFeatures.samplerYcbcrConversion = VK_TRUE;
          featuresChain.Add(&usedKnobs.samplerYCbCrConversionFeatures,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES);
-@@ -1112,6 +1232,9 @@ void Device::DestroyImpl(DestroyReason reason) {
+@@ -1109,6 +1229,9 @@ void Device::DestroyImpl(DestroyReason reason) {
      }
  
      mFramebufferFetchHelper.reset();
@@ -797,7 +797,7 @@ index c6692adb3355cd26665dcf123a91e1ab00f9527f..1205810d093d18f32302c97f41e89d33
      mDescriptorAllocatorsPendingDeallocation.Use([&](auto pending) {
          for (Ref<DescriptorSetAllocator>& allocator : pending->IterateUpTo(kMaxExecutionSerial)) {
 diff --git a/src/dawn/native/vulkan/DeviceVk.h b/src/dawn/native/vulkan/DeviceVk.h
-index c990d80cec66e85aea4b99905288ba8734d2c71a..567d1279dfdb48bf5fede6896253392825599e7a 100644
+index 40100412b348a3de6e74d81cbb9f36f617ad4b5b..46f126ffe358c4ef8ad030dc567a4a9c9f44a77b 100644
 --- a/src/dawn/native/vulkan/DeviceVk.h
 +++ b/src/dawn/native/vulkan/DeviceVk.h
 @@ -51,6 +51,7 @@ class BufferUploader;
@@ -820,7 +820,7 @@ index c990d80cec66e85aea4b99905288ba8734d2c71a..567d1279dfdb48bf5fede68962533928
  
      Ref<FencedDeleter>& GetFencedDeleter();
      FramebufferCache* GetFramebufferCache() const;
-@@ -232,6 +238,7 @@ class Device final : public DeviceBase {
+@@ -233,6 +239,7 @@ class Device final : public DeviceBase {
  
      VkDescriptorSetLayout mResourceTableLayout = VK_NULL_HANDLE;
      std::unique_ptr<FramebufferFetchHelper> mFramebufferFetchHelper;
@@ -829,7 +829,7 @@ index c990d80cec66e85aea4b99905288ba8734d2c71a..567d1279dfdb48bf5fede68962533928
      // Entries can be appended without holding the device mutex.
      MutexProtected<SerialQueue<ExecutionSerial, Ref<DescriptorSetAllocator>>>
 diff --git a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
-index e639055d569cb7bb399d37e9d0c3a814ab9523b9..5b4beb2add75d73f1c0a147502e96055c8d535a9 100644
+index f5ab321e744da3ccd055024db76be55b0b4d096e..f90e587acb655e14659d606de2758cd357416ae0 100644
 --- a/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
 +++ b/src/dawn/native/vulkan/PhysicalDeviceVk.cpp
 @@ -30,6 +30,7 @@
@@ -840,7 +840,7 @@ index e639055d569cb7bb399d37e9d0c3a814ab9523b9..5b4beb2add75d73f1c0a147502e96055
  #include <utility>
  #include <vector>
  
-@@ -643,6 +644,20 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
+@@ -649,6 +650,20 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
          }
      }
  #endif  // DAWN_PLATFORM_IS(ANDROID)
@@ -861,7 +861,7 @@ index e639055d569cb7bb399d37e9d0c3a814ab9523b9..5b4beb2add75d73f1c0a147502e96055
  
      if (CheckSemaphoreSupport(DeviceExt::ExternalSemaphoreZirconHandle,
                                VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_ZIRCON_EVENT_BIT_FUCHSIA)) {
-@@ -748,7 +763,19 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsInternal(wgpu::FeatureLevel
+@@ -754,7 +769,19 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsInternal(wgpu::FeatureLevel
      GetDefaultLimits(limits, featureLevel);
      CombinedLimits baseLimits = *limits;
  
@@ -880,9 +880,9 @@ index e639055d569cb7bb399d37e9d0c3a814ab9523b9..5b4beb2add75d73f1c0a147502e96055
 +                     vkLimits.maxDescriptorSetStorageBuffers / 3);
 +    }
  
- #define CHECK_V1_LIMIT_IMPL(vulkanName, webgpuName, compareOp, msgSegment)           \
-     do {                                                                             \
-@@ -1034,6 +1061,16 @@ void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platfo
+ #define CHECK_V1_LIMIT_IMPL(vulkanName, webgpuName, compareOp, msgSegment)                \
+     do {                                                                                  \
+@@ -1051,6 +1078,16 @@ void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platfo
  
  void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platform,
                                                 TogglesState* deviceToggles) const {
@@ -900,7 +900,7 @@ index e639055d569cb7bb399d37e9d0c3a814ab9523b9..5b4beb2add75d73f1c0a147502e96055
      // Vulkan SPEC and drivers.
      deviceToggles->Default(Toggle::UseTemporaryBufferInCompressedTextureToTextureCopy, true);
 diff --git a/src/dawn/native/vulkan/PipelineLayoutVk.cpp b/src/dawn/native/vulkan/PipelineLayoutVk.cpp
-index 25430318a8ba8425a14b516994122e30b399f6c0..56e6aee8bbf2c48cc3f3439f89f45ea100c7909b 100644
+index bc153db47d13506352a0f7dbbcce231a1d0eed50..64cf55a85d2bed105f2443c002adb9714f87b653 100644
 --- a/src/dawn/native/vulkan/PipelineLayoutVk.cpp
 +++ b/src/dawn/native/vulkan/PipelineLayoutVk.cpp
 @@ -53,7 +53,7 @@ ResultOrError<Ref<PipelineLayout>> PipelineLayout::Create(
@@ -934,8 +934,8 @@ index 25430318a8ba8425a14b516994122e30b399f6c0..56e6aee8bbf2c48cc3f3439f89f45ea1
 +}
 +
  MaybeError PipelineLayout::Initialize() {
-     BindGroupMask bindGroupMask = GetBindGroupLayoutsMask();
-     BindGroupIndex highestBindGroupIndex = GetHighestBitIndexPlusOne(bindGroupMask);
+     PerBindGroup<const CachedObject*> cachedObjects;
+     cachedObjects.fill(GetDevice()->GetEmptyBindGroupLayout()->GetInternalBindGroupLayout());
 diff --git a/src/dawn/native/vulkan/PipelineLayoutVk.h b/src/dawn/native/vulkan/PipelineLayoutVk.h
 index c50133e167bb88aab48a3cd73a040e2c7cb1f59a..c54f884bd1235c63ba24cd9b93ee0864149244bb 100644
 --- a/src/dawn/native/vulkan/PipelineLayoutVk.h
@@ -965,7 +965,7 @@ index c50133e167bb88aab48a3cd73a040e2c7cb1f59a..c54f884bd1235c63ba24cd9b93ee0864
      friend void StreamIn(stream::Sink* sink, const PipelineLayout& obj) {
          StreamIn(sink, static_cast<const CachedObject&>(obj));
 diff --git a/src/dawn/native/vulkan/RenderPipelineVk.cpp b/src/dawn/native/vulkan/RenderPipelineVk.cpp
-index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd188b651f71 100644
+index 9360972f7319dd9c68f2d9d24419a0d4be90be66..b2b6afb962072f34eb559ab94bfa01b09ee8f802 100644
 --- a/src/dawn/native/vulkan/RenderPipelineVk.cpp
 +++ b/src/dawn/native/vulkan/RenderPipelineVk.cpp
 @@ -31,6 +31,7 @@
@@ -979,14 +979,14 @@ index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd18
 @@ -396,6 +397,9 @@ Ref<RenderPipeline> RenderPipeline::CreateUninitialized(
  }
  
- MaybeError RenderPipeline::InitializeImpl() {
+ MaybeUnknownError RenderPipeline::InitializeImpl() {
 +    if (UsesZeroColorWriteATCWorkaround()) {
 +        DAWN_TRY(ToBackend(GetDevice())->EnsureZeroColorWriteATCSink());
 +    }
      // Gather list of internal immediates used by this pipeline
      if ((NeedsPixelCenterPolyfill() || UsesFragDepth()) && !HasUnclippedDepth()) {
          mImmediateMask |= GetImmediateBlockBits(offsetof(RenderImmediates, clampFragDepth),
-@@ -420,6 +424,7 @@ MaybeError RenderPipeline::InitializeImpl() {
+@@ -420,6 +424,7 @@ MaybeUnknownError RenderPipeline::InitializeImpl() {
              AttachmentCount(GetColorAttachmentsMask());
      }
  
@@ -994,15 +994,15 @@ index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd18
      SpecializationResult r;
      DAWN_TRY_ASSIGN(r, InitializeSpecialization(specialization, buildCacheKey));
      mHandles = {.pipeline = r.pipeline->Get(), .layout = r.layout->Get()};
-@@ -432,6 +437,7 @@ MaybeError RenderPipeline::InitializeImpl() {
- ResultOrError<PipelineHandles> RenderPipeline::GetOrCreateSpecializedHandle(
+@@ -432,6 +437,7 @@ MaybeUnknownError RenderPipeline::InitializeImpl() {
+ ResultOrUnknownError<PipelineHandles> RenderPipeline::GetOrCreateSpecializedHandle(
      Specialization&& specializationIn) {
      Specialization specialization = specializationIn;
 +    specialization.layout.zeroColorWriteATC = UsesZeroColorWriteATCWorkaround();
      specialization.layout.pushConstantBytes = ToPushConstantBytes(mImmediateMask);
      if (UsesFramebufferFetch()) {
          specialization.layout.framebufferFetchAttachmentCount =
-@@ -562,6 +568,9 @@ ResultOrError<RenderPipeline::SpecializationResult> RenderPipeline::InitializeSp
+@@ -562,6 +568,9 @@ ResultOrUnknownError<RenderPipeline::SpecializationResult> RenderPipeline::Initi
              .polyfillPixelCenter = pixelCenterPolyfillLocation,
              .pipelineUsesFramebufferFetch = UsesFramebufferFetch(),
              .needsMultisampledFramebufferFetch = UseSampleRateShading() && UsesFramebufferFetch(),
@@ -1012,7 +1012,7 @@ index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd18
          }));
      }
  
-@@ -754,6 +763,24 @@ ResultOrError<RenderPipeline::SpecializationResult> RenderPipeline::InitializeSp
+@@ -776,6 +785,24 @@ ResultOrUnknownError<RenderPipeline::SpecializationResult> RenderPipeline::Initi
      createInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
      createInfo.pNext = nullptr;
      createInfo.flags = 0;
@@ -1037,7 +1037,7 @@ index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd18
      createInfo.stageCount = stageCount;
      createInfo.pStages = shaderStages.data();
      createInfo.pVertexInputState = &vertexInputCreateInfo;
-@@ -1085,6 +1112,22 @@ VkPipeline RenderPipeline::GetHandle() const {
+@@ -1109,6 +1136,22 @@ VkPipeline RenderPipeline::GetHandle() const {
      return mHandles.pipeline;
  }
  
@@ -1061,12 +1061,12 @@ index 51ec9c9678d6ba9344b5bc6264be7a5b67c034a0..529e33db13eafa0d5ef59a4e99bbfd18
      DAWN_ASSERT(mHandles.layout != nullptr);
      return mHandles.layout;
 diff --git a/src/dawn/native/vulkan/RenderPipelineVk.h b/src/dawn/native/vulkan/RenderPipelineVk.h
-index 4163ec62beaca7d0da0eb1512d99d739c40a5803..a4295f7c0203c8804b3a30998126af42586b4f25 100644
+index f2012c617484f2162a43ee53b3dbff4b3273f99c..7855c843a51a079e3d710d831787ced4ef293ce1 100644
 --- a/src/dawn/native/vulkan/RenderPipelineVk.h
 +++ b/src/dawn/native/vulkan/RenderPipelineVk.h
-@@ -50,6 +50,8 @@ class RenderPipeline final : public RenderPipelineBase {
-     using Specialization = CommonPipelineSpecialization;
-     ResultOrError<PipelineHandles> GetOrCreateSpecializedHandle(Specialization&& specialization);
+@@ -51,6 +51,8 @@ class RenderPipeline final : public RenderPipelineBase {
+     ResultOrUnknownError<PipelineHandles> GetOrCreateSpecializedHandle(
+         Specialization&& specialization);
      bool RequiresSpecialization() const;
 +    bool UsesZeroColorWriteATCWorkaround() const;
 +    void BindZeroColorWriteATCSink(VkCommandBuffer commands, VkPipelineLayout layout) const;
@@ -1168,10 +1168,10 @@ index f5dd3984c83b6986bb5255914eb438ca49f6c1b5..00da697d7aa1f96f19a833cfac68d56b
  
      wgpu::FilterMode minFilter;
 diff --git a/src/dawn/native/vulkan/ShaderModuleVk.cpp b/src/dawn/native/vulkan/ShaderModuleVk.cpp
-index 2a58c2de6dc02f87983e098f811c157d24664eef..146d25003ab36e3972f6079408d3080b04707dd4 100644
+index 1967ed6d0def46da8bb98acbb2364190dd633f70..049dfd728906eb82e66bbfcd1addc58947d74fbe 100644
 --- a/src/dawn/native/vulkan/ShaderModuleVk.cpp
 +++ b/src/dawn/native/vulkan/ShaderModuleVk.cpp
-@@ -290,6 +290,9 @@ ResultOrError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpirv(
+@@ -290,6 +290,9 @@ ResultOrUnknownError<ShaderModule::ModuleAndSpirv> ShaderModule::GetHandleAndSpi
      req.tintOptions.emit_vertex_point_size = in.emitPointSize;
      req.tintOptions.polyfill_pixel_center = in.polyfillPixelCenter;
      req.tintOptions.multisampled_framebuffer_fetch = in.needsMultisampledFramebufferFetch;
@@ -1182,7 +1182,7 @@ index 2a58c2de6dc02f87983e098f811c157d24664eef..146d25003ab36e3972f6079408d3080b
      req.tintOptions.spirv_version = GetDevice()->IsToggleEnabled(Toggle::UseSpirv14)
                                          ? tint::spirv::writer::SpvVersion::kSpv14
 diff --git a/src/dawn/native/vulkan/ShaderModuleVk.h b/src/dawn/native/vulkan/ShaderModuleVk.h
-index 00d0bee8a3c91e5ddc93aa227fcbbfee8cd0f22a..8e0429b8256ed239aebc886d31cbeb1b3a97ff3a 100644
+index 26326f3cf864ae9fc321789ffedef24952df186b..a660bfb44cab4cd292ccd669b34c11aab66ea34d 100644
 --- a/src/dawn/native/vulkan/ShaderModuleVk.h
 +++ b/src/dawn/native/vulkan/ShaderModuleVk.h
 @@ -76,6 +76,7 @@ class ShaderModule final : public ShaderModuleBase {
@@ -1192,12 +1192,12 @@ index 00d0bee8a3c91e5ddc93aa227fcbbfee8cd0f22a..8e0429b8256ed239aebc886d31cbeb1b
 +        std::optional<uint32_t> zeroColorWriteATCSinkSet = std::nullopt;
      };
  
-     ResultOrError<ModuleAndSpirv> GetHandleAndSpirv(const CompileParameters& in);
+     ResultOrUnknownError<ModuleAndSpirv> GetHandleAndSpirv(const CompileParameters& in);
 diff --git a/src/dawn/native/vulkan/SharedTextureMemoryVk.cpp b/src/dawn/native/vulkan/SharedTextureMemoryVk.cpp
-index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943cf37407bf 100644
+index 1dc32bd44216ce048dc4f2405f774a1c6f5ad522..f6662c408e8cbd7a5aaf99912e0ea97b55f7a981 100644
 --- a/src/dawn/native/vulkan/SharedTextureMemoryVk.cpp
 +++ b/src/dawn/native/vulkan/SharedTextureMemoryVk.cpp
-@@ -55,6 +55,10 @@
+@@ -54,6 +54,10 @@
  #include "src/dawn/native/AHBFunctions.h"
  #endif  // DAWN_PLATFORM_IS(ANDROID)
  
@@ -1208,10 +1208,10 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
  namespace dawn::native::vulkan {
  
  namespace {
-@@ -117,6 +121,88 @@ ResultOrError<wgpu::TextureFormat> FormatFromDrmFormat(uint32_t drmFormat) {
- // `externalMemoryHandleTypeFlagBits`. The rest of the parameters are computed from `properties`
- // and `imageFormatInfo`. Additional structs may be chained by passing them in the varardic
- // parameter args.
+@@ -121,6 +125,170 @@ constexpr auto kDrmFormatNV12 = DrmFourccCode('N', 'V', '1', '2'); /* 2x2 subsam
+     return index.value();
+ }
+ 
 +#if defined(__OHOS__)
 +// VK_OHOS_external_memory, as the HarmonyOS SDK's vulkan_ohos.h declares it.
 +// Declared here because Chromium's Vulkan headers do not have it.
@@ -1292,15 +1292,97 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
 +    DAWN_TRY(CheckVkSuccess(result, "vkCreateImage(OH_NativeBuffer)"));
 +    return image;
 +}
++template <typename... AdditionalChains>
++ResultOrError<VkImage> CreateOhosExternalVkImage(
++    Device* device,
++    const SharedTextureMemoryProperties& properties,
++    const VkPhysicalDeviceImageFormatInfo2& imageFormatInfo,
++    VkExternalMemoryHandleTypeFlagBits externalMemoryHandleTypeFlagBits,
++    AdditionalChains*... additionalChains) {
++    VkImageCreateInfo createInfo = {};
++    createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++    createInfo.flags = imageFormatInfo.flags;
++    createInfo.imageType = imageFormatInfo.type;
++    createInfo.format = imageFormatInfo.format;
++    createInfo.extent = {properties.size.width, properties.size.height, 1};
++    createInfo.mipLevels = 1;
++    createInfo.arrayLayers = properties.size.depthOrArrayLayers;
++    createInfo.samples = VK_SAMPLE_COUNT_1_BIT;
++    createInfo.tiling = imageFormatInfo.tiling;
++    createInfo.usage = imageFormatInfo.usage;
++    createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    createInfo.queueFamilyIndexCount = 0;
++    createInfo.pQueueFamilyIndices = nullptr;
++    createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++
++    VkExternalMemoryImageCreateInfo externalMemoryImageCreateInfo = {};
++    externalMemoryImageCreateInfo.handleTypes = externalMemoryHandleTypeFlagBits;
++
++    PNextChainBuilder createInfoChain(&createInfo);
++    createInfoChain.Add(&externalMemoryImageCreateInfo,
++                        VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO);
++
++    (createInfoChain.Add(additionalChains), ...);
++
++    // Create the VkImage.
++    VkImage vkImage;
++    DAWN_TRY(CheckVkSuccess(
++        device->fn.CreateImage(device->GetVkDevice(), &createInfo, nullptr, &*vkImage),
++        "vkCreateImage"));
++    return vkImage;
++}
++
++// Add `VkPhysicalDeviceExternalImageFormatInfo` and `additionalChains` to `imageFormatInfo` and
++// check this memory type and format combination can be imported.
++template <typename... AdditionalChains>
++MaybeUnknownError CheckOhosExternalImageFormatSupport(
++    Device* device,
++    const SharedTextureMemoryProperties& properties,
++    VkPhysicalDeviceImageFormatInfo2* imageFormatInfo,
++    VkExternalMemoryHandleTypeFlagBits externalMemoryHandleTypeFlagBits,
++    AdditionalChains*... additionalChains) {
++    VkPhysicalDeviceExternalImageFormatInfo externalImageFormatInfo = {};
++    externalImageFormatInfo.handleType = externalMemoryHandleTypeFlagBits;
++
++    PNextChainBuilder imageFormatInfoChain(imageFormatInfo);
++    imageFormatInfoChain.Add(&externalImageFormatInfo,
++                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO);
++    (imageFormatInfoChain.Add(additionalChains), ...);
++
++    VkImageFormatProperties2 imageFormatProps = {};
++    imageFormatProps.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
++
++    VkExternalImageFormatProperties externalImageFormatProps = {};
++
++    PNextChainBuilder imageFormatPropsChain(&imageFormatProps);
++    imageFormatPropsChain.Add(&externalImageFormatProps,
++                              VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES);
++
++    DAWN_TRY_CONTEXT(
++        CheckVkSuccess(device->fn.GetPhysicalDeviceImageFormatProperties2(
++                           ToBackend(device->GetPhysicalDevice())->GetVkPhysicalDevice(),
++                           imageFormatInfo, &imageFormatProps),
++                       "vkGetPhysicalDeviceImageFormatProperties"),
++        "checking import support for external memory type %x with %s %s\n",
++        externalMemoryHandleTypeFlagBits, properties.format, properties.usage);
++
++    VkExternalMemoryFeatureFlags featureFlags =
++        externalImageFormatProps.externalMemoryProperties.externalMemoryFeatures;
++    DAWN_INVALID_IF(!(featureFlags & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT),
++                    "Vulkan memory is not importable.");
++
++    return {};
++}
++
 +#endif  // defined(__OHOS__)
 +
- template <typename... AdditionalChains>
- ResultOrError<VkImage> CreateExternalVkImage(
-     Device* device,
-@@ -770,6 +856,239 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
-         }
-     }
-     return sharedTextureMemory;
+ struct ViewFormatRequirements {
+     bool needsMutable;
+     bool needsBGRA8UnormStoragePolyfill;
+@@ -1003,6 +1171,240 @@ ResultOrUnknownError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
+ #if DAWN_PLATFORM_IS(ANDROID)
+     AHardwareBufferImporter importer(device, descriptor);
+     return importer.DoImport(label);
 +#elif defined(__OHOS__)
 +    // HarmonyOS: the descriptor's handle is an OH_NativeBuffer, imported
 +    // through VK_OHOS_external_memory. Native decoder YUV stays a single
@@ -1402,9 +1484,10 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
 +    const Format* internalFormat = nullptr;
 +    DAWN_TRY_ASSIGN(internalFormat, device->GetInternalFormat(properties.format));
 +
-+    Ref<SharedTextureMemory> sharedTextureMemory = SharedTextureMemory::Create(
-+        device, label, properties, VK_QUEUE_FAMILY_FOREIGN_EXT, yCbCrInfo);
-+    sharedTextureMemory->APIGetProperties(&properties);
++    Ref<SharedTextureMemory> sharedTextureMemory = AcquireRef(new SharedTextureMemory(
++        device, label, properties, VK_QUEUE_FAMILY_FOREIGN_EXT, yCbCrInfo));
++    sharedTextureMemory->Initialize();
++    DAWN_TRY(sharedTextureMemory->GetProperties(&properties));
 +
 +    VkImageUsageFlags vkUsageFlags = VulkanImageUsage(device, properties.usage, *internalFormat);
 +    VkImageCreateFlags vkCreateFlags =
@@ -1452,8 +1535,8 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
 +                imageFormatInfo.pNext = nullptr;
 +                imageFormatInfo.flags = candidateFlags;
 +                handleType = static_cast<VkExternalMemoryHandleTypeFlagBits>(candidateType);
-+                MaybeError supported =
-+                    CheckExternalImageFormatSupport(device, properties, &imageFormatInfo, handleType);
++                MaybeUnknownError supported =
++                    CheckOhosExternalImageFormatSupport(device, properties, &imageFormatInfo, handleType);
 +                imageFormatInfo.pNext = nullptr;
 +                if (!supported.IsError()) {
 +                    importable = true;
@@ -1479,14 +1562,14 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
 +
 +        {
 +            ResultOrError<VkImage> created =
-+                CreateExternalVkImage(device, properties, imageFormatInfo, handleType);
++                CreateOhosExternalVkImage(device, properties, imageFormatInfo, handleType);
 +            if (created.IsError() && !internalFormat->IsMultiPlanar() &&
 +                (imageFormatInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)) {
 +                // Last resort for a single-plane image: no view reinterpretation
 +                // (-srgb views), but the texture itself still works.
 +                std::ignore = created.AcquireError();
 +                imageFormatInfo.flags &= ~VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-+                created = CreateExternalVkImage(device, properties, imageFormatInfo, handleType);
++                created = CreateOhosExternalVkImage(device, properties, imageFormatInfo, handleType);
 +            }
 +            VkImage vkImage;
 +            DAWN_TRY_ASSIGN(vkImage, std::move(created));
@@ -1538,7 +1621,7 @@ index 80150e67561dbb2c4b7a2d4e6fceb96c24d7d766..4c087466b2a0f7fb80bd6858807f943c
      DAWN_UNREACHABLE();
  #endif  // DAWN_PLATFORM_IS(ANDROID)
 diff --git a/src/dawn/native/vulkan/TextureVk.cpp b/src/dawn/native/vulkan/TextureVk.cpp
-index e389acce01e0a00a6f4b3aa98ece417691088532..ed59c29ab6f1f3061c45a3ef977c178258123f1c 100644
+index 5c4b20ad73038cb45821d968cbc9026df1539b7b..16d75ad660117ebcf42f7d43e9a68453169b3e1e 100644
 --- a/src/dawn/native/vulkan/TextureVk.cpp
 +++ b/src/dawn/native/vulkan/TextureVk.cpp
 @@ -28,6 +28,7 @@
@@ -1565,7 +1648,7 @@ index e389acce01e0a00a6f4b3aa98ece417691088532..ed59c29ab6f1f3061c45a3ef977c1782
              // The sampled image can be used as a readonly depth/stencil attachment at the same
              // time if it is a depth/stencil renderable format, so the image layout need to be
              // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL.
-@@ -1802,11 +1812,18 @@ MaybeError ImportedTextureBase::EndAccess(ExternalSemaphoreHandle* handle,
+@@ -1804,11 +1814,18 @@ MaybeError ImportedTextureBase::EndAccess(ExternalSemaphoreHandle* handle,
      // promoting to GENERAL.
      VkImageLayout currentLayout = GetCurrentLayout(GetDisjointVulkanAspects());
      VkImageLayout targetLayout;
@@ -1584,7 +1667,7 @@ index e389acce01e0a00a6f4b3aa98ece417691088532..ed59c29ab6f1f3061c45a3ef977c1782
  
      // We have to manually trigger a transition if the texture hasn't been actually used or if we
      // need a layout transition.
-@@ -2142,10 +2159,23 @@ MaybeError TextureView::Initialize(const UnpackedPtr<TextureViewDescriptor>& des
+@@ -2145,10 +2162,23 @@ MaybeError TextureView::Initialize(const UnpackedPtr<TextureViewDescriptor>& des
              DAWN_ASSERT(device->HasFeature(Feature::OpaqueYCbCrAndroidForExternalTexture));
  
              yCbCr = StaticSamplerSpecialization::GetYCbCrForTextureView(
@@ -1610,7 +1693,7 @@ index e389acce01e0a00a6f4b3aa98ece417691088532..ed59c29ab6f1f3061c45a3ef977c1782
          DAWN_TRY_ASSIGN(mSamplerYCbCrConversion, CreateSamplerYCbCrConversion(device, yCbCr));
  
 diff --git a/src/dawn/native/vulkan/UtilsVulkan.cpp b/src/dawn/native/vulkan/UtilsVulkan.cpp
-index 0d0bdc84d0236cc2e2f62569f24f864fe229cf13..3511f821a3add21be1a81fafc22dcdd830aa511e 100644
+index 9503403075442ba42f79845f8aace04c6ce54ab1..f6f46dfc72b5c9984038372edb1b6a6e223a551e 100644
 --- a/src/dawn/native/vulkan/UtilsVulkan.cpp
 +++ b/src/dawn/native/vulkan/UtilsVulkan.cpp
 @@ -474,6 +474,17 @@ ResultOrError<VkSamplerYcbcrConversion> CreateSamplerYCbCrConversion(
@@ -1632,10 +1715,10 @@ index 0d0bdc84d0236cc2e2f62569f24f864fe229cf13..3511f821a3add21be1a81fafc22dcdd8
      }
  #endif  // DAWN_PLATFORM_IS(ANDROID)
 diff --git a/src/dawn/native/vulkan/VulkanExtensions.cpp b/src/dawn/native/vulkan/VulkanExtensions.cpp
-index 8ce610dc4f484382db5327bc425de942da69b830..e993c18994eece06d4661a50b8652eede6322ab8 100644
+index 9f232221c6cf4c31fd3deae9e90992d9f87165e4..e58d4ac6fb7cdea97b805dded52f4d4ea2765df1 100644
 --- a/src/dawn/native/vulkan/VulkanExtensions.cpp
 +++ b/src/dawn/native/vulkan/VulkanExtensions.cpp
-@@ -161,6 +161,7 @@ static constexpr std::array<DeviceExtInfo, kDeviceExtCount> sDeviceExtInfos{{
+@@ -162,6 +162,7 @@ static constexpr std::array<DeviceExtInfo, kDeviceExtCount> sDeviceExtInfos{{
  
      {DeviceExt::ExternalMemoryAndroidHardwareBuffer,
       "VK_ANDROID_external_memory_android_hardware_buffer"},
@@ -1643,7 +1726,7 @@ index 8ce610dc4f484382db5327bc425de942da69b830..e993c18994eece06d4661a50b8652eed
      {DeviceExt::ExternalMemoryFD, "VK_KHR_external_memory_fd"},
      {DeviceExt::ExternalMemoryDmaBuf, "VK_EXT_external_memory_dma_buf"},
      {DeviceExt::ExternalMemoryZirconHandle, "VK_FUCHSIA_external_memory"},
-@@ -254,6 +255,7 @@ DeviceExtSet EnsureDependencies(const DeviceExtSet& advertisedExts,
+@@ -261,6 +262,7 @@ DeviceExtSet EnsureDependencies(const DeviceExtSet& advertisedExts,
                  break;
  
              case DeviceExt::ExternalMemoryAndroidHardwareBuffer:
@@ -1652,10 +1735,10 @@ index 8ce610dc4f484382db5327bc425de942da69b830..e993c18994eece06d4661a50b8652eed
                  break;
  
 diff --git a/src/dawn/native/vulkan/VulkanExtensions.h b/src/dawn/native/vulkan/VulkanExtensions.h
-index 78d79a4c6447b172e5d075dcc081e450095eabf2..acf1e614311590a8c7b949105f7db15db58cc70f 100644
+index 830782263df5738a125ad624885267489d30730d..8d64d0ff90ad8f3cefd9692f2b9ad00171cc5bae 100644
 --- a/src/dawn/native/vulkan/VulkanExtensions.h
 +++ b/src/dawn/native/vulkan/VulkanExtensions.h
-@@ -120,6 +120,7 @@ enum class DeviceExt : uint32_t {
+@@ -121,6 +121,7 @@ enum class DeviceExt : uint32_t {
  
      // External* extensions
      ExternalMemoryAndroidHardwareBuffer,
@@ -1664,7 +1747,7 @@ index 78d79a4c6447b172e5d075dcc081e450095eabf2..acf1e614311590a8c7b949105f7db15d
      ExternalMemoryDmaBuf,
      ExternalMemoryZirconHandle,
 diff --git a/src/dawn/native/vulkan/VulkanFunctions.cpp b/src/dawn/native/vulkan/VulkanFunctions.cpp
-index 60b075deaf0f871d46b0681d707eda025bbf060a..59046797f63c8dfe5874cb8e30046c36d344a804 100644
+index 1406c763330f30780614499d47b01dfd8bde2643..9b9e01a4407368cd4cb85feec8d685a483971ef7 100644
 --- a/src/dawn/native/vulkan/VulkanFunctions.cpp
 +++ b/src/dawn/native/vulkan/VulkanFunctions.cpp
 @@ -470,6 +470,16 @@ MaybeError VulkanFunctions::LoadDeviceProcs(VkInstance instance,
@@ -1706,7 +1789,7 @@ index 5f50822dea00d90f41cfd470c9ec997b5c75bbe1..f59a15de53f1314328a43c4c9f9eaf96
      // KHR_xlib_surface
      VkFn<PFN_vkCreateXlibSurfaceKHR> CreateXlibSurfaceKHR = nullptr;
 diff --git a/src/dawn/native/vulkan/VulkanInfo.h b/src/dawn/native/vulkan/VulkanInfo.h
-index d705eed8bca69b49294dfbace60b315c6c178e13..fdda2761f5d885a74caeb72bd4fa5cb3b15f6078 100644
+index d5bd7e22f199ab2b6c41fe9b2aebd0534ab8e4f1..e204fe097067909e07389de93d6a9f0125b8c6e0 100644
 --- a/src/dawn/native/vulkan/VulkanInfo.h
 +++ b/src/dawn/native/vulkan/VulkanInfo.h
 @@ -28,6 +28,7 @@
@@ -2346,10 +2429,10 @@ index fa82bc0d825c24b343b7f38201c4fac0c226c7b1..a3da9d2bb6078adae9944d3c4262fe2c
  }
  )";
 diff --git a/src/tint/lang/spirv/writer/common/options.h b/src/tint/lang/spirv/writer/common/options.h
-index 9c2475d4d59b627c6a7d47e0e52a02c79210ae28..11e4fe5bfea60ab0327edc0afd2194496c558488 100644
+index e7c224421c8a2c705923c33abc14b1b58186d313..32ff0083c4f12fd0328145b489a6890359bd9f73 100644
 --- a/src/tint/lang/spirv/writer/common/options.h
 +++ b/src/tint/lang/spirv/writer/common/options.h
-@@ -308,6 +308,9 @@ struct Options {
+@@ -303,6 +303,9 @@ struct Options {
      /// user-defined. Used to size the decomposed immediate array.
      uint32_t minimum_immediate_size = 0;
  
@@ -2359,7 +2442,7 @@ index 9c2475d4d59b627c6a7d47e0e52a02c79210ae28..11e4fe5bfea60ab0327edc0afd219449
      /// Reflect the fields of this class so that it can be used by tint::ForeachField()
      TINT_REFLECT(Options,
                   entry_point_name,
-@@ -329,7 +332,8 @@ struct Options {
+@@ -324,7 +327,8 @@ struct Options {
                   spirv_version,
                   resource_table,
                   substitute_overrides_config,
@@ -2370,7 +2453,7 @@ index 9c2475d4d59b627c6a7d47e0e52a02c79210ae28..11e4fe5bfea60ab0327edc0afd219449
  
  }  // namespace tint::spirv::writer
 diff --git a/src/tint/lang/spirv/writer/raise/raise.cc b/src/tint/lang/spirv/writer/raise/raise.cc
-index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de2c56ffaa 100644
+index df575460cba36b00f1842dc7f8513eb129d2ca90..989dee115f3f91276653e5717c1cffc01bc8d5e4 100644
 --- a/src/tint/lang/spirv/writer/raise/raise.cc
 +++ b/src/tint/lang/spirv/writer/raise/raise.cc
 @@ -27,7 +27,11 @@
@@ -2385,7 +2468,7 @@ index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de
  #include "src/tint/lang/core/ir/transform/bgra8unorm_polyfill.h"
  #include "src/tint/lang/core/ir/transform/binary_polyfill.h"
  #include "src/tint/lang/core/ir/transform/binding_remapper.h"
-@@ -55,6 +59,11 @@
+@@ -54,6 +58,11 @@
  #include "src/tint/lang/core/ir/transform/substitute_overrides.h"
  #include "src/tint/lang/core/ir/transform/vectorize_scalar_matrix_constructors.h"
  #include "src/tint/lang/core/ir/transform/zero_init_workgroup_memory.h"
@@ -2397,7 +2480,7 @@ index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de
  #include "src/tint/lang/spirv/writer/common/option_helpers.h"
  #include "src/tint/lang/spirv/writer/raise/builtin_polyfill.h"
  #include "src/tint/lang/spirv/writer/raise/case_switch_to_if_else.h"
-@@ -73,6 +82,108 @@
+@@ -72,6 +81,108 @@
  
  namespace tint::spirv::writer {
  
@@ -2506,7 +2589,7 @@ index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de
  Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
      TINT_CHECK_RESULT(core::ir::transform::SingleEntryPoint(module, options.entry_point_name));
  
-@@ -88,6 +199,32 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
+@@ -87,6 +198,32 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
  
      TINT_CHECK_RESULT(core::ir::transform::BindingRemapper(module, remapper_data));
  
@@ -2539,7 +2622,7 @@ index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de
      if (!options.disable_robustness) {
          core::ir::transform::RobustnessConfig config;
          if (options.extensions.disable_image_robustness) {
-@@ -169,10 +306,22 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
+@@ -168,10 +305,22 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
      // flattened.
      TINT_CHECK_RESULT(core::ir::transform::MultiplanarExternalTexture(module, multiplanar_map));
  
@@ -2563,7 +2646,7 @@ index 2fb6841aef2fca837fe414d70515e0313009ea22..b304eaabcb7728bb0f61d5391135d0de
          TINT_CHECK_RESULT(raise::KeepBindingArrayAsPointer(module));
      }
  
-@@ -301,6 +450,10 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
+@@ -298,6 +447,10 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
  
      TINT_CHECK_RESULT(raise::VarForDynamicIndex(module));
  
