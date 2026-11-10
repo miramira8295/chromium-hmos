@@ -7,8 +7,10 @@ A Chromium adaptation for HarmonyOS that provides the browser engine used by
 platform patches, integration sources, the engine bridge and build tooling;
 Lumie's application UI is maintained in its own repository.
 
-The active branch is **`hmos-155-adapter`**, based on Chromium **155**.
-`hmos-154-adapter` retains the earlier 154 adaptation. This is an independent,
+This branch, **`hmos-157-adapter`**, ports the 155 adaptation to Chromium **157**.
+Migration and native build validation are in progress; 157 has not passed device
+regression. **`hmos-155-adapter`** remains the maintained baseline until then.
+154 CI is retired; its branch remains as history. This is an independent,
 unofficial project, not endorsed by Google, Chromium, Huawei or OpenHarmony.
 
 [Build guide](BUILDING.md) · [Engine downloads](https://github.com/miramira8295/chromium-hmos/releases) · [Native build CI](https://github.com/miramira8295/chromium-hmos/actions/workflows/incremental-build.yml) · [Third-party notices](OPEN_SOURCE_NOTICES.md)
@@ -45,8 +47,8 @@ codec and DRM boundaries are described in [media policy](docs/DRM_AND_MEDIA.md).
 
 ## Baseline
 
-- Chromium: `155.0.8059.91`
-- Upstream revision: `f043649a0ef1fd96e48d56ddbfc8a4a99aa2ca37`
+- Chromium: `157.0.8103.77`
+- Upstream revision: `7d4508cbfffd289d7015f7703bce215d3ab123bf`
 - Target OS: `ohos` (presented to Chromium as HarmonyOS)
 - Target CPU: `arm64`
 - Product: `kirin_pc`; CI output: `out/ohos_arm64`
@@ -71,8 +73,9 @@ codec and DRM boundaries are described in [media policy](docs/DRM_AND_MEDIA.md).
 
 ## Repository Layout
 
-- `patches/migration-155/`: the complete native and DEPS adaptations rebased
-  onto the pinned 155 revisions; `manifest.json` records provenance and hashes.
+- `patches/migration-157/`: native and DEPS adaptations ported from 155;
+  `manifest.json` records provenance, hashes and included incremental patches.
+- `patches/migration-155/`: retained 155 adaptation snapshots.
 - `patches/chromium-154-harmonyos.patch`: the historical 154 baseline.
 - `patches/deps/`: OHOS changes to DEPS repositories (V8, ANGLE, Dawn, FFmpeg,
   PDFium, Skia, WebRTC, and others), listed in `patches/deps/series`. See
@@ -84,7 +87,8 @@ codec and DRM boundaries are described in [media policy](docs/DRM_AND_MEDIA.md).
 - `external/deps_code/webview/`: WebView interface sources required by the
   adapter.
 - `config/args.plan_kirin_pc.gn`: GN arguments used by the tested native build.
-- `scripts/prepare-chromium-155.sh`: prepares the isolated self-hosted 155 checkout.
+- `scripts/prepare-chromium-157.sh`: prepares 157 using the retired 154 tree.
+- `scripts/prepare-chromium-155.sh`: maintains the separate 155 checkout.
 - `.github/workflows/`: GitHub Actions adapter checks, incremental native builds,
   runtime inspection and stable tracking. Native builds use the existing
   `self-hosted, harmonyos-chromium` runner.

@@ -11,36 +11,42 @@
 
 ## Isolated CI source trees
 
-This branch pins Chromium **155.0.8059.91** at
-`f043649a0ef1fd96e48d56ddbfc8a4a99aa2ca37`. The stable 154 baseline and its
-working build directory stay intact.
+This branch pins Chromium **157.0.8103.77** at
+`7d4508cbfffd289d7015f7703bce215d3ab123bf`. Migration and native validation
+are in progress; 155 remains maintained until 157 passes regression.
 
 | Adapter branch | Native source | Native output |
 | --- | --- | --- |
-| `hmos-154-adapter` | `/root/chromium-154/src` | `out/ohos_arm64` inside 154 |
-| `hmos-155-adapter` | `/root/chromium-155/src` | `out/ohos_arm64` inside 155 |
+| `hmos-155-adapter` | `/root/chromium-155/src` | its existing `out/ohos_arm64` |
+| `hmos-157-adapter` | `/root/chromium-157/src` | its new `out/ohos_arm64` |
 
-Native compilation runs through push-triggered GitHub Actions. Push source
-changes to the corresponding adapter branch; `select-ci-engine.py` rejects
-other refs, and both branches share a serial build queue.
+154 CI is retired. Native compilation runs through push-triggered GitHub
+Actions. Push changes to the corresponding adapter branch;
+`select-ci-engine.py` rejects other refs. Both branches share a serial native
+build queue, while 157 preparation rejects any source path except its own.
+Do not invoke the native build manually on the runner.
 
-## Chromium 155 preparation
+## Chromium 157 preparation
 
-The 155 job runs `scripts/prepare-chromium-155.sh`. It seeds independent files
-and Git objects from the 154 checkout without its native outputs, synchronizes
-the new DEPS with shallow history, and uses a pinned bootstrap tool checkout
-at `/root/chromium-155/depot_tools`. Private SDK links are restored after
-upstream synchronization. The existing licensed SDK exposes its compiler
-runtime through `native/llvm/lib/clang/current/`; the 155 job reuses those
-links.
+`scripts/prepare-chromium-157.sh` repurposes `/root/chromium-154` by renaming
+it to `/root/chromium-157`, preserving source, dependency and download caches.
+The previous outputs, native diff and arguments are archived under
+`/root/chromium-157/retired-154/`. A fresh 157 output directory avoids carrying
+154 generated files across compiler and dependency changes. Repeated 157 CI
+runs reuse their completed objects. The separate 155 tree is never a source
+or destination of this migration.
 
-The job verifies every revision and payload hash in
-`patches/migration-155/manifest.json`, applies the native and dependency
-snapshots, synchronizes the overlay by content and runs toolchain hooks.
-Unchanged compiler inputs retain their timestamps during retries.
+The job synchronizes the pinned 157 DEPS, restores its saved SDK links and
+verifies `patches/migration-157/manifest.json` before applying all snapshots.
+The manifest also hashes shared incremental patches already folded into the
+157 snapshot: changing one requires porting it into 157, rather than silently
+ignoring it or replaying a patch based on an older release. Overlay sources
+are synchronized by content. Unchanged inputs retain timestamps on retries.
 
-`scripts/apply-adapter.sh` and `patches/deps/series` describe the historical
-154 setup. The 155 workflow uses `patches/migration-155/` instead.
+155 preparation continues using `patches/migration-155/`. Its existing tree
+and arguments are preserved; only a fresh bootstrap may seed independent
+source files from 157. `scripts/apply-adapter.sh` and `patches/deps/series`
+remain historical 154 tooling.
 
 ## Native build
 
@@ -65,10 +71,11 @@ It also enables the Chromium AAC/H.264 build switches used by the validated
 test package. Those switches do not grant codec patent or distribution rights;
 distributors remain responsible for the licenses required in their markets.
 
-The 155 bootstrap copies `config/args.plan_kirin_pc.gn` only when the output
+Each bootstrap copies `config/args.plan_kirin_pc.gn` only when the output
 has no arguments file. Subsequent builds retain that tree's arguments; the
 profile helper synchronizes the repository's V8 PGO and context snapshot
-choices. The 154 workflow continues using its existing arguments file.
+choices. 157 preparation removes the build argument removed upstream; all other
+persistent arguments remain in that engine’s own output directory.
 
 ## HAP
 

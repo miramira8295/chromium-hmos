@@ -4,7 +4,7 @@
 
 面向 HarmonyOS 的 Chromium 适配层，为 [Lumie 浏览器](https://github.com/miramira8295/Lumie)提供内核。本仓库维护原生平台补丁、系统集成源码、引擎桥接及构建工具；Lumie 的应用界面在独立仓库维护。
 
-当前主用分支为 **`hmos-155-adapter`**，基于 Chromium **155**；`hmos-154-adapter` 保留早期 154 适配。这是独立、非官方项目，不代表 Google、Chromium、华为或 OpenHarmony 官方立场。
+本分支 **`hmos-157-adapter`** 将 155 适配迁移至 Chromium **157**，目前仍在进行迁移及原生构建验证，尚未通过真机回归。稳定前继续维护 **`hmos-155-adapter`**；154 CI 已停用，分支保留作为历史。这是独立、非官方项目，不代表 Google、Chromium、华为或 OpenHarmony 官方立场。
 
 [构建指南](BUILDING.md) · [引擎下载](https://github.com/miramira8295/chromium-hmos/releases) · [原生构建 CI](https://github.com/miramira8295/chromium-hmos/actions/workflows/incremental-build.yml) · [第三方许可](OPEN_SOURCE_NOTICES.md)
 
@@ -29,8 +29,8 @@
 
 ## 基线
 
-- Chromium：`155.0.8059.91`
-- 上游提交：`f043649a0ef1fd96e48d56ddbfc8a4a99aa2ca37`
+- Chromium：`157.0.8103.77`
+- 上游提交：`7d4508cbfffd289d7015f7703bce215d3ab123bf`
 - 目标系统：`ohos`，产品界面统一表述为 HarmonyOS
 - 目标架构：`arm64`
 - 单一产品：`kirin_pc`；CI 输出目录为 `out/ohos_arm64`
@@ -49,12 +49,14 @@
 
 ## 仓库内容
 
-- `patches/migration-155/`：已重定位到固定 155 提交的主仓与依赖适配；清单记录来源和校验值。
+- `patches/migration-157/`：从 155 迁移的主仓与依赖适配，清单记录来源、校验值及已纳入的增量补丁。
+- `patches/migration-155/`：保留的 155 适配快照。
 - `patches/chromium-154-harmonyos.patch`：保留的历史 154 基线。
 - `overlay/`：新增的 HarmonyOS、ArkWeb、Ozone、Aura shell 与 ArkUI 源码。
 - `external/deps_code/webview/`：适配层需要的 WebView 接口源码。
 - `config/args.plan_kirin_pc.gn`：本次原生构建使用的 GN 参数。
-- `scripts/prepare-chromium-155.sh`：在自托管运行器准备独立的 155 源码。
+- `scripts/prepare-chromium-157.sh`：复用已退役的 154 目录准备 157。
+- `scripts/prepare-chromium-155.sh`：维护独立的 155 源码。
 - `.github/workflows/`：GitHub Actions 适配检查、增量构建、运行时检查与稳定版跟踪；原生构建沿用 `self-hosted, harmonyos-chromium` 运行器。
 - `_bak/depot-workflows/`：Depot 工作流归档，不自动执行；历史配置见 [Depot CI](docs/DEPOT_CI.md)。
 - `licenses/`：许可证正文与第三方许可证清单。
@@ -64,7 +66,7 @@
 
 ## 通过 CI 构建
 
-将源码改动推送到 `hmos-155-adapter`。GitHub Actions 在独立的 `/root/chromium-155/src` 构建原生运行时并打包 engine HAR。两条正式分支共用已有自托管运行器，以同一并发组串行构建；手动运行可选择仅上传验证 HAR，不发布预发布版本。
+将 157 改动推送到 `hmos-157-adapter`，GitHub Actions 在 `/root/chromium-157/src` 构建并打包 engine HAR。155 改动继续推送到 `hmos-155-adapter`，使用原有 `/root/chromium-155/src`；157 迁移不写入其构建目录或缓存。两条正式分支共用已有自托管运行器，以同一并发组串行构建；手动运行可选择仅上传验证 HAR，不发布预发布版本。
 
 目录和分支约定见 [BUILDING.md](BUILDING.md) 和[迁移说明](docs/CHROMIUM_155_MIGRATION.md)。`scripts/apply-adapter.sh` 保留用于历史 154 源码树。
 

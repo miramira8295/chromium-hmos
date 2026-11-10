@@ -1,5 +1,8 @@
 # Chromium 155 migration
 
+> Historical migration record. 154 CI has since retired; current native CI
+> routes 155 and 157 to separate directories. See [BUILDING.md](../BUILDING.md).
+
 The release branches are `hmos-154-adapter` and `hmos-155-adapter`. GitHub Actions
 uses separate `/root/chromium-154/src` and `/root/chromium-155/src` checkouts on
 the existing self-hosted runner. Both branches share the native concurrency
