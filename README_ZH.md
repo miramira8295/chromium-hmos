@@ -4,7 +4,7 @@
 
 面向 HarmonyOS 的 Chromium 适配层，为 [Lumie 浏览器](https://github.com/miramira8295/Lumie)提供内核。本仓库维护原生平台补丁、系统集成源码、引擎桥接及构建工具；Lumie 的应用界面在独立仓库维护。
 
-本分支 **`hmos-157-adapter`** 将 155 适配迁移至 Chromium **157**，目前仍在进行迁移及原生构建验证，尚未通过真机回归。稳定前继续维护 **`hmos-155-adapter`**；154 CI 已停用，分支保留作为历史。这是独立、非官方项目，不代表 Google、Chromium、华为或 OpenHarmony 官方立场。
+本分支 **`hmos-157-adapter`** 将 155 适配迁移至 Chromium **157**，已于 2026-11-11 通过原生编译、engine HAR 打包与 CI 检查，详见[迁移记录](docs/CHROMIUM_157_MIGRATION.md)。真机回归仍待验证；稳定前继续维护 **`hmos-155-adapter`**。154 CI 已停用，分支保留作为历史。这是独立、非官方项目，不代表 Google、Chromium、华为或 OpenHarmony 官方立场。
 
 [构建指南](BUILDING.md) · [引擎下载](https://github.com/miramira8295/chromium-hmos/releases) · [原生构建 CI](https://github.com/miramira8295/chromium-hmos/actions/workflows/incremental-build.yml) · [第三方许可](OPEN_SOURCE_NOTICES.md)
 

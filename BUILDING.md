@@ -12,8 +12,10 @@
 ## Isolated CI source trees
 
 This branch pins Chromium **157.0.8103.77** at
-`7d4508cbfffd289d7015f7703bce215d3ab123bf`. Migration and native validation
-are in progress; 155 remains maintained until 157 passes regression.
+`7d4508cbfffd289d7015f7703bce215d3ab123bf`. Native compilation, HAR packaging
+and CI checks passed on 2026-11-11; see the
+[migration record](docs/CHROMIUM_157_MIGRATION.md). Device regression remains
+pending, and 155 remains maintained until 157 passes it.
 
 | Adapter branch | Native source | Native output |
 | --- | --- | --- |

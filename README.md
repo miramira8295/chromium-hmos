@@ -8,8 +8,9 @@ platform patches, integration sources, the engine bridge and build tooling;
 Lumie's application UI is maintained in its own repository.
 
 This branch, **`hmos-157-adapter`**, ports the 155 adaptation to Chromium **157**.
-Migration and native build validation are in progress; 157 has not passed device
-regression. **`hmos-155-adapter`** remains the maintained baseline until then.
+The native build, engine HAR packaging and CI checks passed on 2026-11-11;
+see the [migration record](docs/CHROMIUM_157_MIGRATION.md). Device regression is
+still pending. **`hmos-155-adapter`** remains the maintained baseline until then.
 154 CI is retired; its branch remains as history. This is an independent,
 unofficial project, not endorsed by Google, Chromium, Huawei or OpenHarmony.
 
