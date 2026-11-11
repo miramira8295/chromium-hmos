@@ -5706,6 +5706,18 @@ index 01c5f8e2c7671abd5c621c0e8ddcae1fc8188f78..e8f2240cc493da5730cd9a2bbda9f845
  
  source_set("file_system_access") {
    sources = [
+diff --git a/chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc b/chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc
+index 991e489ac9eca1262312ab6ad392d694d7247318..65378218ad52a4b947ef6c72f3e8204a0ec876cf 100644
+--- a/chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc
++++ b/chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc
+@@ -71,6 +71,7 @@
+ #include "extensions/buildflags/buildflags.h"
+ #include "storage/browser/file_system/external_mount_points.h"
+ #include "third_party/blink/public/common/features_generated.h"
++#include "third_party/blink/public/common/storage_key/storage_key.h"
+ #include "third_party/blink/public/mojom/file_system_access/file_system_access_manager.mojom.h"
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/display/types/display_constants.h"
 diff --git a/chrome/browser/first_run/BUILD.gn b/chrome/browser/first_run/BUILD.gn
 index 916effd38d92ccd1541c0d26dbbc4f09f8b6734f..163fec78bfce208a0e6e6bb3acd591eacb6bf0d0 100644
 --- a/chrome/browser/first_run/BUILD.gn

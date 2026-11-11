@@ -112,6 +112,7 @@ obj/chrome/browser/extensions/extensions/extension_updater.o
 obj/chrome/browser/extensions/extensions/removable_storage_provider_ohos.o
 obj/chrome/browser/external_protocol/impl/external_protocol_handler.o
 obj/chrome/browser/feedback/report_unsafe_site/report_unsafe_site/screenshot_taker.o
+obj/chrome/browser/file_system_access/impl/chrome_file_system_access_permission_context.o
 obj/chrome/browser/first_run/impl/first_run_internal_ohos.o
 obj/chrome/browser/first_run/impl/upgrade_util_ohos.o
 obj/chrome/browser/glic/impl/glic_web_client_handler.o
