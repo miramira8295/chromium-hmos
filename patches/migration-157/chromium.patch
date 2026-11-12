@@ -39349,6 +39349,21 @@ index 6460d87f5982bd0e8cbc4c6364cd0c05b2ba8772..69f7c408889bca41a613fe4a5f9cfed3
      include_dirs = [ "linux" ]
    } else if (is_win) {
      include_dirs = [ "win32" ]
+diff --git a/third_party/litert/BUILD.gn b/third_party/litert/BUILD.gn
+--- a/third_party/litert/BUILD.gn
++++ b/third_party/litert/BUILD.gn
+@@ -89,6 +89,11 @@ config("litert_config") {
+     defines += [ "_USE_MATH_DEFINES" ]
+   }
+ 
++  if (is_ohos) {
++    # OHOS musl defines RTLD_DI_LINKMAP in <dlfcn.h> without declaring dlinfo().
++    defines += [ "dlinfo(handle,request,p)=((void)(handle),(void)(request),(void)(p),-1)" ]
++  }
++
+   visibility = [
+     ":*",
+     "//third_party/tflite:*",
 diff --git a/third_party/protobuf/src/google/protobuf/io/zero_copy_stream_impl.cc b/third_party/protobuf/src/google/protobuf/io/zero_copy_stream_impl.cc
 index 8f951683e8dc99a370c627fc14023cf981c63629..0cea012dfc9fda665b3941f9c3b931328d6f0865 100644
 --- a/third_party/protobuf/src/google/protobuf/io/zero_copy_stream_impl.cc

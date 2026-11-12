@@ -606,6 +606,7 @@ obj/third_party/dawn/src/dawn/native/sources/WaitAnySystemEvent.o
 obj/third_party/dawn/src/tint/lang/core/ir/transform/transform/multiplanar_external_texture.o
 obj/third_party/dawn/src/tint/lang/spirv/writer/raise/raise/raise.o
 obj/third_party/litert/litert_runtime/ion_buffer.o
+obj/third_party/litert/litert_runtime/tensor_buffer.o
 obj/third_party/pdfium/core/fxge/fxge/cfx_face.o
 obj/third_party/perfetto/src/base/unix_socket/unix_socket.o
 obj/third_party/protobuf/protobuf_lite_library/zero_copy_stream_impl.o

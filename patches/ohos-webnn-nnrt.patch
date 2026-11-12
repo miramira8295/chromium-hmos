@@ -157,16 +157,13 @@ diff --git a/services/webnn/webnn_context_provider_in_renderer.cc b/services/web
 diff --git a/third_party/litert/BUILD.gn b/third_party/litert/BUILD.gn
 --- a/third_party/litert/BUILD.gn
 +++ b/third_party/litert/BUILD.gn
-@@ -89,6 +89,14 @@ config("litert_config") {
+@@ -89,6 +89,11 @@ config("litert_config") {
      defines += [ "_USE_MATH_DEFINES" ]
    }
  
 +  if (is_ohos) {
-+    defines += [
-+      "LITERT_DISABLE_DMABUF_SUPPORT",
-+      "LITERT_DISABLE_FASTRPC_SUPPORT",
-+      "LITERT_DISABLE_ION_SUPPORT",
-+    ]
++    # OHOS musl defines RTLD_DI_LINKMAP in <dlfcn.h> without declaring dlinfo().
++    defines += [ "dlinfo(handle,request,p)=((void)(handle),(void)(request),(void)(p),-1)" ]
 +  }
 +
    visibility = [
