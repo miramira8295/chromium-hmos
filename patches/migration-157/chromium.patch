@@ -36568,6 +36568,22 @@ index 074e88a9a7c40b7b5202736f5c9098ff49dda925..299843587be48e4cb1c4bd04332d7c4d
    if (is_apple) {
      sources += [
        "coreml/buffer_content_coreml.h",
+diff --git a/services/webnn/features.gni b/services/webnn/features.gni
+--- a/services/webnn/features.gni
++++ b/services/webnn/features.gni
+@@ -9,10 +9,10 @@ assert(use_blink)
+ 
+ declare_args() {
+   # TFLite is used as a fallback option on Apple and Windows.
+-  webnn_use_tflite = is_android || is_chromeos || is_linux || is_apple || is_win
++  webnn_use_tflite = is_android || is_chromeos || is_linux || is_apple || is_win || is_ohos
+ 
+   # LiteRT matches TFLite.
+-  webnn_use_litert = is_android || is_chromeos || is_linux || is_apple || is_win
++  webnn_use_litert = is_android || is_chromeos || is_linux || is_apple || is_win || is_ohos
+ 
+   # Enable the GPU delegate provided by the Optimization Guide library.
+   webnn_use_chrome_ml_api = enable_ml_internal
 diff --git a/services/webnn/webnn_context_impl.h b/services/webnn/webnn_context_impl.h
 index 6c4ce55bb9ce84df51c00526badcc3b7e42bec44..d65f0e52fd93ca51ca94bf8ef66f29cc712cc040 100644
 --- a/services/webnn/webnn_context_impl.h
@@ -36613,12 +36629,22 @@ index 997fbfc988172f202be2b9bd005d884ac753b7cd..da288f6b6b1b43ff5d6403730940290e
    // Each context gets a GPU sequence that must be destroyed on the GPU main
    // thread. See `sequences_` and `pending_sequences_` comments in the header
    // for the full sequence lifecycle.
-@@ -468,6 +481,29 @@ void WebNNContextProviderImpl::CreateWebNNContext(
+@@ -468,6 +481,39 @@ void WebNNContextProviderImpl::CreateWebNNContext(
  
    RecordDeviceType(options->device);
  
 +#if BUILDFLAG(IS_OHOS)
-+  if (use_ohos_nnrt) {
++  if (options->device == mojom::Device::kNpu && !g_backend_for_testing) {
++    if (!use_ohos_nnrt) {
++      OnCreateWebNNContextImpl(
++          std::move(callback), mojo::PendingRemote<mojom::WebNNContext>(),
++          mojo::ScopedDataPipeProducerHandle(),
++          mojo::ScopedDataPipeConsumerHandle(), sequence_id, command_buffer_id,
++          /*compiler_context_remote=*/mojo::NullRemote(),
++          WebNNContextImplPtr(nullptr,
++                              OnTaskRunnerDeleter(owning_task_runner)));
++      return;
++    }
 +    mojo::PendingRemote<mojom::WebNNContext> remote;
 +    auto receiver = remote.InitWithNewPipeAndPassReceiver();
 +    // No renderer fallback: an NPU probe must not silently execute on CPU.
@@ -36643,6 +36669,32 @@ index 997fbfc988172f202be2b9bd005d884ac753b7cd..da288f6b6b1b43ff5d6403730940290e
  #if BUILDFLAG(IS_WIN)
    if (ort::ShouldTryCreateOrtContext()) {
      const base::CommandLine* command_line =
+diff --git a/services/webnn/webnn_context_provider_in_renderer.cc b/services/webnn/webnn_context_provider_in_renderer.cc
+--- a/services/webnn/webnn_context_provider_in_renderer.cc
++++ b/services/webnn/webnn_context_provider_in_renderer.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/check.h"
+ #include "base/task/thread_pool.h"
++#include "build/build_config.h"
+ #include "services/webnn/buildflags.h"
+ #include "services/webnn/error.h"
+ #include "services/webnn/public/cpp/context_properties.h"
+@@ -37,6 +38,14 @@ WebNNContextProviderInRenderer::~WebNNContextProviderInRenderer() = default;
+ void WebNNContextProviderInRenderer::CreateWebNNContext(
+     mojom::CreateContextOptionsPtr options,
+     CreateWebNNContextCallback callback) {
++#if BUILDFLAG(IS_OHOS)
++  if (options->device == mojom::Device::kNpu) {
++    std::move(callback).Run(ToError<mojom::CreateContextResult>(
++        mojom::Error::Code::kNotSupportedError,
++        "OHOS WebNN NPU context requires NNRt and does not fall back to CPU."));
++    return;
++  }
++#endif
+   // Force the device to CPU for non-GPU requests (e.g. NPU).
+   if (options->device != mojom::Device::kGpu) {
+     options->device = mojom::Device::kCpu;
 diff --git a/skia/BUILD.gn b/skia/BUILD.gn
 index 1b586df72fa953d06cef8fdfb02b2d8c04c2e01e..a209228d5521dfd575ffa5d7db1448b1b871986b 100644
 --- a/skia/BUILD.gn

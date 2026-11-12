@@ -5,6 +5,9 @@
 #ifndef SERVICES_WEBNN_OHOS_CONTEXT_IMPL_OHOS_H_
 #define SERVICES_WEBNN_OHOS_CONTEXT_IMPL_OHOS_H_
 
+#include <string>
+#include <vector>
+
 #include "base/feature_list.h"
 #include "services/webnn/ohos/nnrt_add_model.h"
 #include "services/webnn/webnn_context_impl.h"
@@ -51,7 +54,7 @@ class ContextImplOhos final : public WebNNContextImpl {
       scoped_refptr<base::SingleThreadTaskRunner> owning_task_runner,
       gpu::SharedImageManager* shared_image_manager,
       scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
-      NnrtDevice device);
+      std::vector<NnrtDevice> devices);
   base::expected<scoped_refptr<WebNNTensorImpl>, mojom::ErrorPtr>
   CreateTensorImpl(mojo::PendingAssociatedReceiver<mojom::WebNNTensor> receiver,
                    mojom::TensorInfoPtr tensor_info) override;
@@ -61,7 +64,7 @@ class ContextImplOhos final : public WebNNContextImpl {
       mojom::TensorInfoPtr tensor_info,
       WebNNTensorImpl::RepresentationPtr representation) override;
 
-  const NnrtDevice device_;
+  const std::vector<NnrtDevice> devices_;
   bool execution_failed_ = false;
   base::WeakPtrFactory<ContextImplOhos> weak_factory_{this};
 };
