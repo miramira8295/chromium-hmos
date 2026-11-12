@@ -25,7 +25,9 @@ struct OH_NNModel {
   std::vector<std::vector<uint8_t>> tensor_data;
   std::vector<OH_NN_OperationType> ops;
 };
-struct OH_NNCompilation {};
+struct OH_NNCompilation {
+  const OH_NNModel* model = nullptr;
+};
 struct OH_NNExecutor {};
 struct NN_Tensor {
   std::vector<float> data;
@@ -34,6 +36,8 @@ namespace {
 int live = 0, calls = 0, fail_at = -1;
 bool accelerator = true, supported = true, small_buffer = false;
 bool require_4d_nchw = false;
+bool empty_op_query_mode = false;
+bool build_fail_all = false;
 bool multi_accel_mode = false;
 size_t chosen = 0;
 std::array<bool, 64> op_support_arr{};
@@ -191,6 +195,11 @@ OH_NN_ReturnCode OH_NNModel_GetAvailableOperations(OH_NNModel* m,
                                                    const bool** s,
                                                    uint32_t* n) {
   assert(id == 20 || id == 30);
+  if (empty_op_query_mode) {
+    *s = nullptr;
+    *n = 0;
+    return status();
+  }
   bool ok = supported;
   if (multi_accel_mode && id == 20) {
     ok = false;
@@ -211,8 +220,11 @@ OH_NN_ReturnCode OH_NNModel_GetAvailableOperations(OH_NNModel* m,
   *n = static_cast<uint32_t>(m->ops.size());
   return status();
 }
-OH_NNCompilation* OH_NNCompilation_Construct(const OH_NNModel*) {
-  return create<OH_NNCompilation>();
+OH_NNCompilation* OH_NNCompilation_Construct(const OH_NNModel* m) {
+  auto* c = create<OH_NNCompilation>();
+  if (c)
+    c->model = m;
+  return c;
 }
 void OH_NNCompilation_Destroy(OH_NNCompilation** p) {
   destroy(p);
@@ -226,7 +238,20 @@ OH_NN_ReturnCode OH_NNCompilation_EnableFloat16(OH_NNCompilation*,
   assert(!enable);
   return status();
 }
-OH_NN_ReturnCode OH_NNCompilation_Build(OH_NNCompilation*) {
+OH_NN_ReturnCode OH_NNCompilation_Build(OH_NNCompilation* c) {
+  if (build_fail_all) {
+    return OH_NN_FAILED;
+  }
+  if (empty_op_query_mode && require_4d_nchw && c && c->model) {
+    for (size_t i = 0; i < c->model->tensors.size(); ++i) {
+      if (c->model->tensor_types[i] == OH_NN_TENSOR) {
+        if (c->model->tensors[i].format != OH_NN_FORMAT_NCHW ||
+            c->model->tensors[i].shape.size() != 4) {
+          return OH_NN_FAILED;
+        }
+      }
+    }
+  }
   return status();
 }
 OH_NNExecutor* OH_NNExecutor_Construct(OH_NNCompilation*) {
@@ -432,6 +457,35 @@ int main() {
     assert(live == 0);
   }
   fail_at = -1;
+
+  // 5. Kirin NPU online path: GetAvailableOperations returns OH_NN_SUCCESS with
+  // op_count == 0, so Build validates format/graph compatibility directly.
+  empty_op_query_mode = true;
+  require_4d_nchw = true;
+  auto kirin_dag = NnrtCompiledGraph::Create(device, spec, error);
+  assert(kirin_dag);
+  dag_out.fill(0.0f);
+  assert(kirin_dag->Run({{lhs.data(), sizeof(lhs)}},
+                        {{dag_out.data(), sizeof(dag_out)}}, error));
+  assert((dag_out == std::array<float, 4>{3.0f, 0.0f, 1.5f, 2049.0f}));
+  kirin_dag.reset();
+  assert(live == 0);
+
+  auto kirin_add = NnrtAddModel::Create(device, {1, 4}, error);
+  assert(kirin_add);
+  kirin_add.reset();
+  assert(live == 0);
+
+  build_fail_all = true;
+  assert(!NnrtCompiledGraph::Create(device, spec, error));
+  assert(error.find("op_count=0/3") != std::string::npos);
+  assert(live == 0);
+  assert(!NnrtAddModel::Create(device, {4}, error));
+  assert(error.find("op_count=0/1") != std::string::npos);
+  assert(live == 0);
+  build_fail_all = false;
+  require_4d_nchw = false;
+  empty_op_query_mode = false;
 
   std::cout << "PASS: selection, shape bounds, 4D/NCHW promotion, multi-op "
                "DAG, multi-device fallback, "

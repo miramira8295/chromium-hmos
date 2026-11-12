@@ -110,11 +110,14 @@ struct FormatCandidate {
   const char* label;
 };
 
-constexpr std::array<FormatCandidate, 4> kFormatCandidates = {{
+constexpr std::array<FormatCandidate, 7> kFormatCandidates = {{
     {OH_NN_FORMAT_NONE, false, "NONE/native"},
     {OH_NN_FORMAT_NCHW, false, "NCHW/native"},
     {OH_NN_FORMAT_NONE, true, "NONE/4D"},
     {OH_NN_FORMAT_NCHW, true, "NCHW/4D"},
+    {OH_NN_FORMAT_NHWC, false, "NHWC/native"},
+    {OH_NN_FORMAT_NHWC, true, "NHWC/4D"},
+    {OH_NN_FORMAT_ND, false, "ND/native"},
 }};
 
 bool CanPadGraphTo4D(const NnrtGraphSpec& spec) {
@@ -174,6 +177,92 @@ bool CanPadGraphTo4D(const NnrtGraphSpec& spec) {
     }
   }
   return true;
+}
+
+enum class CompileCandidateResult {
+  kCompiled,
+  kTryNext,
+  kFatal,
+};
+
+// Queries per-op device support and compiles a finalized OH_NNModel.
+// Kirin NPU plugins (e.g. NPU_ohos.boot.hardware.kirin9020_v2_0) return
+// OH_NN_SUCCESS with op_count == 0 from GetAvailableOperations (or
+// OPERATION_FORBIDDEN/UNSUPPORTED) and instead validate/compile the graph inside
+// OH_NNCompilation_Build, matching MindSpore Lite's BuildKirinNPUModel path.
+CompileCandidateResult CompileModelCandidate(OH_NNModel* model,
+                                             const NnrtDevice& device,
+                                             uint32_t expected_op_count,
+                                             bool allow_fp16,
+                                             const char* candidate_label,
+                                             Compilation& out_compilation,
+                                             std::ostringstream& diag,
+                                             std::string& error) {
+  const bool* supported = nullptr;
+  uint32_t op_count = 0;
+  const OH_NN_ReturnCode query_rc = OH_NNModel_GetAvailableOperations(
+      model, device.id, &supported, &op_count);
+  const bool is_kirin_npu = (device.name.rfind("NPU_", 0) == 0);
+  if (query_rc != OH_NN_SUCCESS) {
+    if (is_kirin_npu && (query_rc == OH_NN_OPERATION_FORBIDDEN ||
+                         query_rc == OH_NN_UNSUPPORTED)) {
+      op_count = 0;
+    } else {
+      Check(query_rc, "GetAvailableOperations", error);
+      return CompileCandidateResult::kFatal;
+    }
+  }
+
+  const bool support_query_empty = (op_count == 0);
+  if (!support_query_empty) {
+    bool all_supported =
+        (supported != nullptr && op_count == expected_op_count);
+    if (all_supported) {
+      for (uint32_t i = 0; i < op_count; ++i) {
+        if (!supported[i]) {
+          all_supported = false;
+          break;
+        }
+      }
+    }
+    if (!all_supported) {
+      diag << "[" << device.name << "#" << device.id << " " << candidate_label
+           << ": op_count=" << op_count << "/" << expected_op_count
+           << " unsupported]";
+      return CompileCandidateResult::kTryNext;
+    }
+  }
+
+  auto record_or_fatal = [&](const std::string& step_error) {
+    out_compilation.reset();
+    if (support_query_empty) {
+      diag << "[" << device.name << "#" << device.id << " " << candidate_label
+           << ": op_count=0/" << expected_op_count << ", " << step_error << "]";
+      return CompileCandidateResult::kTryNext;
+    }
+    return CompileCandidateResult::kFatal;
+  };
+
+  out_compilation.reset(OH_NNCompilation_Construct(model));
+  if (!out_compilation) {
+    error = "OH_NNCompilation_Construct failed";
+    return record_or_fatal(error);
+  }
+  if (!Check(OH_NNCompilation_SetDevice(out_compilation.get(), device.id),
+             "SetDevice", error)) {
+    return record_or_fatal(error);
+  }
+  const OH_NN_ReturnCode fp16_rc =
+      OH_NNCompilation_EnableFloat16(out_compilation.get(), allow_fp16);
+  if (fp16_rc != OH_NN_SUCCESS &&
+      !(!allow_fp16 && fp16_rc == OH_NN_OPERATION_FORBIDDEN)) {
+    Check(fp16_rc, allow_fp16 ? "EnableFloat16" : "DisableFloat16", error);
+    return record_or_fatal(error);
+  }
+  if (!Check(OH_NNCompilation_Build(out_compilation.get()), "Build", error)) {
+    return record_or_fatal(error);
+  }
+  return CompileCandidateResult::kCompiled;
 }
 
 }  // namespace
@@ -1526,44 +1615,14 @@ std::unique_ptr<NnrtCompiledGraph> NnrtCompiledGraph::Create(
         return nullptr;
       }
 
-      const bool* supported = nullptr;
-      uint32_t op_count = 0;
-      if (!Check(OH_NNModel_GetAvailableOperations(impl->model.get(), device.id,
-                                                   &supported, &op_count),
-                 "GetAvailableOperations", error)) {
+      const CompileCandidateResult compile_result = CompileModelCandidate(
+          impl->model.get(), device, builder.emitted_op_count(),
+          spec.allow_fp16, candidate.label, impl->compilation, diag, error);
+      if (compile_result == CompileCandidateResult::kFatal) {
         return nullptr;
       }
-      bool all_supported =
-          (supported != nullptr && op_count == builder.emitted_op_count() &&
-           op_count > 0);
-      if (all_supported) {
-        for (uint32_t i = 0; i < op_count; ++i) {
-          if (!supported[i]) {
-            all_supported = false;
-            break;
-          }
-        }
-      }
-      if (!all_supported) {
-        diag << "[" << device.name << "#" << device.id << " "
-             << candidate.label << ": op_count=" << op_count << "/"
-             << builder.emitted_op_count() << " unsupported]";
+      if (compile_result == CompileCandidateResult::kTryNext) {
         continue;
-      }
-
-      impl->compilation.reset(OH_NNCompilation_Construct(impl->model.get()));
-      if (!impl->compilation) {
-        error = "OH_NNCompilation_Construct failed";
-        return nullptr;
-      }
-      if (!Check(OH_NNCompilation_SetDevice(impl->compilation.get(), device.id),
-                 "SetDevice", error) ||
-          !Check(OH_NNCompilation_EnableFloat16(impl->compilation.get(),
-                                                spec.allow_fp16),
-                 "EnableFloat16", error) ||
-          !Check(OH_NNCompilation_Build(impl->compilation.get()), "Build",
-                 error)) {
-        return nullptr;
       }
 
       impl->executor.reset(OH_NNExecutor_Construct(impl->compilation.get()));
@@ -1752,6 +1811,7 @@ std::unique_ptr<NnrtAddModel> NnrtAddModel::Create(
     return nullptr;
   }
 
+  std::ostringstream diag;
   for (const auto& candidate : kFormatCandidates) {
     auto impl = std::make_unique<Impl>();
     impl->bytes = bytes;
@@ -1811,28 +1871,14 @@ std::unique_ptr<NnrtAddModel> NnrtAddModel::Create(
         !Check(OH_NNModel_Finish(impl->model.get()), "Finish", error)) {
       return nullptr;
     }
-    const bool* supported = nullptr;
-    uint32_t op_count = 0;
-    if (!Check(OH_NNModel_GetAvailableOperations(impl->model.get(), device.id,
-                                                 &supported, &op_count),
-               "GetAvailableOperations", error)) {
+    const CompileCandidateResult compile_result = CompileModelCandidate(
+        impl->model.get(), device, 1, false, candidate.label, impl->compilation,
+        diag, error);
+    if (compile_result == CompileCandidateResult::kFatal) {
       return nullptr;
     }
-    if (!supported || op_count != 1 || !supported[0]) {
+    if (compile_result == CompileCandidateResult::kTryNext) {
       continue;
-    }
-    impl->compilation.reset(OH_NNCompilation_Construct(impl->model.get()));
-    if (!impl->compilation) {
-      error = "OH_NNCompilation_Construct failed";
-      return nullptr;
-    }
-    if (!Check(OH_NNCompilation_SetDevice(impl->compilation.get(), device.id),
-               "SetDevice", error) ||
-        !Check(OH_NNCompilation_EnableFloat16(impl->compilation.get(), false),
-               "DisableFloat16", error) ||
-        !Check(OH_NNCompilation_Build(impl->compilation.get()), "Build",
-               error)) {
-      return nullptr;
     }
     impl->executor.reset(OH_NNExecutor_Construct(impl->compilation.get()));
     if (!impl->executor) {
@@ -1849,7 +1895,8 @@ std::unique_ptr<NnrtAddModel> NnrtAddModel::Create(
     return std::unique_ptr<NnrtAddModel>(new NnrtAddModel(std::move(impl)));
   }
 
-  error = "Selected accelerator does not support this float32 Add graph";
+  error = "Selected accelerator does not support this float32 Add graph " +
+          diag.str();
   return nullptr;
 }
 
