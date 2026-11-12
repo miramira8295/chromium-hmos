@@ -513,6 +513,7 @@ obj/services/viz/public/cpp/gpu/gpu/context_provider_command_buffer.o
 obj/services/viz/public/mojom/mojom/transferable_resource_mojom_traits.o
 obj/services/webnn/webnn_service/context_impl_litert.o
 obj/services/webnn/webnn_service/context_impl_ohos.o
+obj/services/webnn/webnn_service/graph_builder_tflite.o
 obj/services/webnn/webnn_service/graph_impl_litert.o
 obj/services/webnn/webnn_service/nnrt_add_model.o
 obj/services/webnn/webnn_service_base/webnn_context_provider_impl.o
@@ -604,6 +605,7 @@ obj/third_party/dawn/src/dawn/native/sources/VulkanFunctions.o
 obj/third_party/dawn/src/dawn/native/sources/WaitAnySystemEvent.o
 obj/third_party/dawn/src/tint/lang/core/ir/transform/transform/multiplanar_external_texture.o
 obj/third_party/dawn/src/tint/lang/spirv/writer/raise/raise/raise.o
+obj/third_party/litert/litert_runtime/ion_buffer.o
 obj/third_party/pdfium/core/fxge/fxge/cfx_face.o
 obj/third_party/perfetto/src/base/unix_socket/unix_socket.o
 obj/third_party/protobuf/protobuf_lite_library/zero_copy_stream_impl.o

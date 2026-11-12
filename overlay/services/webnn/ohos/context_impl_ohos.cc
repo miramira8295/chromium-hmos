@@ -14,6 +14,8 @@
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "services/webnn/gpu_task_scheduler.h"
+#include "services/webnn/public/cpp/ml_number.h"
+#include "services/webnn/public/cpp/range.h"
 #include "services/webnn/public/mojom/webnn_error.mojom.h"
 #include "services/webnn/public/mojom/webnn_graph.mojom.h"
 #include "services/webnn/public/mojom/webnn_service_introspection.mojom.h"
@@ -211,19 +213,6 @@ bool ConvertDataType(OperandDataType in,
       error = "Unsupported WebNN operand data type for OHOS NNRt";
       return false;
   }
-}
-
-float NumberToFloat(const mojom::Number& num) {
-  if (num.is_floating_point()) {
-    return static_cast<float>(num.get_floating_point());
-  }
-  if (num.is_signed_integer()) {
-    return static_cast<float>(num.get_signed_integer());
-  }
-  if (num.is_unsigned_integer()) {
-    return static_cast<float>(num.get_unsigned_integer());
-  }
-  return 0.0f;
 }
 
 bool TranslateOperation(const mojom::Operation& mojom_op,
@@ -446,8 +435,8 @@ bool TranslateOperation(const mojom::Operation& mojom_op,
       out_op.type = NnrtOpType::kClamp;
       out_op.inputs = {op.input_operand_id.value()};
       out_op.outputs = {op.output_operand_id.value()};
-      out_op.clamp_min = NumberToFloat(*op.min_value);
-      out_op.clamp_max = NumberToFloat(*op.max_value);
+      out_op.clamp_min = op.min_value.AsFloat32();
+      out_op.clamp_max = op.max_value.AsFloat32();
       return true;
     }
 
@@ -574,7 +563,7 @@ bool TranslateOperation(const mojom::Operation& mojom_op,
       }
       if (op.mode->is_constant()) {
         out_op.pad_mode = 0;
-        out_op.pad_value = NumberToFloat(*op.mode->get_constant()->value);
+        out_op.pad_value = op.mode->get_constant()->value.AsFloat32();
       } else if (op.mode->is_reflection()) {
         out_op.pad_mode = 1;
       } else if (op.mode->is_edge()) {
@@ -589,12 +578,12 @@ bool TranslateOperation(const mojom::Operation& mojom_op,
       out_op.inputs = {op.input_operand_id.value()};
       out_op.outputs = {op.output_operand_id.value()};
       for (const auto& range : op.ranges) {
-        if (range->stride != 1) {
+        if (range.stride != 1) {
           error = "OHOS NNRt Slice currently requires unit stride";
           return false;
         }
-        out_op.slice_starts.push_back(static_cast<int64_t>(range->start));
-        out_op.slice_sizes.push_back(static_cast<int64_t>(range->size));
+        out_op.slice_starts.push_back(static_cast<int64_t>(range.start));
+        out_op.slice_sizes.push_back(static_cast<int64_t>(range.size));
       }
       return true;
     }

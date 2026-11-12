@@ -100,6 +100,7 @@ diff --git a/services/webnn/webnn_context_provider_impl.cc b/services/webnn/webn
 +          std::move(callback), mojo::PendingRemote<mojom::WebNNContext>(),
 +          mojo::ScopedDataPipeProducerHandle(),
 +          mojo::ScopedDataPipeConsumerHandle(), sequence_id, command_buffer_id,
++          /*compiler_context_remote=*/mojo::NullRemote(),
 +          WebNNContextImplPtr(nullptr,
 +                              OnTaskRunnerDeleter(owning_task_runner)));
 +      return;
@@ -119,7 +120,8 @@ diff --git a/services/webnn/webnn_context_provider_impl.cc b/services/webnn/webn
 +                       AsWeakPtr(), std::move(callback), std::move(remote),
 +                       mojo::ScopedDataPipeProducerHandle(),
 +                       mojo::ScopedDataPipeConsumerHandle(), sequence_id,
-+                       command_buffer_id));
++                       command_buffer_id,
++                       /*compiler_context_remote=*/mojo::NullRemote()));
 +    return;
 +  }
 +#endif
@@ -152,3 +154,21 @@ diff --git a/services/webnn/webnn_context_provider_in_renderer.cc b/services/web
    // Force the device to CPU for non-GPU requests (e.g. NPU).
    if (options->device != mojom::Device::kGpu) {
      options->device = mojom::Device::kCpu;
+diff --git a/third_party/litert/BUILD.gn b/third_party/litert/BUILD.gn
+--- a/third_party/litert/BUILD.gn
++++ b/third_party/litert/BUILD.gn
+@@ -89,6 +89,14 @@ config("litert_config") {
+     defines += [ "_USE_MATH_DEFINES" ]
+   }
+ 
++  if (is_ohos) {
++    defines += [
++      "LITERT_DISABLE_DMABUF_SUPPORT",
++      "LITERT_DISABLE_FASTRPC_SUPPORT",
++      "LITERT_DISABLE_ION_SUPPORT",
++    ]
++  }
++
+   visibility = [
+     ":*",
+     "//third_party/tflite:*",
