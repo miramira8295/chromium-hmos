@@ -65,6 +65,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Check history restoration loading UI
+        run: python3 scripts/tests/test-history-loading-ui.py
       - name: Check BFCache protection cancellation and policy races
         run: python3 scripts/tests/test-bfcache-protection.py
       - name: Check URL protection policy and SDK boundary

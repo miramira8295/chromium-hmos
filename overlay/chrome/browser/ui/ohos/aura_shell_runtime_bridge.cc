@@ -203,6 +203,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_contents_user_data.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/referrer.h"
 #include "content/public/renderer/render_thread.h"
@@ -2865,6 +2866,55 @@ void AnswerLastSession(gfx::AcceleratedWidget widget,
   }
 }
 
+// IsLoading (and, for a cross-document restore, ShouldShowLoadingUI) can be
+// true while BFCache reactivates an existing document. Exposing that as a page
+// load makes the shell animate a progress bar and expand its browser controls.
+// Track only confirmed cached restores; an eviction/restart is a new ordinary
+// navigation and must regain normal loading UI immediately.
+class ShellLoadingUiState
+    : public content::WebContentsObserver,
+      public content::WebContentsUserData<ShellLoadingUiState> {
+ public:
+  bool ShouldShow() const {
+    return web_contents()->ShouldShowLoadingUI() && !cached_navigation_;
+  }
+  void DidStartNavigation(content::NavigationHandle* handle) override {
+    if (!handle->IsInPrimaryMainFrame())
+      return;
+    cached_navigation_ = handle->IsServedFromBackForwardCache()
+                             ? std::make_optional(handle->GetNavigationId())
+                             : std::nullopt;
+    RequestBrowserStateUpdate();
+  }
+  void DidFinishNavigation(content::NavigationHandle* handle) override {
+    if (cached_navigation_ != handle->GetNavigationId())
+      return;
+    if (!handle->HasCommitted() || !handle->IsServedFromBackForwardCache())
+      cached_navigation_.reset();
+    // A successful restore can finish before DidStopLoading. Keep suppressing
+    // its final loading/progress update, otherwise the bar flashes at commit.
+    RequestBrowserStateUpdate();
+  }
+  void DidStopLoading() override {
+    cached_navigation_.reset();
+    RequestBrowserStateUpdate();
+  }
+
+ private:
+  friend class content::WebContentsUserData<ShellLoadingUiState>;
+  explicit ShellLoadingUiState(content::WebContents* contents)
+      : WebContentsObserver(contents),
+        WebContentsUserData<ShellLoadingUiState>(*contents) {}
+  std::optional<int64_t> cached_navigation_;
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
+};
+WEB_CONTENTS_USER_DATA_KEY_IMPL(ShellLoadingUiState);
+
+bool ShouldShowShellLoading(content::WebContents* contents) {
+  ShellLoadingUiState::CreateForWebContents(contents);
+  return ShellLoadingUiState::FromWebContents(contents)->ShouldShow();
+}
+
 std::string BuildBrowserStateJson(std::string_view ui_family,
                                   gfx::AcceleratedWidget widget,
                                   BrowserWindowInterface* browser) {
@@ -3013,7 +3063,7 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
       const GURL url = contents->GetVisibleURL();
       tab.Set("url", ShellVisibleUrl(url));
       tab.Set("title", base::UTF16ToUTF8(contents->GetTitle()));
-      tab.Set("loading", contents->IsLoading());
+      tab.Set("loading", ShouldShowShellLoading(contents));
       // The tab strip shows a speaker on a tab making noise and a crossed-out
       // one on a tab the user silenced; they are different states and a tab
       // can be muted without ever having made a sound.
@@ -3040,9 +3090,9 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
     state.Set("url", visible_url);
     state.Set("domain", url.host().empty() ? visible_url : url.host());
     state.Set("title", base::UTF16ToUTF8(active->GetTitle()));
-    state.Set("loading", active->IsLoading());
-    state.Set("loadProgress",
-              active->IsLoading() ? active->GetLoadProgress() : 1.0);
+    const bool show_loading = ShouldShowShellLoading(active);
+    state.Set("loading", show_loading);
+    state.Set("loadProgress", show_loading ? active->GetLoadProgress() : 1.0);
     state.Set("requestDesktopSite", IsAuraShellRequestingDesktopSite(active));
     state.Set("zoomPercent", ShellZoomPercent(active));
     state.Set("inReaderMode", IsInReaderMode(active));
@@ -3355,7 +3405,9 @@ class HistoryNavigationDiagnostics : public content::WebContentsObserver {
 class TabStateWatcher : public content::WebContentsObserver {
  public:
   explicit TabStateWatcher(content::WebContents* contents)
-      : content::WebContentsObserver(contents), history_diagnostics_(contents) {}
+      : content::WebContentsObserver(contents), history_diagnostics_(contents) {
+    ShellLoadingUiState::CreateForWebContents(contents);
+  }
 
   void TitleWasSet(content::NavigationEntry* entry) override {
     RequestBrowserStateUpdate();

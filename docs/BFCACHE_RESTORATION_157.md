@@ -55,3 +55,11 @@ python3 scripts/tests/test-155-snapshot.py
 - `content/browser/renderer_host/navigation_request.cc`：在恢复的 response 阶段选择缓存 RFH，再运行 commit conditions。
 - `content/browser/renderer_host/render_frame_host_impl.cc`：禁用缓存触发 eviction；正在恢复的导航同步销毁、随后异步重启。
 - `content/browser/back_forward_cache/back_forward_cache_commit_deferring_condition.cc`：最后准备恢复并禁止进一步 eviction。
+
+## 手机回访：恢复后的进度条
+
+2026-11-13 在 Mate 70 Pro+、`e32ef676` 上用本地 HTTP 测试页执行两轮 A → B → C → B：两轮均 `pageshow.persisted=true`、B 的文档实例和初始化次数不变，返回期间服务器没有收到请求；CDP 未报告缓存不恢复。观测到回退约 66 / 111 ms（包括 CDP 与状态轮询开销，不是绘制耗时）。该结论只适用于受控测试页，不能代替用户网站的检查。
+
+外壳此前把 `WebContents::IsLoading()` 直接用作顶栏进度与控件展开的依据。Chromium 157 的跨文档 BFCache 恢复本身也会进入 loading；只换成 `ShouldShowLoadingUI()` 仍不足以排除这种恢复。新增按标签保存的导航观察状态，只对已确认的 BFCache 恢复抑制加载 UI，覆盖提交到停止加载之间的最后一次更新。缓存淘汰后的正常导航、刷新和新页面仍正常显示进度；同文档是否显示 UI 则遵循 Chromium 判定。此改动不延迟导航，也不改变安全检查。
+
+生产观察器回归测试：`python3 scripts/tests/test-history-loading-ui.py`，覆盖恢复提交、取消、缓存失效后网络加载、旧回调及连续导航。
