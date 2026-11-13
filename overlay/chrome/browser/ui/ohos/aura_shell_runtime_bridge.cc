@@ -4860,6 +4860,116 @@ void ExecuteBrowserCommandOnUiThread(gfx::AcceleratedWidget widget,
     }
     return;
   }
+  if (*name == "getPageDisplayDiagnostics") {
+    base::DictValue event;
+    event.Set("event", "pageDisplayDiagnostics");
+    event.Set("requestId", command.FindInt("requestId").value_or(0));
+    auto* target = FindTabById(tabs, command.FindString("tabId"));
+    auto* frame = target ? target->GetPrimaryMainFrame() : nullptr;
+    if (!target || target != active || !frame || !frame->IsRenderFrameLive()) {
+      event.Set("diagnosticStatus", "unavailable");
+      DispatchRuntimeEvent(widget, std::move(event));
+      return;
+    }
+    base::DictValue metrics;
+    metrics.Set("capturedAtMs", static_cast<double>(
+        base::Time::Now().InMillisecondsSinceUnixEpoch()));
+    metrics.Set("zoomPercent", ShellZoomPercent(target));
+    metrics.Set("pageFullscreen", IsPageFullscreen(browser));
+    if (auto* view = target->GetRenderWidgetHostView()) {
+      const gfx::Rect bounds = view->GetViewBounds();
+      metrics.Set("viewXDip", bounds.x());
+      metrics.Set("viewYDip", bounds.y());
+      metrics.Set("viewWidthDip", bounds.width());
+      metrics.Set("viewHeightDip", bounds.height());
+    }
+    // Fixed read-only geometry probe: no URL, text, attributes, arbitrary
+    // selectors, or caller-provided script. The isolated world prevents page
+    // scripts from replacing the JavaScript globals used by the probe.
+    constexpr char16_t kDisplayProbe[] = uR"JS((() => {
+      const root = document.documentElement;
+      const viewport = window.visualViewport;
+      const full = document.fullscreenElement;
+      const rect = full ? full.getBoundingClientRect() : null;
+      const video = full && full.tagName === 'VIDEO' ? full :
+          (full || document).querySelector('video');
+      const videoRect = video ? video.getBoundingClientRect() : null;
+      return {
+        innerWidthCss: window.innerWidth, innerHeightCss: window.innerHeight,
+        outerWidthCss: window.outerWidth, outerHeightCss: window.outerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+        screenWidthCss: screen.width, screenHeightCss: screen.height,
+        rootClientWidthCss: root ? root.clientWidth : 0,
+        rootClientHeightCss: root ? root.clientHeight : 0,
+        rootScrollWidthCss: root ? root.scrollWidth : 0,
+        rootScrollHeightCss: root ? root.scrollHeight : 0,
+        visualViewportAvailable: !!viewport,
+        visualWidthCss: viewport ? viewport.width : 0,
+        visualHeightCss: viewport ? viewport.height : 0,
+        visualScale: viewport ? viewport.scale : 0,
+        visualOffsetLeftCss: viewport ? viewport.offsetLeft : 0,
+        visualOffsetTopCss: viewport ? viewport.offsetTop : 0,
+        videoPresent: !!video,
+        videoXCss: videoRect ? videoRect.x : 0, videoYCss: videoRect ? videoRect.y : 0,
+        videoWidthCss: videoRect ? videoRect.width : 0,
+        videoHeightCss: videoRect ? videoRect.height : 0,
+        videoIntrinsicWidth: video ? video.videoWidth : 0,
+        videoIntrinsicHeight: video ? video.videoHeight : 0,
+        domFullscreen: !!full,
+        fullscreenXCss: rect ? rect.x : 0, fullscreenYCss: rect ? rect.y : 0,
+        fullscreenWidthCss: rect ? rect.width : 0,
+        fullscreenHeightCss: rect ? rect.height : 0,
+        viewportMetaPresent: !!document.querySelector('meta[name="viewport" i]')
+      };
+    })())JS";
+    frame->ExecuteJavaScriptInIsolatedWorld(
+        kDisplayProbe,
+        base::BindOnce(
+            [](gfx::AcceleratedWidget widget,
+               content::WeakDocumentPtr document,
+               base::DictValue event, base::DictValue metrics,
+               base::Value result) {
+              auto* browser = FindBrowserForWidget(widget);
+              auto* frame = document.AsRenderFrameHostIfValid();
+              auto* active = browser ? browser->GetTabStripModel()
+                                           ->GetActiveWebContents() : nullptr;
+              if (!frame || !active || active->GetPrimaryMainFrame() != frame) {
+                event.Set("diagnosticStatus", "stale-document");
+              } else if (!result.is_dict()) {
+                event.Set("diagnosticStatus", "renderer-unavailable");
+              } else {
+                // Renderer output is untrusted. Only finite numeric geometry
+                // and the named flags may cross the export boundary.
+                constexpr const char* kNumbers[] = {
+                    "innerWidthCss", "innerHeightCss", "outerWidthCss", "outerHeightCss",
+                    "devicePixelRatio", "screenWidthCss", "screenHeightCss",
+                    "rootClientWidthCss", "rootClientHeightCss", "rootScrollWidthCss",
+                    "rootScrollHeightCss", "visualWidthCss", "visualHeightCss",
+                    "visualScale", "visualOffsetLeftCss", "visualOffsetTopCss",
+                    "fullscreenXCss", "fullscreenYCss", "fullscreenWidthCss", "fullscreenHeightCss",
+                    "videoXCss", "videoYCss", "videoWidthCss", "videoHeightCss",
+                    "videoIntrinsicWidth", "videoIntrinsicHeight"};
+                for (const char* key : kNumbers) {
+                  auto value = result.GetDict().FindDouble(key);
+                  if (value && std::isfinite(*value)) {
+                    metrics.Set(key, *value);
+                  }
+                }
+                for (const char* key : {"visualViewportAvailable", "domFullscreen",
+                                        "viewportMetaPresent", "videoPresent"}) {
+                  if (auto value = result.GetDict().FindBool(key)) {
+                    metrics.Set(key, *value);
+                  }
+                }
+                event.Set("diagnosticStatus", "ok");
+                event.Set("displayMetrics", std::move(metrics));
+              }
+              DispatchRuntimeEvent(widget, std::move(event));
+            },
+            widget, frame->GetWeakDocumentPtr(), std::move(event), std::move(metrics)),
+        ISOLATED_WORLD_ID_CHROME_INTERNAL);
+    return;
+  }
   if (*name == "getPageText" && active) {
     // The shell's summarizer reads the page's text. An isolated world keeps
     // the page's own scripts from seeing, or tampering with, the read.
@@ -6042,6 +6152,7 @@ bool PostBrowserCommand(gfx::AcceleratedWidget widget,
       "findInPage",
       "stopFind",
       "getPageText",
+      "getPageDisplayDiagnostics",
       "startupProbe",
       "contextMenuAction",
       "contextMenuDismissed",

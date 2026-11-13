@@ -204,6 +204,9 @@ export interface ContextMenuMediaFlags {
 }
 
 export interface BrowserRuntimeEvent {
+  /** Explicit, URL-free display diagnostics; only returned on request. */
+  diagnosticStatus?: string;
+  displayMetrics?: Record<string, number | boolean>;
   startupToken?: string;
   startupPhase?: 'ready' | 'frame';
   startupStatus?: 'waiting' | 'ready' | 'presented';
@@ -243,7 +246,7 @@ export interface BrowserRuntimeEvent {
     'downloadUpdated' | 'downloadList' |
     'clearBrowsingDataDone' | 'browsingDataCounts' | 'searchEngines' |
     'prefs' | 'prefsChanged' | 'siteSettings' | 'aboutInfo' | 'favicons' |
-    'pageInfo' | 'pageInfoActionResult' |
+    'pageInfo' | 'pageInfoActionResult' | 'pageDisplayDiagnostics' |
     'urlProtectionState' | 'urlProtectionConfigResult' | 'urlProtectionStateChanged' |
     'urlProtectionRulesUpdateResult' |
     'protectionRuleSources' | 'protectionRuleSourceResult' | 'protectionRuleSourcesChanged' |

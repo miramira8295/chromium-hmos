@@ -1435,3 +1435,28 @@ local/session、IndexedDB、Cookie 不在此协议范围。拒绝访客、隐身
 `extensionId String`、`storageKey Encrypted String`、`value Encrypted String`、
 `modified Integer`、`deleted Integer`。
 新增表须部署到签名对应环境后，才能进行端云验收。
+
+
+### On-demand page display diagnostics (157)
+
+`{command:"getPageDisplayDiagnostics", requestId, tabId}` replies with
+`{event:"pageDisplayDiagnostics", requestId, diagnosticStatus, displayMetrics?}`.
+The target must still be the active tab of the requesting browser window.
+`diagnosticStatus` is `ok`, `unavailable`, `stale-document`, or `renderer-unavailable`.
+Shells must bound the wait (Lumie: 2 seconds) and handle older engines that do not reply.
+The callback verifies the weak document identity and active tab before returning metrics.
+
+`displayMetrics` contains only allowlisted finite numbers/booleans: `capturedAtMs`,
+`zoomPercent`, `pageFullscreen`, rendering view `view{X,Y,Width,Height}Dip`,
+`inner{Width,Height}Css`, `outer{Width,Height}Css`, `devicePixelRatio`,
+`screen{Width,Height}Css`, `root{Client,Scroll}{Width,Height}Css`,
+`visualViewportAvailable`, `visual{Width,Height}Css`, `visualScale`,
+`visualOffset{Left,Top}Css`, `domFullscreen`,
+`fullscreen{X,Y,Width,Height}Css`, `viewportMetaPresent`, `videoPresent`,
+`video{X,Y,Width,Height}Css`, and `videoIntrinsic{Width,Height}`.
+The video is the first video within the fullscreen element (or the document when not fullscreen).
+An isolated, fixed script reads main-frame geometry only. No URL, title, text,
+form data, DOM serialization, arbitrary selectors, or caller script is accepted.
+View and DOM samples straddle an asynchronous renderer callback; this is a diagnostic
+snapshot, not an atomic rendering transaction. Absent visual viewport/fullscreen
+geometry is zero with the corresponding availability flag false.
