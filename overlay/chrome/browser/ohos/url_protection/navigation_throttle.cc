@@ -86,7 +86,6 @@ class TabProtection : public content::WebContentsObserver,
     state_.Finish(handle->HasCommitted(), handle->GetURL());
     if (handle->HasCommitted()) {
       committed_error_page_ = handle->IsErrorPage();
-      ProtectCurrentDocument();
     }
     Notify(handle->HasCommitted() ? "navigation_commit" : "navigation_abort");
     CheckCommittedDocument();
@@ -207,18 +206,6 @@ class TabProtection : public content::WebContentsObserver,
         base::BindRepeating(&TabProtection::OnPolicy, base::Unretained(this)));
     state_.Initialize(contents->GetLastCommittedURL(), Revision(),
                       IsEnabled(contents->GetLastCommittedURL()));
-    ProtectCurrentDocument();
-  }
-  void ProtectCurrentDocument() {
-    if (!service_ || !service_->enabled() ||
-        !web_contents()->GetPrimaryMainFrame())
-      return;
-    content::BackForwardCache::DisableForRenderFrameHost(
-        web_contents()->GetPrimaryMainFrame(),
-        content::BackForwardCache::DisabledReason(
-            content::BackForwardCache::DisabledSource::kEmbedder, 65001,
-            "OHOS URL protection requires navigation checks", "",
-            "ohos-url-protection"));
   }
   void OnPolicy() {
     web_contents()->RemoveUserData(kBypassKey);
@@ -229,7 +216,6 @@ class TabProtection : public content::WebContentsObserver,
     if (service_ && service_->enabled()) {
       web_contents()->GetController().GetBackForwardCache().Flush();
       web_contents()->CancelAllPrerendering();
-      ProtectCurrentDocument();
     }
     CheckCommittedDocument();
   }
@@ -242,6 +228,116 @@ class TabProtection : public content::WebContentsObserver,
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 };
 WEB_CONTENTS_USER_DATA_KEY_IMPL(TabProtection);
+// Owned by NavigationRequest. Chromium runs embedder conditions before the
+// final BFCache condition unfreezes the target renderer. Never resume a risky
+// cached document: evict it and let the normal history navigation throttle
+// produce the existing interstitial (including POST/resubmission handling).
+class BackForwardCacheCheck : public content::CommitDeferringCondition {
+ public:
+  using CheckResult = chrome::ohos::url_protection::Result;
+  explicit BackForwardCacheCheck(content::NavigationHandle& handle)
+      : CommitDeferringCondition(handle),
+        service_(Service::Get(Profile::FromBrowserContext(
+                     handle.GetWebContents()->GetBrowserContext()))
+                     ->GetWeakPtr()) {
+    subscription_ = service_->Observe(base::BindRepeating(
+        &BackForwardCacheCheck::OnPolicy, base::Unretained(this)));
+  }
+  ~BackForwardCacheCheck() override { CancelCheck(); }
+
+  Result WillCommitNavigation(base::OnceClosure resume) override {
+    auto& handle = GetNavigationHandle();
+    handle.GetWebContents()->RemoveUserData(kBypassKey);
+    TabProtection::FromWebContents(handle.GetWebContents())->Begin(&handle);
+    if (!ShouldCheck())
+      return Result::kProceed;
+    deadline_ = base::TimeTicks::Now() + base::Milliseconds(1500);
+    resume_ = std::move(resume);
+    StartCheck();
+    return Result::kDefer;
+  }
+  const char* TraceEventName() const override {
+    return "OhosUrlProtectionBackForwardCacheCheck";
+  }
+
+ private:
+  bool ShouldCheck() const {
+    const auto& url = GetNavigationHandle().GetURL();
+    return service_ && service_->enabled() && service_->IsSiteEnabled(url) &&
+           IsPublicHttpUrl(url);
+  }
+  void CancelCheck() {
+    // Cancel posts a completion too. Invalidate first, including results
+    // already posted before Cancel, policy changes or navigation destruction.
+    weak_factory_.InvalidateWeakPtrs();
+    if (service_ && !request_.empty())
+      service_->Cancel(request_);
+    request_.clear();
+  }
+  void Report(const CheckResult& result, bool checking) {
+    auto& handle = GetNavigationHandle();
+    TabProtection::FromWebContents(handle.GetWebContents())
+        ->Report(&handle, result, checking);
+  }
+  void StartCheck() {
+    const auto& url = GetNavigationHandle().GetURL();
+    Report({Verdict::kUnknown, {}, "bfcache_check", url}, true);
+    // Service::Check always posts its callback, including known risks and
+    // exhausted budgets, so resume cannot run before kDefer is returned.
+    request_ = service_->Check(
+        url, deadline_ - base::TimeTicks::Now(),
+        base::BindOnce(&BackForwardCacheCheck::OnResult,
+                       weak_factory_.GetWeakPtr(), service_->revision()));
+  }
+  void OnPolicy() {
+    if (!resume_)
+      return;
+    CancelCheck();
+    // TabProtection subscribed first. Enabled-policy changes flush the cache,
+    // cancelling this navigation. If still alive, use the remaining budget.
+    if (ShouldCheck()) {
+      StartCheck();
+      return;
+    }
+    Report({Verdict::kUnknown, {}, "protection_disabled",
+            GetNavigationHandle().GetURL()}, false);
+    std::move(resume_).Run();  // May destroy this.
+  }
+  void OnResult(int revision, CheckResult result) {
+    if (!service_ || revision != service_->revision() || !resume_)
+      return;
+    request_.clear();
+    Report(result, false);
+    VLOG(1) << "OHOS BFCache protection navigation="
+            << GetNavigationHandle().GetNavigationId()
+            << " dangerous=" << result.dangerous()
+            << " elapsed_ms="
+            << (base::TimeTicks::Now() -
+                (deadline_ - base::Milliseconds(1500))).InMilliseconds();
+    if (result.dangerous()) {
+      // This is B's cached RFH, not C's currently visible primary RFH.
+      // Eviction synchronously destroys NavigationRequest and this condition,
+      // then restarts the same history entry asynchronously. Do not touch
+      // members or run resume after DisableForRenderFrameHost.
+      resume_.Reset();
+      content::BackForwardCache::DisableForRenderFrameHost(
+          GetNavigationHandle().GetRenderFrameHost(),
+          content::BackForwardCache::DisabledReason(
+              content::BackForwardCache::DisabledSource::kEmbedder, 65001,
+              "OHOS URL protection blocked cached restoration", "",
+              "ohos-url-protection"));
+      return;
+    }
+    // Unknown/timeout retains the existing network-navigation fail-open policy.
+    std::move(resume_).Run();  // May destroy this.
+  }
+  base::WeakPtr<Service> service_;
+  base::CallbackListSubscription subscription_;
+  base::TimeTicks deadline_;
+  std::string request_;
+  base::OnceClosure resume_;
+  base::WeakPtrFactory<BackForwardCacheCheck> weak_factory_{this};
+};
 struct OneNavigationBypass : base::SupportsUserData::Data {
   GURL url;
   int revision = 0;
@@ -392,6 +488,15 @@ void ShowCommittedRisk(content::WebContents* contents,
   tab->Report(handle.get(), risk, false);
 }
 }  // namespace
+
+std::unique_ptr<content::CommitDeferringCondition>
+MaybeCreateBackForwardCacheCheck(content::NavigationHandle& handle) {
+  if (!handle.IsInPrimaryMainFrame() || !handle.IsServedFromBackForwardCache())
+    return nullptr;
+  // Install the invalidation observer before subscribing the condition.
+  TabProtection::CreateForWebContents(handle.GetWebContents());
+  return std::make_unique<BackForwardCacheCheck>(handle);
+}
 
 void NavigationThrottle::MaybeCreateAndAdd(
     content::NavigationThrottleRegistry& registry) {

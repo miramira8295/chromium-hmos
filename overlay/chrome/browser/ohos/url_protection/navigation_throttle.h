@@ -3,14 +3,20 @@
 // found in the LICENSE file.
 #ifndef CHROME_BROWSER_OHOS_URL_PROTECTION_NAVIGATION_THROTTLE_H_
 #define CHROME_BROWSER_OHOS_URL_PROTECTION_NAVIGATION_THROTTLE_H_
+#include <memory>
 #include <vector>
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ohos/url_protection/url_protection.h"
+#include "content/public/browser/commit_deferring_condition.h"
 #include "content/public/browser/navigation_throttle.h"
 
 namespace chrome::ohos::url_protection {
+// BFCache restores bypass network throttles. Check before the cached renderer
+// is unfrozen by Chromium's final commit deferring condition.
+std::unique_ptr<content::CommitDeferringCondition>
+MaybeCreateBackForwardCacheCheck(content::NavigationHandle& handle);
 bool HandleSiteCommand(const ShellCommandContext& context,
                        std::string_view name,
                        const base::DictValue& command);

@@ -91,6 +91,7 @@ obj/chrome/browser/core/subscription_rules.o
 obj/chrome/browser/core/system_geolocation_source_ohos.o
 obj/chrome/browser/core/translation.o
 obj/chrome/browser/core/universal_web_contents_observers.o
+obj/chrome/browser/core/navigation_throttle.o
 obj/chrome/browser/core/url_protection.o
 obj/chrome/browser/devtools/devtools/devtools_window.o
 obj/chrome/browser/download/bubble/impl/download_bubble_prefs.o

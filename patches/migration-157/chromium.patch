@@ -3864,10 +3864,10 @@ index 1651c5defa7c0e4e43c43097dc5148a35d93da77..636bc9e13788f85c8bf1057148836ee6
    // Chrome on Android does not use default MessageLoop. It has its own
    // Android specific MessageLoop
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec04e92877 100644
+index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb14a9ae196 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -3,6 +3,11 @@
+@@ -3,6 +3,12 @@
  // found in the LICENSE file.
  
  #include "chrome/browser/chrome_content_browser_client.h"
@@ -3875,11 +3875,12 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
 +#if BUILDFLAG(IS_OHOS)
 +#include "chrome/browser/ohos/adblock/adblock.h"
 +#include "chrome/browser/ohos/resource_collector.h"
++#include "chrome/browser/ohos/url_protection/navigation_throttle.h"
 +#endif
  
  #include <algorithm>
  #include <iterator>
-@@ -79,6 +84,10 @@
+@@ -79,6 +85,10 @@
  #include "chrome/browser/chrome_content_browser_client_binder_policies.h"
  #include "chrome/browser/chrome_content_browser_client_navigation_throttles.h"
  #include "chrome/browser/chrome_content_browser_client_parts.h"
@@ -3890,7 +3891,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  #include "chrome/browser/content_settings/cookie_settings_factory.h"
  #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
  #include "chrome/browser/contextual_tasks/contextual_tasks_ui_service.h"
-@@ -370,6 +379,7 @@
+@@ -370,6 +380,7 @@
  #include "content/public/browser/internal_webui_config.h"
  #include "content/public/browser/isolated_web_apps_policy.h"
  #include "content/public/browser/legacy_tech_cookie_issue_details.h"
@@ -3898,7 +3899,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  #include "content/public/browser/navigation_handle.h"
  #include "content/public/browser/network_service_instance.h"
  #include "content/public/browser/permission_controller.h"
-@@ -661,7 +671,7 @@
+@@ -661,7 +672,7 @@
  #endif
  
  #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
@@ -3907,7 +3908,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  #include "components/webapps/isolated_web_apps/scheme.h"
  #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||
          // BUILDFLAG(IS_CHROMEOS)
-@@ -920,8 +930,8 @@ bool IsClipboardFocusExemptOrigin(const url::Origin& main_frame_origin) {
+@@ -920,8 +931,8 @@
           IsIsolatedWebAppOrigin(main_frame_origin);
  }
  
@@ -3918,7 +3919,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  bool IsIsolatedWebAppUrl(const GURL& url) {
    return url.SchemeIs(webapps::kIsolatedAppScheme);
  }
-@@ -3102,7 +3112,7 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+@@ -3102,7 +3113,7 @@
      command_line->AppendSwitchASCII(switches::kMetricsClientID,
                                      client_info->client_id);
    }
@@ -3927,7 +3928,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  #if !BUILDFLAG(IS_ANDROID)
    pid_t pid;
    if (crash_reporter::GetHandlerSocket(nullptr, &pid)) {
-@@ -4672,6 +4682,170 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
+@@ -4672,6 +4683,170 @@
  #endif
  }
  
@@ -4098,7 +4099,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  void ChromeContentBrowserClient::OverrideWebPreferences(
      WebContents* web_contents,
      content::SiteInstance& main_frame_site,
-@@ -5010,6 +5184,10 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+@@ -5010,6 +5185,10 @@
        base::FeatureList::IsEnabled(features::kTouchDragAndDrop);
  #endif
  
@@ -4109,10 +4110,11 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
    for (auto& parts : extra_parts_) {
      parts->OverrideWebPreferences(web_contents, main_frame_site, web_prefs);
    }
-@@ -5047,6 +5225,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+@@ -5046,6 +5225,14 @@
+     content::SiteInstance& main_frame_site,
      WebPreferences* web_prefs) {
    bool prefs_changed = false;
- 
++
 +#if BUILDFLAG(IS_OHOS)
 +  // Where a tab has navigated decides its viewport, so this is the hook that
 +  // matters: the full recomputation only happens when the SiteInstance
@@ -4120,23 +4122,35 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
 +  prefs_changed |=
 +      ApplyOhosPhoneWebPreferences(web_contents, main_frame_site, web_prefs);
 +#endif
-+
+ 
    const auto autoplay_policy = GetAutoplayPolicyForWebContents(web_contents);
    prefs_changed |= (web_prefs->autoplay_policy != autoplay_policy);
-   web_prefs->autoplay_policy = autoplay_policy;
-@@ -6178,6 +6364,11 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
+@@ -5748,6 +5935,12 @@
+       &conditions);
+ #endif
+ 
++#if BUILDFLAG(IS_OHOS)
++  MaybeAddCondition(
++      chrome::ohos::url_protection::MaybeCreateBackForwardCacheCheck(
++          *navigation_handle),
++      &conditions);
++#endif
+   MaybeAddCondition(actor::ActorCommitDeferringCondition::MaybeCreate(
+                         *navigation_handle, navigation_type),
+                     &conditions);
+@@ -6177,6 +6370,11 @@
+   DCHECK(browser_context);
    Profile* profile = Profile::FromBrowserContext(browser_context);
    DCHECK(profile);
- 
++
 +#if BUILDFLAG(IS_OHOS)
 +  if (auto throttle = chrome::ohos::adblock::NavigationThrottle(profile, request, wc_getter))
 +    result.push_back(std::move(throttle));
 +#endif
-+
+ 
    ChromeNavigationUIData* chrome_navigation_ui_data =
        static_cast<ChromeNavigationUIData*>(navigation_ui_data);
- 
-@@ -6871,6 +7062,10 @@ void ChromeContentBrowserClient::WillCreateURLLoaderFactory(
+@@ -6871,6 +7069,10 @@
      network::mojom::URLLoaderFactoryOverridePtr* factory_override,
      scoped_refptr<base::SequencedTaskRunner> navigation_response_task_runner,
      bool is_for_network_service) {
@@ -4147,7 +4161,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..a90632ab9658e11e387995fec7b437ec
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
    auto* web_request_api =
        extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
-@@ -7040,6 +7235,13 @@ ChromeContentBrowserClient::
+@@ -7040,6 +7242,13 @@
    return prefetch_handler;
  }
  

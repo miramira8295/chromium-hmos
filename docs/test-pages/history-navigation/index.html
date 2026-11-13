@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>历史导航与 BFCache</title>
+<style>
+  :root { color-scheme: dark; font: 18px/1.6 system-ui; background: #254f65; color: #fff; }
+  body { margin: 0 auto; max-width: 900px; padding: 24px; }
+  a, button { display: inline-block; margin: 6px; padding: 12px; color: #fff; background: #15242d; border: 1px solid #fff8; border-radius: 8px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0005; padding: 16px; }
+  input { font: inherit; padding: 8px; max-width: 90%; }
+  .spacer { height: 110vh; background: repeating-linear-gradient(transparent 0 99px, #fff3 100px 101px); }
+</style>
+<h1>历史导航测试：<span id="page"></span></h1>
+<p>依次进入 A → B → C，再使用浏览器返回键回到 B。观察背景是否闪白，以及 B 的页面实例、初始化次数、输入和滚动位置。</p>
+<nav><a href="?page=A">A</a><a href="?page=B">B</a><a href="?page=C">C</a><button id="back">返回</button><button id="forward">前进</button></nav>
+<label>留在当前文档的输入：<input placeholder="在 B 输入一些文字"></label>
+<pre id="status"></pre>
+<p>BFCache 命中以 pageshow.persisted 为准。实例 ID 不变说明恢复了原文档；重新初始化则说明发生了文档加载。HTTP 缓存命中也会重新初始化，不能当作 BFCache 命中。</p>
+<div class="spacer"></div>
+<p>滚动位置标记：在 B 滚动到这里后前往 C，再返回。</p>
+<a href="?page=C">前往 C</a>
+<script>
+'use strict';
+const requested = new URLSearchParams(location.search).get('page');
+const page = ['A', 'B', 'C'].includes(requested) ? requested : 'A';
+const instance = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const key = `history-navigation-init-${page}`;
+const initializations = Number(sessionStorage.getItem(key) || 0) + 1;
+sessionStorage.setItem(key, String(initializations));
+document.getElementById('page').textContent = page;
+document.title = `历史导航 ${page}`;
+document.documentElement.style.background = {A:'#65332e', B:'#165e51', C:'#483766'}[page];
+document.getElementById('back').onclick = () => history.back();
+document.getElementById('forward').onclick = () => history.forward();
+const events = [];
+// Only reason codes, excluding URL, origin and iframe identifiers.
+function reasonCodes(node) {
+  if (!node) return null;
+  return {
+    reasons: node.reasons?.map(item => item.reason) ?? [],
+    children: node.children?.map(reasonCodes) ?? []
+  };
+}
+function record(event, persisted) {
+  const navigation = performance.getEntriesByType('navigation')[0];
+  const result = {
+    page, instance, initializations, event, persisted,
+    navigationType: navigation?.type,
+    documentAgeMs: Math.round(performance.now()),
+    scrollY: Math.round(scrollY),
+    notRestoredReasons: reasonCodes(navigation?.notRestoredReasons),
+    note: persisted ? '已恢复原文档；navigationType 属于原始加载记录' : '检查初始化次数与 notRestoredReasons'
+  };
+  events.push(result);
+  document.getElementById('status').textContent = JSON.stringify(events, null, 2);
+  console.info('history-navigation', result);
+}
+addEventListener('pageshow', event => record('pageshow', event.persisted));
+addEventListener('pagehide', event => record('pagehide', event.persisted));
+</script>
+</html>

@@ -3260,13 +3260,102 @@ class ScopedBrowserStateUpdate {
   ~ScopedBrowserStateUpdate() { RequestBrowserStateUpdate(); }
 };
 
+// Opt-in history diagnostics. No URLs/origins or page content are logged.
+// Visual-state and presentation callbacks are milestones after commit, not
+// proof that the first frame contained meaningful content or was never white.
+class HistoryNavigationDiagnostics : public content::WebContentsObserver {
+ public:
+  explicit HistoryNavigationDiagnostics(content::WebContents* contents)
+      : content::WebContentsObserver(contents) {}
+  void DidStartNavigation(content::NavigationHandle* handle) override {
+    if (handle->IsInPrimaryMainFrame())
+      weak_factory_.InvalidateWeakPtrs();
+  }
+  void DidFinishNavigation(content::NavigationHandle* handle) override {
+    if (!VLOG_IS_ON(1) || !handle->IsInPrimaryMainFrame())
+      return;
+    const bool history =
+        (handle->GetPageTransition() & ui::PAGE_TRANSITION_FORWARD_BACK) != 0;
+    VLOG(1) << "OHOS navigation id=" << handle->GetNavigationId()
+            << " history=" << history
+            << " reload=" << static_cast<int>(handle->GetReloadType())
+            << " same_document=" << handle->IsSameDocument()
+            << " committed=" << handle->HasCommitted()
+            << " error=" << handle->IsErrorPage()
+            << " bfcache=" << handle->IsServedFromBackForwardCache()
+            << " elapsed_ms="
+            << (base::TimeTicks::Now() - handle->NavigationStart())
+                   .InMilliseconds();
+    if (!history || !handle->HasCommitted() || handle->IsSameDocument() ||
+        web_contents()->GetVisibility() != content::Visibility::VISIBLE)
+      return;
+    weak_factory_.InvalidateWeakPtrs();
+    navigation_id_ = handle->GetNavigationId();
+    committed_ = base::TimeTicks::Now();
+    document_ = web_contents()->GetPrimaryMainFrame()->GetWeakDocumentPtr();
+    // Let the pending entry clear before probing the committed document.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&HistoryNavigationDiagnostics::Probe,
+                                 weak_factory_.GetWeakPtr()));
+  }
+  void OnVisibilityChanged(content::Visibility visibility) override {
+    if (visibility != content::Visibility::VISIBLE)
+      weak_factory_.InvalidateWeakPtrs();
+  }
+  void WebContentsDestroyed() override { weak_factory_.InvalidateWeakPtrs(); }
+
+ private:
+  bool Matches() const {
+    auto* frame = document_.AsRenderFrameHostIfValid();
+    return frame && web_contents() &&
+           web_contents()->GetPrimaryMainFrame() == frame &&
+           web_contents()->GetVisibility() == content::Visibility::VISIBLE &&
+           !web_contents()->GetController().GetPendingEntry();
+  }
+  void Probe() {
+    if (!Matches())
+      return;
+    document_.AsRenderFrameHostIfValid()->InsertVisualStateCallback(
+        base::BindOnce(&HistoryNavigationDiagnostics::OnSubmitted,
+                       weak_factory_.GetWeakPtr()));
+  }
+  void OnSubmitted(bool success) {
+    if (!success || !Matches())
+      return;
+    Milestone("visual_state");
+    const auto widget =
+        GetBrowserWidget(FindBrowserForWebContents(web_contents()));
+    auto* host = aura::WindowTreeHost::GetForAcceleratedWidget(widget);
+    if (!host || !host->compositor())
+      return;
+    host->compositor()->RequestSuccessfulPresentationTimeForNextFrame(
+        base::BindOnce(&HistoryNavigationDiagnostics::OnPresented,
+                       weak_factory_.GetWeakPtr()));
+    // Diagnostic-only redraw allows observing otherwise static restored pages.
+    host->compositor()->ScheduleFullRedraw();
+  }
+  void OnPresented(const viz::FrameTimingDetails&) {
+    if (Matches())
+      Milestone("presentation");
+  }
+  void Milestone(const char* stage) const {
+    VLOG(1) << "OHOS history id=" << navigation_id_ << " stage=" << stage
+            << " since_commit_ms="
+            << (base::TimeTicks::Now() - committed_).InMilliseconds();
+  }
+  int64_t navigation_id_ = 0;
+  base::TimeTicks committed_;
+  content::WeakDocumentPtr document_;
+  base::WeakPtrFactory<HistoryNavigationDiagnostics> weak_factory_{this};
+};
+
 // Watches one tab, active or not, for what the tab list reports of every tab:
 // its title and whether it is making a sound. The tab strip hears of both too,
 // but only after Chromium's 200 ms UI coalescing.
 class TabStateWatcher : public content::WebContentsObserver {
  public:
   explicit TabStateWatcher(content::WebContents* contents)
-      : content::WebContentsObserver(contents) {}
+      : content::WebContentsObserver(contents), history_diagnostics_(contents) {}
 
   void TitleWasSet(content::NavigationEntry* entry) override {
     RequestBrowserStateUpdate();
@@ -3274,6 +3363,9 @@ class TabStateWatcher : public content::WebContentsObserver {
   void OnAudioStateChanged(bool audible) override {
     RequestBrowserStateUpdate();
   }
+
+ private:
+  HistoryNavigationDiagnostics history_diagnostics_;
 };
 
 // A startup transaction belongs to one tab strip/window and one shell token.
