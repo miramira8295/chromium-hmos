@@ -7,7 +7,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 source = (root / 'overlay/chrome/browser/ui/ohos/aura_shell_runtime_bridge.cc').read_text()
-observer = source[source.index('class ShellLoadingUiState'):source.index('bool ShouldShowShellLoading')]
+observer = source[source.index('void RequestBrowserStateUpdate();'):source.index('bool ShouldShowShellLoading')]
 assert 'tab.Set("loading", ShouldShowShellLoading(contents));' in source
 assert 'const bool show_loading = ShouldShowShellLoading(active);' in source
 assert 'show_loading ? active->GetLoadProgress() : 1.0' in source
@@ -18,7 +18,6 @@ harness = r'''
 #define WEB_CONTENTS_USER_DATA_KEY_DECL()
 #define WEB_CONTENTS_USER_DATA_KEY_IMPL(T)
 int updates = 0;
-void RequestBrowserStateUpdate() { ++updates; }
 namespace content {
 struct NavigationHandle {
   int64_t id; bool cached = false, primary = true, committed = false;
@@ -44,6 +43,7 @@ template<class T> class WebContentsUserData {
 };
 }
 OBSERVER
+void RequestBrowserStateUpdate() { ++updates; }
 int main() {
   content::WebContents contents;
   auto state = content::WebContentsUserData<ShellLoadingUiState>::Make(&contents);

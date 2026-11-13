@@ -2866,6 +2866,8 @@ void AnswerLastSession(gfx::AcceleratedWidget widget,
   }
 }
 
+void RequestBrowserStateUpdate();
+
 // IsLoading (and, for a cross-document restore, ShouldShowLoadingUI) can be
 // true while BFCache reactivates an existing document. Exposing that as a page
 // load makes the shell animate a progress bar and expand its browser controls.
