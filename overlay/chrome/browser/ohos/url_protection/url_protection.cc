@@ -279,8 +279,19 @@ class Service::Impl {
   void OnRules() {
     if (!updater_)
       return;
+    const auto previous_rules = rules_;
     rules_ = updater_->rules();
     loading_ = rules_->status == "loading";
+    if (rules_ != previous_rules && !loading_ && UsesLocal()) {
+      // Updater progress notifications keep the same immutable snapshot. A
+      // replacement changes verdicts, including checks that already completed
+      // while another commit condition is still deferring a BFCache restore.
+      CancelAll("stale_policy");
+      cache_.clear();
+      ++revision_;
+      SendControl("configure", State());
+      changed_.Notify();
+    }
     std::vector<std::string> ids;
     for (auto& [id, call] : pending_) {
       if (UsesLocal() && !loading_) {

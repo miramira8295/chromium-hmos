@@ -8,6 +8,8 @@
 
 命中风险时只淘汰待恢复页面的 RFH。Chromium 同步取消该恢复、异步重新执行同一条历史导航，由原有 throttle 和风险页处理。不会把当前 C 当作缓存中的 B 淘汰，也不自行重发 POST。策略变更继续 Flush BFCache、取消 prerender；检查回调使用 weak pointer 与策略 revision，取消或关闭标签后不能继续恢复。单次绕过授权不会继承到 BFCache 恢复。
 
+内置规则的不可变快照完成替换时也递增策略 revision 并通知观察者，清理旧检测结果与 BFCache；下载进度或临时 loading 状态不重复触发失效。
+
 此修改只进入 157 分支。`patches/migration-155` 与历史增量补丁保持原样；不能单独将“移除全局禁用”移植到缺少恢复检查注册的旧版本。
 
 ## 本地验证

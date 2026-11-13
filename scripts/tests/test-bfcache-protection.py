@@ -21,6 +21,9 @@ assert 'CancelAllPrerendering()' in source
 patch = (ROOT / 'patches/migration-157/chromium.patch').read_text()
 assert '+      chrome::ohos::url_protection::MaybeCreateBackForwardCacheCheck(' in patch
 
+service_source = (ROOT / 'overlay/chrome/browser/ohos/url_protection/url_protection.cc').read_text()
+on_rules = service_source[service_source.index('  void OnRules() {'):service_source.index('  void CheckLocal(')]
+
 prelude = r'''
 #include <cassert>
 #include <functional>
@@ -187,12 +190,79 @@ struct TabProtection {
   }
 };
 '''
+rule_harness = r'''
+struct RulePolicyHarness {
+  struct Rules { std::string status = "ready"; };
+  struct Updater {
+    std::shared_ptr<const Rules> snapshot = std::make_shared<Rules>();
+    auto rules() { return snapshot; }
+  } updater;
+  Updater* updater_ = &updater;
+  std::shared_ptr<const Rules> rules_ = updater.snapshot;
+  struct Sources { bool ready() { return true; } };
+  Sources* sources_ = nullptr;
+  struct Pending { bool waiting_local = true; };
+  std::map<std::string, Pending> pending_;
+  std::map<int, int> cache_;
+  bool loading_ = false, local = true;
+  int revision_ = 1, cancelled = 0, controls = 0, checks = 0, completed = 0;
+  struct Observers {
+    std::function<void()> fn;
+    int notified = 0;
+    void Notify() { ++notified; if (fn) fn(); }
+  } changed_;
+  bool UsesLocal() { return local; }
+  void CancelAll(const char*) { ++cancelled; pending_.clear(); }
+  void SendControl(const char*, int) { ++controls; }
+  int State() { return 0; }
+  void CheckLocal(Pending&) { ++checks; }
+  void MaybeComplete(const std::string& id) { pending_.erase(id); ++completed; }
+  void Broadcast() {}
+ON_RULES
+};
+'''.replace('ON_RULES', on_rules)
+
 tests = r'''
 } // namespace chrome::ohos::url_protection
 using namespace chrome::ohos::url_protection;
 using Decision = content::CommitDeferringCondition::Result;
 base::OnceClosure Closure(std::function<void()> fn) { return base::OnceClosure(std::move(fn)); }
 int main() {
+  {
+    RulePolicyHarness h;
+    h.pending_.emplace("old", RulePolicyHarness::Pending{});
+    h.cache_[1] = 2;
+    h.updater.snapshot = std::make_shared<RulePolicyHarness::Rules>();
+    h.changed_.fn = [&] {
+      // Old results/cache are invalidated before observers recheck new rules.
+      assert(h.cancelled == 1 && h.revision_ == 2 && h.cache_.empty());
+      assert(h.pending_.empty());
+      h.pending_.emplace("new", RulePolicyHarness::Pending{});
+    };
+    h.OnRules();
+    assert(h.changed_.notified == 1 && h.controls == 1);
+    assert(h.checks == 1 && h.completed == 1);
+    h.OnRules();  // Download progress is not a policy change.
+    assert(h.changed_.notified == 1 && h.revision_ == 2);
+  }
+  {
+    RulePolicyHarness h;
+    auto loading = std::make_shared<RulePolicyHarness::Rules>();
+    loading->status = "loading";
+    h.updater.snapshot = loading;
+    h.OnRules();
+    assert(h.loading_ && h.revision_ == 1 && h.changed_.notified == 0);
+    h.updater.snapshot = std::make_shared<RulePolicyHarness::Rules>();
+    h.OnRules();
+    assert(!h.loading_ && h.revision_ == 2 && h.changed_.notified == 1);
+  }
+  {
+    RulePolicyHarness h;
+    h.local = false;
+    h.updater.snapshot = std::make_shared<RulePolicyHarness::Rules>();
+    h.OnRules();
+    assert(h.revision_ == 1 && h.cancelled == 0 && h.changed_.notified == 0);
+  }
   for (int mode = 0; mode < 2; ++mode) {
     Service s; content::NavigationHandle h;
     if (mode == 0) h.primary = false; else h.cached = false;
@@ -282,7 +352,7 @@ int main() {
 '''
 with tempfile.TemporaryDirectory(prefix='bfcache-protection-') as tmp:
     unit = Path(tmp) / 'test.cc'; binary = Path(tmp) / 'test'
-    unit.write_text(prelude + condition + factory + tests)
+    unit.write_text(prelude + condition + factory + rule_harness + tests)
     subprocess.run([os.environ.get('CXX', 'c++'), '-std=c++20', '-Wall', '-Wextra', '-Werror',
                     '-fsanitize=address,undefined', str(unit), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
