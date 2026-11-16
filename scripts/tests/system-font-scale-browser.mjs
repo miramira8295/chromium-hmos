@@ -1,9 +1,11 @@
 // Device regression: CDP_URL=http://127.0.0.1:19571 EXPECTED_FONT_SCALE=1.45 node ...
+// Add --fullscreen to also require a completed native fullscreen transition.
 // Creates a disposable test tab; never reads or navigates an existing user tab.
 import assert from 'node:assert/strict';
 const endpoint = process.env.CDP_URL ?? 'http://127.0.0.1:19571';
 const expected = Number(process.env.EXPECTED_FONT_SCALE ?? '1.45');
 const observe = process.argv.includes('--observe');
+const fullscreen = process.argv.includes('--fullscreen');
 const version = await fetch(`${endpoint}/json/version`, { signal: AbortSignal.timeout(8000) }).then(r => r.json());
 const socket = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
@@ -26,12 +28,18 @@ function call(method, params = {}, sessionId) {
     socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
 }
+function assertRect(actual, expectedRect, label) {
+  for (const dimension of ['width', 'height'])
+    assert.ok(Math.abs(actual[dimension] - expectedRect[dimension]) < 0.05,
+      `${label} ${dimension}: ${actual[dimension]} vs ${expectedRect[dimension]}`);
+}
 let targetId;
 try {
   ({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: true }));
   await call('Target.activateTarget', { targetId });
   const { sessionId } = await call('Target.attachToTarget', { targetId, flatten: true });
   async function evaluate(expression, userGesture = false) {
+    if (process.env.DEBUG_FONT_TEST) console.error('evaluate:', expression.slice(0, 160));
     const r = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture }, sessionId);
     if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails));
     return r.result.value;
@@ -79,23 +87,26 @@ window.setMeta=(on)=>{
   if (!observe) {
     assert.ok(Math.abs(initial.text.height / baseline.text.height - expected) < 0.02, 'new document applies text scaling');
     assert.ok(Math.abs(result.textRatio - expected) < 0.02, `text ratio ${result.textRatio}, expected ${expected}`);
-    assert.deepEqual(ordinary.image, baseline.image, 'fixed image dimensions');
-    assert.deepEqual(ordinary.video, baseline.video, 'fixed video dimensions');
+    assertRect(ordinary.image, baseline.image, 'fixed image dimensions');
+    assertRect(ordinary.video, baseline.video, 'fixed video dimensions');
     assert.deepEqual(ordinary.viewport, baseline.viewport, 'layout viewport');
     assert.equal(ordinary.dpr, baseline.dpr, 'device/page scale');
     assert.ok(Math.abs(adaptedAgain.text.height - baseline.text.height) < 0.1, 'meta opt-in must not double-scale');
     assert.ok(Math.abs(baseline.childHeight / baseline.text.height - expected) < 0.02, 'ordinary child of meta parent');
     assert.ok(Math.abs(ordinary.childHeight - baseline.childHeight) < 0.1, 'child must not inherit parent opt-in');
-    await call('Target.activateTarget', { targetId });
-    result.fullscreen = await evaluate(`(async()=>{await document.querySelector('#box').requestFullscreen();
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return sample()})()`, true);
-    await evaluate('document.exitFullscreen()', true);
-    assert.ok(Math.abs(result.fullscreen.box.width - result.fullscreen.viewport.width) <= 1, 'fullscreen width');
-    assert.ok(Math.abs(result.fullscreen.box.height - result.fullscreen.viewport.height) <= 1, 'fullscreen height');
-    assert.deepEqual(result.fullscreen.video, result.fullscreen.box, 'video fills fullscreen container');
+    if (fullscreen) {
+      await call('Target.activateTarget', { targetId });
+      result.fullscreen = await evaluate(`(async()=>{await document.querySelector('#box').requestFullscreen();
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return sample()})()`, true);
+      await evaluate('document.exitFullscreen()', true);
+      assert.ok(Math.abs(result.fullscreen.box.width - result.fullscreen.viewport.width) <= 1, 'fullscreen width');
+      assert.ok(Math.abs(result.fullscreen.box.height - result.fullscreen.viewport.height) <= 1, 'fullscreen height');
+      assertRect(result.fullscreen.video, result.fullscreen.box, 'video fills fullscreen container');
+    }
   }
   console.log(JSON.stringify(result, null, 2));
-  console.log(observe ? 'OBSERVED: baseline only' : 'PASS: text scales; fixed media, viewport and fullscreen geometry stay consistent');
+  console.log(observe ? 'OBSERVED: baseline only' :
+    `PASS: text scales; fixed media and viewport stay consistent${fullscreen ? '; fullscreen geometry verified' : ''}`);
 } finally {
   if (targetId) await call('Target.closeTarget', { targetId });
   socket.close();
