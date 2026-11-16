@@ -29,6 +29,7 @@ function call(method, params = {}, sessionId) {
 let targetId;
 try {
   ({ targetId } = await call('Target.createTarget', { url: 'about:blank', background: true }));
+  await call('Target.activateTarget', { targetId });
   const { sessionId } = await call('Target.attachToTarget', { targetId, flatten: true });
   async function evaluate(expression, userGesture = false) {
     const r = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture }, sessionId);
@@ -68,13 +69,15 @@ window.setMeta=(on)=>{
     assert.ok(Date.now() < deadline, 'test document did not finish loading');
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+  const initial = await evaluate('sample()');
   const baseline = await evaluate('setMeta(true)');
   const ordinary = await evaluate('setMeta(false)');
   const adaptedAgain = await evaluate('setMeta(true)');
   await evaluate('setMeta(false)');
-  const result = { browser: version.Browser, expected, baseline, ordinary, adaptedAgain,
+  const result = { browser: version.Browser, expected, initial, baseline, ordinary, adaptedAgain,
     textRatio: ordinary.text.height / baseline.text.height };
   if (!observe) {
+    assert.ok(Math.abs(initial.text.height / baseline.text.height - expected) < 0.02, 'new document applies text scaling');
     assert.ok(Math.abs(result.textRatio - expected) < 0.02, `text ratio ${result.textRatio}, expected ${expected}`);
     assert.deepEqual(ordinary.image, baseline.image, 'fixed image dimensions');
     assert.deepEqual(ordinary.video, baseline.video, 'fixed video dimensions');
