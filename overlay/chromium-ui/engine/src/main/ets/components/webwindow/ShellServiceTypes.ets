@@ -172,7 +172,9 @@ export type ShellPrefKey =
   'webRtcIpHandling' |
   // JSON {mode: allow/session_only/block, managed}; default Cookie storage.
   'cookieStorage' |
-  'imageLoading';
+  'imageLoading' |
+  // JSON {mode: on/off, managed}; Chromium extension developer tools.
+  'extensionDeveloperMode';
 
 export interface ShellPrefValue {
   key: ShellPrefKey;

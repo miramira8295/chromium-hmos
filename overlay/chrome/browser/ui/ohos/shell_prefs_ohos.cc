@@ -37,6 +37,8 @@
 #include "base/logging.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/supervised_user/supervised_user_browser_utils.h"
 #include "chrome/browser/preloading/preloading_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ohos/url_protection/url_protection.h"
@@ -214,6 +216,34 @@ bool WriteTextScale(Profile* profile, const base::Value& value) {
   return true;
 }
 
+// Match chrome://extensions, including renderer and user-script notifications.
+std::optional<base::Value> ReadExtensionDeveloperMode(Profile* profile) {
+  PrefService* state = profile->GetPrefs();
+  if (!state->FindPreference(prefs::kExtensionsUIDeveloperMode)) {
+    return std::nullopt;
+  }
+  base::DictValue config;
+  config.Set("mode", state->GetBoolean(prefs::kExtensionsUIDeveloperMode)
+                         ? "on" : "off");
+  config.Set("managed", !state->IsUserModifiablePreference(
+                            prefs::kExtensionsUIDeveloperMode) ||
+                            supervised_user::AreExtensionsPermissionsEnabled(profile));
+  return PrivacyConfig(std::move(config));
+}
+
+bool WriteExtensionDeveloperMode(Profile* profile, const base::Value& value) {
+  PrefService* state = profile->GetPrefs();
+  const auto mode = PrivacyMode(value);
+  if (!mode || (*mode != "on" && *mode != "off") ||
+      !state->FindPreference(prefs::kExtensionsUIDeveloperMode) ||
+      !state->IsUserModifiablePreference(prefs::kExtensionsUIDeveloperMode) ||
+      supervised_user::AreExtensionsPermissionsEnabled(profile)) {
+    return false;
+  }
+  extensions::util::SetDeveloperModeForProfile(profile, *mode == "on");
+  return true;
+}
+
 struct CustomPref {
   std::string_view key;
   Reader read;
@@ -221,6 +251,8 @@ struct CustomPref {
 };
 
 constexpr CustomPref kCustomPrefs[] = {
+    {"extensionDeveloperMode", &ReadExtensionDeveloperMode,
+     &WriteExtensionDeveloperMode},
     {"imageLoading", &ReadImageLoading, &WriteImageLoading},
     {"cookieStorage", &ReadCookieStorage, &WriteCookieStorage},
     {"webRtcIpHandling", &ReadWebRtcIpHandling, &WriteWebRtcIpHandling},
