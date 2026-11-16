@@ -163,6 +163,55 @@ int main() {
   assert(!ApplyOhosSystemFontWebPreferences(&next));
 }
 '''
+# The actual Blink document policy must avoid both inheritance mistakes and
+# double scaling on pages opting into meta text-scale.
+frame = section('third_party/blink/renderer/core/frame/local_frame.cc')
+page = section('third_party/blink/renderer/core/page/page.cc')
+view = section('third_party/blink/renderer/core/exported/web_view_impl.cc')
+assert 'SetScaleAllFontsIfNoMetaTextScaleTag(true)' in view
+assert 'SetTextZoomFactor(OhosTextZoomFactor(document, text_zoom_factor_))' in frame
+assert 'text_zoom_factor = OhosTextZoomFactor(GetDocument(), text_zoom_factor)' in frame
+assert 'local_frame->SetTextZoomFactor(' in page
+policy = r"""
+struct Settings {
+  bool all = true;
+  float factor = 1.45f;
+  bool GetScaleAllFontsIfNoMetaTextScaleTag() const { return all; }
+  float GetAccessibilityFontScaleFactor() const { return factor; }
+};
+struct Document {
+  Settings* settings;
+  bool meta = false;
+  const Settings* GetSettings() const { return settings; }
+  bool TextScaleMetaTagPresent() const { return meta; }
+};
+TEXT_POLICY
+void CheckDocumentTextPolicy() {
+  Settings settings;
+  Document ordinary{&settings}, adapted{&settings, true}, detached{nullptr};
+  assert(OhosTextZoomFactor(nullptr, 1.2f) == 1.2f);
+  assert(OhosTextZoomFactor(&detached, 1.2f) == 1.2f);
+  // A meta parent passes 1, an ordinary parent passes its scale. Each child
+  // resolves its own opt-in; neither inherits the wrong parent's decision.
+  for (float inherited : {1.0f, 1.45f, 2.0f}) {
+    assert(OhosTextZoomFactor(&ordinary, inherited) == 1.45f);
+    assert(OhosTextZoomFactor(&adapted, inherited) == 1.0f);
+  }
+  ordinary.meta = true;
+  assert(OhosTextZoomFactor(&ordinary, 1.45f) == 1.0f);
+  ordinary.meta = false;
+  assert(OhosTextZoomFactor(&ordinary, 1.0f) == 1.45f);
+  settings.factor = 1.6f;
+  assert(OhosTextZoomFactor(&ordinary, 1.45f) == 1.6f);
+  assert(OhosTextZoomFactor(&adapted, 1.45f) == 1.0f);
+  settings.factor = 1.0f;
+  assert(OhosTextZoomFactor(&ordinary, 1.45f) == 1.0f);
+  settings.all = false;
+  assert(OhosTextZoomFactor(&ordinary, 1.2f) == 1.2f);
+}
+"""
+policy = policy.replace('TEXT_POLICY', function(frame, 'float OhosTextZoomFactor('))
+unit = unit.replace('int main() {', policy + '\nint main() {\n  CheckDocumentTextPolicy();')
 unit = unit.replace('FONT_PREFS', function(client, 'bool ApplyOhosSystemFontWebPreferences('))
 unit = unit.replace('APPLY', function(bridge, 'void Apply(std::optional<double> scale)'))
 with tempfile.TemporaryDirectory(prefix='font-scale-test-') as directory:

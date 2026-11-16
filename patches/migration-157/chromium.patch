@@ -41075,14 +41075,19 @@ index 46399e82d3bd316e08f60251b39cd735e766d41c..5caa7e20030c8fcefd02e8235b036249
      return r.font_weight_adjustment;
    }
 diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
-index 210e182a80343b67302a2ed347c1ab984cdc3b09..7658ec9a16e895187163069f76cd8b2e4207bff2 100644
+index 210e182a80343b67302a2ed347c1ab984cdc3b09..86a72166dbdd4a3d5edf5747fdfc453839bbced8 100644
 --- a/third_party/blink/renderer/core/exported/web_view_impl.cc
 +++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
-@@ -1822,7 +1822,11 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
+@@ -1822,7 +1822,16 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
          prefs.scale_all_fonts_if_no_meta_text_scale_tag);
    }
  
 +#endif  // BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_OHOS)
++  // Ordinary sites should honor the user's large-text preference too. Use
++  // Blink's WebView text-only policy; meta text-scale pages handle it themselves.
++  settings->SetScaleAllFontsIfNoMetaTextScaleTag(true);
++#endif
 +#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
    settings->SetAccessibilityFontScaleFactor(prefs.font_scale_factor);
 +#endif
@@ -41090,3 +41095,68 @@ index 210e182a80343b67302a2ed347c1ab984cdc3b09..7658ec9a16e895187163069f76cd8b2e
    settings->SetAccessibilityFontWeightAdjustment(prefs.font_weight_adjustment);
    settings->SetAccessibilityTextSizeContrastFactor(
        prefs.text_size_contrast_factor);
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+index 5cf4b1e38e03563dab2dbe394c54407e2a8483b3..9fc36a41bf2b71b0f66d5e64d12491a9a01fd3fb 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -296,6 +296,20 @@ inline float ParentLayoutZoomFactor(LocalFrame* frame) {
+   return parent_local_frame ? parent_local_frame->LayoutZoomFactor() : 1;
+ }
+ 
++#if BUILDFLAG(IS_OHOS)
++float OhosTextZoomFactor(const Document* document, float fallback) {
++  const Settings* settings = document ? document->GetSettings() : nullptr;
++  if (!settings || !settings->GetScaleAllFontsIfNoMetaTextScaleTag()) {
++    return fallback;
++  }
++  // Resolve per document, not from the parent's adjusted value: a child may
++  // opt in to meta text-scale when its parent does not (or vice versa).
++  return document->TextScaleMetaTagPresent()
++             ? 1.0f
++             : static_cast<float>(settings->GetAccessibilityFontScaleFactor());
++}
++#endif
++
+ inline float ParentTextZoomFactor(LocalFrame* frame) {
+   auto* parent_local_frame = DynamicTo<LocalFrame>(frame->Tree().Parent());
+   return parent_local_frame ? parent_local_frame->TextZoomFactor() : 1;
+@@ -1033,6 +1047,11 @@ bool LocalFrame::DetachChildren() {
+ void LocalFrame::DidAttachDocument() {
+   Document* document = GetDocument();
+   DCHECK(document);
++#if BUILDFLAG(IS_OHOS)
++  // Preferences may arrive before the first local frame exists. Also reset
++  // text zoom after navigating from a meta text-scale page to an ordinary one.
++  SetTextZoomFactor(OhosTextZoomFactor(document, text_zoom_factor_));
++#endif
+   GetEditor().Clear();
+   // Clearing the event handler clears many events, but notably can ensure that
+   // for a drag started on an element in a frame that was moved (likely via
+@@ -1774,6 +1793,10 @@ void LocalFrame::SetCssZoomFactor(float factor) {
+ void LocalFrame::SetZoomFactors(float layout_zoom_factor,
+                                 float text_zoom_factor,
+                                 float css_zoom_factor) {
++#if BUILDFLAG(IS_OHOS)
++  // Keep text inflation independent of page/CSS zoom and of ancestor opt-in.
++  text_zoom_factor = OhosTextZoomFactor(GetDocument(), text_zoom_factor);
++#endif
+   if (layout_zoom_factor_ == layout_zoom_factor &&
+       text_zoom_factor_ == text_zoom_factor &&
+       css_zoom_factor_ == css_zoom_factor) {
+diff --git a/third_party/blink/renderer/core/page/page.cc b/third_party/blink/renderer/core/page/page.cc
+index b85152c9ca8b8b48352199fe4e1c5521bd2089b4..471511ffbc933ee992b5a8333fc4821360802535 100644
+--- a/third_party/blink/renderer/core/page/page.cc
++++ b/third_party/blink/renderer/core/page/page.cc
+@@ -1049,6 +1049,12 @@ void Page::SettingsChanged(ChangeType change_type) {
+         if (!document || !document->IsActive()) {
+           continue;
+         }
++#if BUILDFLAG(IS_OHOS)
++        if (GetSettings().GetScaleAllFontsIfNoMetaTextScaleTag()) {
++          local_frame->SetTextZoomFactor(
++              GetSettings().GetAccessibilityFontScaleFactor());
++        }
++#endif
+         document->GetStyleEngine()
+             .EnsureEnvironmentVariables()
+             .UpdatePreferredTextScaleFromDocument();
