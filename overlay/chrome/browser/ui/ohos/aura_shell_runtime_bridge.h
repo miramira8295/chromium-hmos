@@ -64,6 +64,10 @@ void EnsureAuraShellSystemPermissions();
 void NotifyAuraShellBrowserStarted();
 void NotifyAuraShellBrowserStopped();
 
+// UI thread only. Blink accessibility font scale; independent of page/host zoom.
+// Defaults to 1 when the service is unavailable or following is disabled.
+float GetAuraShellSystemFontScale();
+
 // These entry points are safe to call from the ArkUI/N-API thread. Requests
 // made during startup are held until Chromium's UI thread is ready.
 bool NavigateAuraShellBrowser(const std::string& url);

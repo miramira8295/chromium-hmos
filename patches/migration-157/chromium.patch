@@ -3864,7 +3864,7 @@ index 1651c5defa7c0e4e43c43097dc5148a35d93da77..636bc9e13788f85c8bf1057148836ee6
    // Chrome on Android does not use default MessageLoop. It has its own
    // Android specific MessageLoop
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb14a9ae196 100644
+index 1defcfa514d5b100c35165f02ce91df492fa351e..3dc1cb989f0f270b87614a05ce9c15a800eb121c 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
 @@ -3,6 +3,12 @@
@@ -3908,7 +3908,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
  #include "components/webapps/isolated_web_apps/scheme.h"
  #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||
          // BUILDFLAG(IS_CHROMEOS)
-@@ -920,8 +931,8 @@
+@@ -920,8 +931,8 @@ bool IsClipboardFocusExemptOrigin(const url::Origin& main_frame_origin) {
           IsIsolatedWebAppOrigin(main_frame_origin);
  }
  
@@ -3919,7 +3919,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
  bool IsIsolatedWebAppUrl(const GURL& url) {
    return url.SchemeIs(webapps::kIsolatedAppScheme);
  }
-@@ -3102,7 +3113,7 @@
+@@ -3102,7 +3113,7 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
      command_line->AppendSwitchASCII(switches::kMetricsClientID,
                                      client_info->client_id);
    }
@@ -3928,11 +3928,23 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
  #if !BUILDFLAG(IS_ANDROID)
    pid_t pid;
    if (crash_reporter::GetHandlerSocket(nullptr, &pid)) {
-@@ -4672,6 +4683,170 @@
+@@ -4672,6 +4683,182 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
  #endif
  }
  
 +#if BUILDFLAG(IS_OHOS)
++// Like Chrome Android, pass the system font preference to Blink's text
++// machinery. Keep page/host zoom independent, including in incognito profiles.
++// Apply in both hooks so new renderers and same-site navigations agree.
++bool ApplyOhosSystemFontWebPreferences(WebPreferences* web_prefs) {
++  const float scale = chrome::ohos::GetAuraShellSystemFontScale();
++  const bool changed = web_prefs->font_scale_factor != scale ||
++                       !web_prefs->text_size_adjust_enabled;
++  web_prefs->font_scale_factor = scale;
++  web_prefs->text_size_adjust_enabled = true;
++  return changed;
++}
++
 +// The viewport rules for a phone, in one place because two hooks need them.
 +//
 +// Web preferences are computed once per SiteInstance, and after a navigation
@@ -4099,33 +4111,35 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
  void ChromeContentBrowserClient::OverrideWebPreferences(
      WebContents* web_contents,
      content::SiteInstance& main_frame_site,
-@@ -5010,6 +5185,10 @@
+@@ -5010,6 +5197,11 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
        base::FeatureList::IsEnabled(features::kTouchDragAndDrop);
  #endif
  
 +#if BUILDFLAG(IS_OHOS)
++  ApplyOhosSystemFontWebPreferences(web_prefs);
 +  ApplyOhosPhoneWebPreferences(web_contents, main_frame_site, web_prefs);
 +#endif
 +
    for (auto& parts : extra_parts_) {
      parts->OverrideWebPreferences(web_contents, main_frame_site, web_prefs);
    }
-@@ -5046,6 +5225,14 @@
-     content::SiteInstance& main_frame_site,
+@@ -5047,6 +5239,15 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
      WebPreferences* web_prefs) {
    bool prefs_changed = false;
-+
+ 
 +#if BUILDFLAG(IS_OHOS)
 +  // Where a tab has navigated decides its viewport, so this is the hook that
 +  // matters: the full recomputation only happens when the SiteInstance
 +  // changes, which opening chrome://version in the same tab need not do.
++  prefs_changed |= ApplyOhosSystemFontWebPreferences(web_prefs);
 +  prefs_changed |=
 +      ApplyOhosPhoneWebPreferences(web_contents, main_frame_site, web_prefs);
 +#endif
- 
++
    const auto autoplay_policy = GetAutoplayPolicyForWebContents(web_contents);
    prefs_changed |= (web_prefs->autoplay_policy != autoplay_policy);
-@@ -5748,6 +5935,12 @@
+   web_prefs->autoplay_policy = autoplay_policy;
+@@ -5748,6 +5949,12 @@ ChromeContentBrowserClient::CreateCommitDeferringConditionsForNavigation(
        &conditions);
  #endif
  
@@ -4138,19 +4152,19 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
    MaybeAddCondition(actor::ActorCommitDeferringCondition::MaybeCreate(
                          *navigation_handle, navigation_type),
                      &conditions);
-@@ -6177,6 +6370,11 @@
-   DCHECK(browser_context);
+@@ -6178,6 +6385,11 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
    Profile* profile = Profile::FromBrowserContext(browser_context);
    DCHECK(profile);
-+
+ 
 +#if BUILDFLAG(IS_OHOS)
 +  if (auto throttle = chrome::ohos::adblock::NavigationThrottle(profile, request, wc_getter))
 +    result.push_back(std::move(throttle));
 +#endif
- 
++
    ChromeNavigationUIData* chrome_navigation_ui_data =
        static_cast<ChromeNavigationUIData*>(navigation_ui_data);
-@@ -6871,6 +7069,10 @@
+ 
+@@ -6871,6 +7083,10 @@ void ChromeContentBrowserClient::WillCreateURLLoaderFactory(
      network::mojom::URLLoaderFactoryOverridePtr* factory_override,
      scoped_refptr<base::SequencedTaskRunner> navigation_response_task_runner,
      bool is_for_network_service) {
@@ -4161,7 +4175,7 @@ index 1defcfa514d5b100c35165f02ce91df492fa351e..539e5e2dfc048a58b35e54029bc3dcb1
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
    auto* web_request_api =
        extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
-@@ -7040,6 +7242,13 @@
+@@ -7040,6 +7256,13 @@ ChromeContentBrowserClient::
    return prefetch_handler;
  }
  
@@ -6994,19 +7008,6 @@ index a281709c54cd71589a57e0360ec757c0c38efb08..dcc8677c031a281b06754bb8cf98a9f8
  #if BUILDFLAG(IS_CHROMEOS)
    if (ash::features::IsScannerEnabled()) {
      ScannerKeyedServiceFactory::GetInstance();
-diff --git a/chrome/browser/profiles/off_the_record_profile_impl.cc b/chrome/browser/profiles/off_the_record_profile_impl.cc
-index 67065112a11016b11fa82abe9cc12003689f902c..848cb8eafeddea8a1ecb758baae5c56f340c3ede 100644
---- a/chrome/browser/profiles/off_the_record_profile_impl.cc
-+++ b/chrome/browser/profiles/off_the_record_profile_impl.cc
-@@ -681,7 +681,7 @@ void OffTheRecordProfileImpl::OnParentZoomLevelChanged(
- void OffTheRecordProfileImpl::UpdateDefaultZoomLevel() {
-   HostZoomMap* host_zoom_map = HostZoomMap::GetDefaultForBrowserContext(this);
-   double default_zoom_level =
--      profile_->GetZoomLevelPrefs()->GetDefaultZoomLevelPref();
-+      profile_->GetZoomLevelPrefs()->GetEffectiveDefaultZoomLevel();
-   host_zoom_map->SetDefaultZoomLevel(default_zoom_level);
-   // HostZoomMap does not trigger zoom notification events when the default
-   // zoom level is set, so we need to do it here.
 diff --git a/chrome/browser/profiles/profile_impl.cc b/chrome/browser/profiles/profile_impl.cc
 index cd7cb4e41199883ad37a43764536d5db1805f689..d1a7d2da494e3ecf828dcd21645b94d125202a92 100644
 --- a/chrome/browser/profiles/profile_impl.cc
@@ -15111,191 +15112,6 @@ index 9c8e3b931fdaa33b72f1f82336d5836a995f2aa8..02eac1fcb1c0a3dbfcca43baa51f001c
  
  source_set("zoom") {
    sources = [
-diff --git a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
-index 1f1829ff00a63dcc2abc064d444a051d2797675e..7c3296aa4c3bfbb29f48c4a4d3f97fbe287550d4 100644
---- a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
-+++ b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.cc
-@@ -27,6 +27,13 @@
- #include "content/public/browser/host_zoom_map.h"
- #include "third_party/blink/public/common/page/page_zoom.h"
- 
-+#if BUILDFLAG(IS_OHOS)
-+#include <algorithm>
-+#include <set>
-+
-+#include "base/no_destructor.h"
-+#endif
-+
- namespace {
- 
- std::string GetPartitionKey(const base::FilePath& relative_path) {
-@@ -57,6 +64,24 @@ base::Time GetTimeStamp(const base::DictValue& dictionary) {
- 
- }  // namespace
- 
-+#if BUILDFLAG(IS_OHOS)
-+namespace {
-+
-+// Page zoom for the system font size, clamped: HarmonyOS's largest font
-+// sizes would otherwise leave a phone page only a few words wide.
-+constexpr double kMinOhosFontScale = 0.8;
-+constexpr double kMaxOhosFontScale = 2.0;
-+
-+double g_ohos_system_font_scale = 1.0;
-+
-+std::set<ChromeZoomLevelPrefs*>& OhosZoomLevelPrefs() {
-+  static base::NoDestructor<std::set<ChromeZoomLevelPrefs*>> instances;
-+  return *instances;
-+}
-+
-+}  // namespace
-+#endif  // BUILDFLAG(IS_OHOS)
-+
- ChromeZoomLevelPrefs::ChromeZoomLevelPrefs(
-     PrefService* pref_service,
-     const base::FilePath& profile_path,
-@@ -73,9 +98,16 @@ ChromeZoomLevelPrefs::ChromeZoomLevelPrefs(
-   base::FilePath partition_relative_path;
-   profile_path.AppendRelativePath(partition_path, &partition_relative_path);
-   partition_key_ = GetPartitionKey(partition_relative_path);
-+#if BUILDFLAG(IS_OHOS)
-+  OhosZoomLevelPrefs().insert(this);
-+#endif
- }
- 
--ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() = default;
-+ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() {
-+#if BUILDFLAG(IS_OHOS)
-+  OhosZoomLevelPrefs().erase(this);
-+#endif
-+}
- 
- std::string ChromeZoomLevelPrefs::GetPartitionKeyForTesting(
-     const base::FilePath& relative_path) {
-@@ -83,7 +115,13 @@ std::string ChromeZoomLevelPrefs::GetPartitionKeyForTesting(
- }
- 
- void ChromeZoomLevelPrefs::SetDefaultZoomLevelPref(double level) {
-+#if BUILDFLAG(IS_OHOS)
-+  // The HostZoomMap holds the pref plus the system font size; compare with
-+  // the pref itself.
-+  if (blink::ZoomValuesEqual(level, GetDefaultZoomLevelPref())) {
-+#else
-   if (blink::ZoomValuesEqual(level, host_zoom_map_->GetDefaultZoomLevel())) {
-+#endif
-     return;
-   }
- 
-@@ -91,7 +129,7 @@ void ChromeZoomLevelPrefs::SetDefaultZoomLevelPref(double level) {
-   update->Set(partition_key_, level);
-   // For unregistered paths, OnDefaultZoomLevelChanged won't be called, so
-   // set this manually.
--  host_zoom_map_->SetDefaultZoomLevel(level);
-+  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
-   default_zoom_changed_callbacks_.Notify();
-   if (zoom_event_manager_) {
-     zoom_event_manager_->OnDefaultZoomLevelChanged();
-@@ -104,6 +142,46 @@ double ChromeZoomLevelPrefs::GetDefaultZoomLevelPref() const {
-   return default_zoom_level_dictionary.FindDouble(partition_key_).value_or(0.0);
- }
- 
-+double ChromeZoomLevelPrefs::GetEffectiveDefaultZoomLevel() const {
-+#if BUILDFLAG(IS_OHOS)
-+  return GetDefaultZoomLevelPref() +
-+         blink::ZoomFactorToZoomLevel(g_ohos_system_font_scale);
-+#else
-+  return GetDefaultZoomLevelPref();
-+#endif
-+}
-+
-+#if BUILDFLAG(IS_OHOS)
-+// static
-+void ChromeZoomLevelPrefs::SetOhosSystemFontScale(double scale) {
-+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-+  if (!(scale > 0)) {
-+    return;
-+  }
-+  scale = std::clamp(scale, kMinOhosFontScale, kMaxOhosFontScale);
-+  if (scale == g_ohos_system_font_scale) {
-+    return;
-+  }
-+  g_ohos_system_font_scale = scale;
-+  for (ChromeZoomLevelPrefs* prefs : OhosZoomLevelPrefs()) {
-+    prefs->ApplyEffectiveDefaultZoomLevel();
-+  }
-+}
-+
-+void ChromeZoomLevelPrefs::ApplyEffectiveDefaultZoomLevel() {
-+  if (!host_zoom_map_) {
-+    // InitHostZoomMap() picks the scale up.
-+    return;
-+  }
-+  // Updates every page without a zoom level of its own, in place.
-+  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
-+  default_zoom_changed_callbacks_.Notify();
-+  if (zoom_event_manager_) {
-+    zoom_event_manager_->OnDefaultZoomLevelChanged();
-+  }
-+}
-+#endif  // BUILDFLAG(IS_OHOS)
-+
- double ChromeZoomLevelPrefs::GetDefaultZoomFactor() const {
-   return blink::ZoomLevelToZoomFactor(GetDefaultZoomLevelPref());
- }
-@@ -224,7 +302,7 @@ void ChromeZoomLevelPrefs::InitHostZoomMap(
-   host_zoom_map_ = host_zoom_map;
- 
-   // Initialize the default zoom level.
--  host_zoom_map_->SetDefaultZoomLevel(GetDefaultZoomLevelPref());
-+  host_zoom_map_->SetDefaultZoomLevel(GetEffectiveDefaultZoomLevel());
- 
-   // Initialize the HostZoomMap with per-host zoom levels from the persisted
-   // zoom-level preference values.
-diff --git a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
-index ac557789ef5165246d875812a3235b0ab84f5955..d8b762006c6fb47676d5995eba90f9c6bcac0508 100644
---- a/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
-+++ b/chrome/browser/ui/zoom/chrome_zoom_level_prefs.h
-@@ -9,6 +9,7 @@
- #include "base/files/file_path.h"
- #include "base/functional/callback.h"
- #include "base/memory/raw_ptr.h"
-+#include "build/build_config.h"
- #include "base/memory/weak_ptr.h"
- #include "base/values.h"
- #include "components/prefs/json_pref_store.h"
-@@ -50,6 +51,9 @@ class ChromeZoomLevelPrefs : public content::ZoomLevelDelegate {
- 
-   void SetDefaultZoomLevelPref(double level);
-   double GetDefaultZoomLevelPref() const;
-+  // The default zoom level pages actually get: the pref, and on OHOS the
-+  // system font size on top of it (SetOhosSystemFontScale).
-+  double GetEffectiveDefaultZoomLevel() const;
-   double GetDefaultZoomFactor() const;
-   base::CallbackListSubscription RegisterDefaultZoomLevelCallback(
-       base::RepeatingClosure callback);
-@@ -60,7 +64,22 @@ class ChromeZoomLevelPrefs : public content::ZoomLevelDelegate {
-   // content::ZoomLevelDelegate
-   void InitHostZoomMap(content::HostZoomMap* host_zoom_map) override;
- 
-+#if BUILDFLAG(IS_OHOS)
-+  // The system font size scale (HarmonyOS Configuration.fontSizeScale). Page
-+  // zoom follows it, on top of the default zoom pref -- as Chrome on Android
-+  // can adjust page zoom for the OS font scale -- so larger system text
-+  // makes web text larger too. Sites with their own zoom level keep it.
-+  // Applies to every profile at once. UI thread.
-+  static void SetOhosSystemFontScale(double scale);
-+#endif
-+
-  private:
-+#if BUILDFLAG(IS_OHOS)
-+  // Pushes GetEffectiveDefaultZoomLevel() to the HostZoomMap and tells
-+  // observers (an off-the-record profile mirrors it) that it changed.
-+  void ApplyEffectiveDefaultZoomLevel();
-+#endif
-+
-   // This is a callback function that receives notifications from HostZoomMap
-   // when per-host zoom levels change. It is used to update the per-host
-   // zoom levels (if any) managed by this class (for its associated partition).
 diff --git a/chrome/browser/universal_web_contents_observers.cc b/chrome/browser/universal_web_contents_observers.cc
 index 70c84066d5da97b6c2806495e3f4c85849b9102d..cd4d723be39d3d684c57dc1200fde0aca1b03ab5 100644
 --- a/chrome/browser/universal_web_contents_observers.cc
@@ -41194,3 +41010,83 @@ index 80aea6de6e35cccc93df2ebadce192bb8374a015..b41231985c10538b6aa3f936c7c795ec
    }
  
    declare_args() {
+diff --git a/third_party/blink/public/common/web_preferences/web_preferences.h b/third_party/blink/public/common/web_preferences/web_preferences.h
+index afad7285f6508a82bf4f8fa030dde81de5d61a12..aa634f38796d6ff0ee93df8dae937ea02affdc2c 100644
+--- a/third_party/blink/public/common/web_preferences/web_preferences.h
++++ b/third_party/blink/public/common/web_preferences/web_preferences.h
+@@ -264,8 +264,10 @@ struct BLINK_COMMON_EXPORT WebPreferences {
+   // profile.
+   bool is_initial_profile = false;
+ 
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   float font_scale_factor = 1.0f;
++#endif
++#if BUILDFLAG(IS_ANDROID)
+   int font_weight_adjustment = 0;
+   int text_size_contrast_factor = 0;
+   bool force_enable_zoom = false;
+diff --git a/third_party/blink/public/mojom/webpreferences/web_preferences.mojom b/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
+index 505832dd70e9089a98be31856e7a2bfb848aac17..2ad7856d958d14b9f0b290f06912dd5e606bb84f 100644
+--- a/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
++++ b/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
+@@ -290,7 +290,7 @@ struct WebPreferences {
+   // profile.
+   bool is_initial_profile;
+ 
+-  [EnableIf=is_android]
++  [EnableIf=is_android|is_ohos]
+   float font_scale_factor;
+ 
+   [EnableIf=is_android]
+diff --git a/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc b/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
+index 180ee8bd4c380b88b361fa8ad120a519503b2d0f..734faf8758e811b684b9dfdd7f31f6af8d4e511d 100644
+--- a/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
++++ b/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
+@@ -165,8 +165,10 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
+   out->fullscreen_supported = data.fullscreen_supported();
+   out->is_initial_profile = data.is_initial_profile();
+   out->text_size_adjust_enabled = data.text_size_adjust_enabled();
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   out->font_scale_factor = data.font_scale_factor();
++#endif
++#if BUILDFLAG(IS_ANDROID)
+   out->font_weight_adjustment = data.font_weight_adjustment();
+   out->text_size_contrast_factor = data.text_size_contrast_factor();
+   out->force_enable_zoom = data.force_enable_zoom();
+diff --git a/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h b/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
+index 46399e82d3bd316e08f60251b39cd735e766d41c..5caa7e20030c8fcefd02e8235b036249419fd4b2 100644
+--- a/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
++++ b/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
+@@ -561,11 +561,13 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::WebPreferencesDataView,
+     return r.is_initial_profile;
+   }
+ 
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   static float font_scale_factor(const blink::web_pref::WebPreferences& r) {
+     return r.font_scale_factor;
+   }
++#endif
+ 
++#if BUILDFLAG(IS_ANDROID)
+   static int font_weight_adjustment(const blink::web_pref::WebPreferences& r) {
+     return r.font_weight_adjustment;
+   }
+diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
+index 210e182a80343b67302a2ed347c1ab984cdc3b09..7658ec9a16e895187163069f76cd8b2e4207bff2 100644
+--- a/third_party/blink/renderer/core/exported/web_view_impl.cc
++++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
+@@ -1822,7 +1822,11 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
+         prefs.scale_all_fonts_if_no_meta_text_scale_tag);
+   }
+ 
++#endif  // BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   settings->SetAccessibilityFontScaleFactor(prefs.font_scale_factor);
++#endif
++#if BUILDFLAG(IS_ANDROID)
+   settings->SetAccessibilityFontWeightAdjustment(prefs.font_weight_adjustment);
+   settings->SetAccessibilityTextSizeContrastFactor(
+       prefs.text_size_contrast_factor);

@@ -12,8 +12,8 @@
 // and is then sent every change as the event
 //   scale { scale: number }
 // (see OhosSystemFontScaleWatcher in aura_shell_runtime_bridge.cc, which
-// turns it into page zoom). The scale is Configuration.fontSizeScale: 1 is
-// the standard size.
+// forwards it to Blink's accessibility font scale, independently of page
+// zoom). The scale is Configuration.fontSizeScale: 1 is the standard size.
 //
 // Like the memory level, the font size belongs to the application, so the
 // callback is registered once however many windows there are.

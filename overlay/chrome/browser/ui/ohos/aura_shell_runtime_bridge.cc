@@ -1022,10 +1022,9 @@ void RequestOhosPermissionsFor(ContentSettingsType content_type,
   DispatchRuntimeEvent(std::move(event));
 }
 
-// Page zoom follows the system font size (Settings > Display > Font size):
-// the engine HAR's "fontscale" service reports Configuration.fontSizeScale,
-// which ChromeZoomLevelPrefs applies on top of the default zoom pref (the
-// shell's textScale). Off with --disable-features=OhosFollowSystemFontSize.
+// The engine HAR's "fontscale" service reports Configuration.fontSizeScale.
+// Like Chrome Android, send it to Blink's accessibility font scale rather
+// than multiplying page zoom. Off with --disable-features=OhosFollowSystemFontSize.
 BASE_FEATURE(kOhosFollowSystemFontSize,
              "OhosFollowSystemFontSize",
              base::FEATURE_ENABLED_BY_DEFAULT);
@@ -1036,6 +1035,8 @@ class OhosSystemFontScaleWatcher {
     static base::NoDestructor<OhosSystemFontScaleWatcher> instance;
     return *instance;
   }
+
+  float scale() const { return scale_; }
 
   void Start() {
     if (std::exchange(started_, true) ||
@@ -1091,13 +1092,37 @@ class OhosSystemFontScaleWatcher {
   }
 
   void Apply(std::optional<double> scale) {
-    if (!scale || !(*scale > 0)) {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    if (!scale || !std::isfinite(*scale) || !(*scale > 0)) {
       return;
     }
-    LOG(WARNING) << "OHOS font scale: system " << *scale;
-    ChromeZoomLevelPrefs::SetOhosSystemFontScale(*scale);
+    // Preserve the existing supported system-font range independently of zoom.
+    const float next = static_cast<float>(std::clamp(*scale, 0.8, 2.0));
+    if (next == scale_) {
+      return;
+    }
+    scale_ = next;
+    LOG(WARNING) << "OHOS font scale: Blink text " << scale_;
+    // New pages read scale_ in OverrideWebPreferences. Update existing tabs
+    // (including background, incognito and app windows) without a navigation.
+    // WebContents also propagates these preferences to its inner contents.
+    auto* browsers = GlobalBrowserCollection::GetInstance();
+    if (!browsers) {
+      return;
+    }
+    browsers->ForEach([](BrowserWindowInterface* browser) {
+      if (TabStripModel* tabs = browser->GetTabStripModel()) {
+        for (int index = 0; index < tabs->count(); ++index) {
+          if (auto* contents = tabs->GetWebContentsAt(index)) {
+            contents->OnWebPreferencesChanged();
+          }
+        }
+      }
+      return true;
+    });
   }
 
+  float scale_ = 1.0f;
   bool started_ = false;
   std::unique_ptr<ohos_system_service::EventSubscription> events_;
 };
@@ -6872,6 +6897,11 @@ void NotifyAuraShellWebAppInstalled(const std::string& app_id,
   event.Set("url", start_url);
   event.Set("pwaStartUrl", start_url);
   DispatchRuntimeEvent(std::move(event));
+}
+
+float GetAuraShellSystemFontScale() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  return OhosSystemFontScaleWatcher::GetInstance().scale();
 }
 
 bool IsAuraShellMobilePhoneUi() {

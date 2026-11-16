@@ -67,6 +67,9 @@ jobs:
           node-version: '24'
       - name: Check content-free page display diagnostics
         run: node --test scripts/tests/page-display-diagnostics.test.mjs
+      - name: Check system font scaling independently of page zoom
+        if: env.CHROMIUM_MAJOR == '157'
+        run: python3 scripts/tests/test-system-font-scale.py
       - name: Check history restoration loading UI
         run: python3 scripts/tests/test-history-loading-ui.py
       - name: Check BFCache protection cancellation and policy races
