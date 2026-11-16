@@ -9,7 +9,12 @@
 #include <memory>
 #include <utility>
 
+#include "base/base64.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "components/ohos_system_service/system_service_ohos.h"
 #include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/no_destructor.h"
@@ -113,6 +118,65 @@ std::vector<uint8_t> SignedData(
   std::vector<uint8_t> data = authenticator_data.SerializeToByteArray();
   data.insert(data.end(), client_data_hash.begin(), client_data_hash.end());
   return data;
+}
+
+// Optional shell-owned E2EE vault. A missing handler is the only transport
+// failure that permits falling back; failed authentication never creates a
+// local credential instead of the synchronized credential the user requested.
+bool VaultDeclined(const ohos_system_service::Reply& reply) {
+  return (!reply.ok && reply.error.starts_with("No HarmonyOS handler for passkeyvault")) ||
+         (reply.ok && reply.result_dict().FindBool("handled") == false);
+}
+
+base::DictValue VaultArgs(const AuthenticatorConfig& config,
+                         const std::string& rp,
+                         const std::vector<PublicKeyCredentialDescriptor>& ids) {
+  base::DictValue args;
+  args.Set("profile", config.profile_path.BaseName().AsUTF8Unsafe());
+  args.Set("rp", rp);
+  base::ListValue list;
+  for (const auto& id : ids) {
+    list.Append(base::ToLowerASCII(base::HexEncode(id.id)));
+  }
+  args.Set("ids", std::move(list));
+  return args;
+}
+
+std::optional<std::vector<uint8_t>> VaultBytes(const base::DictValue& result,
+                                                std::string_view name) {
+  const std::string* encoded = result.FindString(name);
+  return encoded ? base::Base64Decode(*encoded) : std::nullopt;
+}
+
+std::optional<std::vector<uint8_t>> VaultId(const base::DictValue& result) {
+  const std::string* encoded = result.FindString("id");
+  std::vector<uint8_t> id;
+  if (!encoded || encoded->size() != 32 || !base::HexStringToBytes(*encoded, &id)) {
+    return std::nullopt;
+  }
+  return id;
+}
+
+std::optional<AuthenticatorData> VaultAuthData(const base::DictValue& result,
+                                              const std::string& rp,
+                                              bool registration) {
+  auto bytes = VaultBytes(result, "authenticatorData");
+  const auto rp_hash = crypto::hash::Sha256(rp);
+  if (!bytes || bytes->size() < 37 || bytes->size() > 1024 ||
+      !std::equal(rp_hash.begin(), rp_hash.end(), bytes->begin()) ||
+      ((*bytes)[32] & ~0x10) != (registration ? 0x4d : 0x0d)) {
+    return std::nullopt;
+  }
+  if (registration) {
+    const auto id = VaultId(result);
+    if (!id || bytes->size() < 71 || (*bytes)[53] != 0 || (*bytes)[54] != 16 ||
+        !std::equal(id->begin(), id->end(), bytes->begin() + 55)) {
+      return std::nullopt;
+    }
+  } else if (bytes->size() != 37) {
+    return std::nullopt;
+  }
+  return AuthenticatorData::DecodeAuthenticatorData(*bytes);
 }
 
 // --- Steps that run on GetHuksTaskRunner(). ---
@@ -258,6 +322,172 @@ void OhosPlatformAuthenticator::MakeCredential(
   if (!std::ranges::contains(
           request.public_key_credential_params.public_key_credential_params(),
           kEs256, &PublicKeyCredentialParams::CredentialInfo::algorithm)) {
+    std::move(callback).Run(MakeCredentialStatus::kNoCommonAlgorithms, std::nullopt);
+    return;
+  }
+  const auto rp = request.rp.id;
+  const auto excluded = request.exclude_list;
+  GetHuksTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce([](base::FilePath path, std::string rp,
+                        std::vector<PublicKeyCredentialDescriptor> excluded) {
+        if (excluded.empty()) {
+          return std::optional<std::vector<StoredCredential>>(std::vector<StoredCredential>());
+        }
+        return CredentialStore(path).Find(rp, excluded);
+      }, config_.profile_path, rp, excluded),
+      base::BindOnce(
+          [](base::WeakPtr<OhosPlatformAuthenticator> self,
+             CtapMakeCredentialRequest request, MakeCredentialOptions options,
+             MakeCredentialCallback callback,
+             std::optional<std::vector<StoredCredential>> excluded) {
+            if (!self) return;
+            if (!excluded) {
+              std::move(callback).Run(MakeCredentialStatus::kAuthenticatorResponseInvalid, std::nullopt);
+              return;
+            }
+            auto args = VaultArgs(self->config_, request.rp.id, request.exclude_list);
+            self->pending_vault_request_ = base::UnguessableToken::Create().ToString();
+            args.Set("requestId", self->pending_vault_request_);
+            args.Set("localExcluded", !excluded->empty());
+            args.Set("userId", base::Base64Encode(request.user.id));
+            args.Set("userName", request.user.name.value_or(""));
+            args.Set("displayName", request.user.display_name.value_or(""));
+            args.Set("clientDataHash", base::Base64Encode(request.client_data_hash));
+            ohos_system_service::CallWithTimeout(
+                "passkeyvault", "make", std::move(args), base::Seconds(90),
+                base::BindOnce(
+                    [](base::WeakPtr<OhosPlatformAuthenticator> self,
+                       CtapMakeCredentialRequest request, MakeCredentialOptions options,
+                       MakeCredentialCallback callback, ohos_system_service::Reply reply) {
+                      if (!self) return;
+                      self->CancelVaultRequest();
+                      if (VaultDeclined(reply)) {
+                        self->MakeLocalCredential(std::move(request), std::move(options), std::move(callback));
+                        return;
+                      }
+                      const auto& result = reply.result_dict();
+                      if (reply.ok && result.FindBool("excluded").value_or(false)) {
+                        std::move(callback).Run(MakeCredentialStatus::kUserConsentButCredentialExcluded, std::nullopt);
+                        return;
+                      }
+                      auto auth = VaultAuthData(result, request.rp.id, true);
+                      auto signature = VaultBytes(result, "signature");
+                      if (!reply.ok || !auth || !signature || signature->empty() || signature->size() > 80) {
+                        std::move(callback).Run(MakeCredentialStatus::kUserConsentDenied, std::nullopt);
+                        return;
+                      }
+                      AuthenticatorMakeCredentialResponse response(
+                          FidoTransportProtocol::kInternal,
+                          AttestationObject(std::move(*auth), std::make_unique<PackedAttestationStatement>(
+                              CoseAlgorithmIdentifier::kEs256, std::move(*signature),
+                              std::vector<std::vector<uint8_t>>())));
+                      response.is_resident_key = true;
+                      response.transports.emplace(); response.transports->insert(FidoTransportProtocol::kInternal);
+                      std::move(callback).Run(MakeCredentialStatus::kSuccess, std::move(response));
+                    }, self, std::move(request), std::move(options), std::move(callback)));
+          }, operation_weak_factory_.GetWeakPtr(), std::move(request), std::move(options), std::move(callback)));
+}
+
+void OhosPlatformAuthenticator::GetAssertion(
+    CtapGetAssertionRequest request, CtapGetAssertionOptions options,
+    GetAssertionCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  auto args = VaultArgs(config_, request.rp_id, request.allow_list);
+  pending_vault_request_ = base::UnguessableToken::Create().ToString();
+  args.Set("requestId", pending_vault_request_);
+  args.Set("clientDataHash", base::Base64Encode(request.client_data_hash));
+  ohos_system_service::CallWithTimeout(
+      "passkeyvault", "get", std::move(args), base::Seconds(90),
+      base::BindOnce(
+          [](base::WeakPtr<OhosPlatformAuthenticator> self,
+             CtapGetAssertionRequest request, CtapGetAssertionOptions options,
+             GetAssertionCallback callback, ohos_system_service::Reply reply) {
+            if (!self) return;
+            self->CancelVaultRequest();
+            if (VaultDeclined(reply)) {
+              self->GetLocalAssertion(std::move(request), std::move(options), std::move(callback));
+              return;
+            }
+            const auto& result = reply.result_dict();
+            auto auth = VaultAuthData(result, request.rp_id, false);
+            auto signature = VaultBytes(result, "signature");
+            auto id = VaultId(result); auto user = VaultBytes(result, "userId");
+            if (!reply.ok || !auth || !signature || signature->empty() || signature->size() > 80 ||
+                !id || !user || user->empty() || user->size() > 64 ||
+                (!request.allow_list.empty() && !std::ranges::any_of(request.allow_list,
+                    [&id](const auto& allowed) { return allowed.id == *id; }))) {
+              std::move(callback).Run(GetAssertionStatus::kUserConsentDenied, {});
+              return;
+            }
+            AuthenticatorGetAssertionResponse response(std::move(*auth), std::move(*signature),
+                                                        FidoTransportProtocol::kInternal);
+            response.credential = PublicKeyCredentialDescriptor(CredentialType::kPublicKey, std::move(*id));
+            response.user_entity = PublicKeyCredentialUserEntity(std::move(*user));
+            std::vector<AuthenticatorGetAssertionResponse> responses; responses.push_back(std::move(response));
+            std::move(callback).Run(GetAssertionStatus::kSuccess, std::move(responses));
+          }, operation_weak_factory_.GetWeakPtr(), std::move(request), std::move(options), std::move(callback)));
+}
+
+void OhosPlatformAuthenticator::GetPlatformCredentialInfoForRequest(
+    const CtapGetAssertionRequest& request, const CtapGetAssertionOptions& options,
+    GetPlatformCredentialInfoForRequestCallback callback) {
+  auto args = VaultArgs(config_, request.rp_id, request.allow_list);
+  GetLocalCredentialInfoForRequest(request, options,
+      base::BindOnce(
+          [](base::WeakPtr<OhosPlatformAuthenticator> self, base::DictValue args,
+             GetPlatformCredentialInfoForRequestCallback callback,
+             std::vector<DiscoverableCredentialMetadata> local,
+             FidoRequestHandlerBase::RecognizedCredential /*recognized*/) {
+            if (!self) return;
+            const auto* rp_ptr = args.FindString("rp");
+            const std::string rp = rp_ptr ? *rp_ptr : std::string();
+            ohos_system_service::CallWithTimeout(
+                "passkeyvault", "list", std::move(args), base::Seconds(5),
+                base::BindOnce(
+                    [](base::WeakPtr<OhosPlatformAuthenticator> self, std::string rp,
+                       GetPlatformCredentialInfoForRequestCallback callback,
+                       std::vector<DiscoverableCredentialMetadata> local,
+                       ohos_system_service::Reply reply) {
+                      if (!self) return;
+                      const auto* records = reply.result_dict().FindList("credentials");
+                      if (reply.ok && records && records->size() <= 10000) {
+                        for (const auto& record : *records) {
+                          if (!record.is_dict()) continue;
+                          const auto& dict = record.GetDict();
+                          auto id = VaultId(dict); auto user_id = VaultBytes(dict, "userId");
+                          if (!id || !user_id || user_id->empty() || user_id->size() > 64 ||
+                              !dict.FindString("rp") || *dict.FindString("rp") != rp) continue;
+                          PublicKeyCredentialUserEntity user(std::move(*user_id));
+                          if (const auto* name = dict.FindString("userName")) user.name = *name;
+                          if (const auto* name = dict.FindString("displayName")) user.display_name = *name;
+                          local.emplace_back(AuthenticatorType::kChromeOS, rp, std::move(*id),
+                                             std::move(user), /*provider_name=*/std::nullopt);
+                        }
+                      }
+                      const bool found = !local.empty();
+                      std::move(callback).Run(std::move(local), found
+                          ? FidoRequestHandlerBase::RecognizedCredential::kHasRecognizedCredential
+                          : FidoRequestHandlerBase::RecognizedCredential::kNoRecognizedCredential);
+                    }, self, rp, std::move(callback), std::move(local)));
+          }, operation_weak_factory_.GetWeakPtr(), std::move(args), std::move(callback)));
+}
+
+void OhosPlatformAuthenticator::CancelVaultRequest() {
+  if (pending_vault_request_.empty()) return;
+  base::DictValue args; args.Set("requestId", pending_vault_request_);
+  ohos_system_service::Call("passkeyvault", "cancel", std::move(args), base::DoNothing());
+  pending_vault_request_.clear();
+}
+
+void OhosPlatformAuthenticator::MakeLocalCredential(
+    CtapMakeCredentialRequest request,
+    MakeCredentialOptions options,
+    MakeCredentialCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!std::ranges::contains(
+          request.public_key_credential_params.public_key_credential_params(),
+          kEs256, &PublicKeyCredentialParams::CredentialInfo::algorithm)) {
     FIDO_LOG(ERROR) << "OHOS platform authenticator supports only ES256";
     std::move(callback).Run(MakeCredentialStatus::kNoCommonAlgorithms,
                             std::nullopt);
@@ -386,7 +616,7 @@ void OhosPlatformAuthenticator::OnCredentialCommitted(
   std::move(callback).Run(MakeCredentialStatus::kSuccess, std::move(response));
 }
 
-void OhosPlatformAuthenticator::GetAssertion(CtapGetAssertionRequest request,
+void OhosPlatformAuthenticator::GetLocalAssertion(CtapGetAssertionRequest request,
                                              CtapGetAssertionOptions options,
                                              GetAssertionCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -515,7 +745,7 @@ void OhosPlatformAuthenticator::OnAssertionSigned(
   std::move(callback).Run(GetAssertionStatus::kSuccess, std::move(responses));
 }
 
-void OhosPlatformAuthenticator::GetPlatformCredentialInfoForRequest(
+void OhosPlatformAuthenticator::GetLocalCredentialInfoForRequest(
     const CtapGetAssertionRequest& request,
     const CtapGetAssertionOptions& options,
     GetPlatformCredentialInfoForRequestCallback callback) {
@@ -561,6 +791,7 @@ void OhosPlatformAuthenticator::Cancel() {
 }
 
 void OhosPlatformAuthenticator::ReleasePendingOperation() {
+  CancelVaultRequest();
   if (!pending_auth_request_id_.empty()) {
     CancelUserAuthentication(pending_auth_request_id_);
     pending_auth_request_id_.clear();

@@ -99,6 +99,7 @@ void GetAboutInfo(const ShellCommandContext& context,
   // getPasswordsForSync, applyPasswords and the passwordsChanged event. The
   // shell offers password sync only from 1.
   event.Set("passwordApiVersion", 1);
+  event.Set("passkeySyncApiVersion", 1);
   event.Set("passwordSyncAuthorized",
             IsPasswordSyncAuthorized(context.profile));
   // Whether V8 runs with its JIT this launch. The runner decides it before

@@ -650,6 +650,7 @@ export interface AboutInfoEvent extends ShellServiceEvent {
   // passwordSyncAuthorize, getPasswordsForSync, applyPasswords and
   // passwordsChanged. Absent means none.
   passwordApiVersion?: number;
+  passkeySyncApiVersion?: number;
   // Whether the user has authorized password sync on this profile.
   passwordSyncAuthorized?: boolean;
   // Whether V8 runs with its JIT this launch: false when the launch config

@@ -27,8 +27,10 @@ struct PreparedAssertion;
 struct MakeCredentialResult;
 }  // namespace internal
 
-// The HarmonyOS platform authenticator: passkeys whose private keys are P-256
-// keys in HUKS, usable only after the device user authenticates with face,
+// The HarmonyOS platform authenticator. An opted-in shell vault handles new
+// synchronized credentials; its root is released only after system user
+// verification. Existing device-bound P-256 keys remain in HUKS and use the
+// original path below, after the device user authenticates with face,
 // fingerprint or PIN through UserAuthenticationKit.
 //
 // Modelled on the macOS Touch ID authenticator. Every credential is
@@ -77,6 +79,15 @@ class COMPONENT_EXPORT(DEVICE_FIDO) OhosPlatformAuthenticator
   using PreparedCredential = internal::PreparedCredential;
   using PreparedAssertion = internal::PreparedAssertion;
   using MakeCredentialResult = internal::MakeCredentialResult;
+
+  void MakeLocalCredential(CtapMakeCredentialRequest request, MakeCredentialOptions options,
+                           MakeCredentialCallback callback);
+  void GetLocalAssertion(CtapGetAssertionRequest request, CtapGetAssertionOptions options,
+                         GetAssertionCallback callback);
+  void GetLocalCredentialInfoForRequest(const CtapGetAssertionRequest& request,
+      const CtapGetAssertionOptions& options, GetPlatformCredentialInfoForRequestCallback callback);
+  void CancelVaultRequest();
+  std::string pending_vault_request_;
 
   // MakeCredential, in order. The HUKS steps run on GetHuksTaskRunner(); the
   // rest on this authenticator's sequence.
