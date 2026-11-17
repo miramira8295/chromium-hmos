@@ -46,6 +46,9 @@ jobs:
         run: python3 scripts/tests/test-standard-user-agent.py
       - name: Check browser and web-app viewport isolation
         run: python3 scripts/tests/test-web-app-viewport.py
+      - name: Check viewport-fixed browser controls eligibility
+        if: env.CHROMIUM_MAJOR == '157'
+        run: python3 scripts/tests/test-fullscreen-root-scroller.py
       - name: Check experimental OHOS fork server transport
         run: scripts/test-ohos-fork-server.sh
       - name: Check inherited trace descriptors and GPU state recovery
