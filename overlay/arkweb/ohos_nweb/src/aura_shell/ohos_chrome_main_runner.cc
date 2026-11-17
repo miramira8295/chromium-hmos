@@ -632,11 +632,14 @@ std::vector<std::string> OhosChromeMainRunner::BuildArgumentsLocked(
   // ships and mobile sites and players use to tell a phone and follow its
   // rotation. Not on a tablet or PC: their desktop User-Agent is there to get
   // desktop pages, and sites take window.orientation for a phone.
+  // ImplicitRootScroller is also Android-only upstream. It lets a full-screen
+  // scrolling container drive the phone's browser controls, not just <html>.
   arguments.push_back(
       config.ui_family == "mobile_phone"
           ? "--enable-blink-features=BarcodeDetector,FaceDetector,"
             "TextDetector,WebShare,MediaCapture,ContactsManager,"
-            "ContactsManagerExtraProperties,WebNFC,OrientationEvent"
+            "ContactsManagerExtraProperties,WebNFC,OrientationEvent,"
+            "ImplicitRootScroller"
           : "--enable-blink-features=BarcodeDetector,FaceDetector,"
             "TextDetector,WebShare,MediaCapture,ContactsManager,"
             "ContactsManagerExtraProperties");

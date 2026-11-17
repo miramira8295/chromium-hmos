@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browser controls scrolling regression</title>
+<style>
+  * { box-sizing: border-box; }
+  html { overflow-y: auto; }
+  body { margin: 0; min-height: 100vh; font: 18px system-ui; background: #eef3f8; }
+  #scroller { position: fixed; inset: 0; overflow: auto; background: #eef3f8; }
+  #content { padding: 20px; min-height: 3000px; background: repeating-linear-gradient(#eef3f8 0 180px, #dce8f4 180px 360px); }
+  input { font: inherit; width: 90%; padding: 12px; }
+  p { margin: 28px 0; }
+  body[data-mode="root"] #scroller { position: static; overflow: visible; }
+  body[data-mode="partial"] #scroller { top: 20%; bottom: 20%; left: 10%; right: 10%; }
+  body[data-mode="flow"] #scroller { position: relative; height: 100%; }
+  body[data-mode="short"] #content { min-height: 0; height: 150px; overflow: hidden; }
+  body[data-mode="horizontal"] #content { min-height: 0; height: 80%; width: 3000px; }
+  body[data-mode="transformed"] #host { transform: translateZ(0); height: 100vh; }
+</style>
+<div id="host"><main id="scroller"><div id="content">
+  <h1>Scrolling regression</h1><p id="mode"></p>
+  <input aria-label="Keyboard pinning test" placeholder="Tap to test keyboard pinning">
+  <p>Swipe upward: eligible page scrollers should hide both browser bars.</p>
+  <p>Swipe downward: both bars should return.</p>
+</div></main></div>
+<script>
+  const mode = new URL(location.href).searchParams.get('mode') || 'fixed';
+  document.body.dataset.mode = mode;
+  document.querySelector('#mode').textContent = mode;
+  if (mode === 'normal-container') document.documentElement.style.overflowY = 'hidden';
+  if (mode === 'flow') document.querySelector('#host').style.height = innerHeight + 'px';
+  if (mode === 'short' || mode === 'horizontal') {
+    document.documentElement.style.overflowY = 'hidden';
+    document.body.style.minHeight = '0';
+  }
+  if (mode === 'remove') document.body.style.minHeight = '3000px';
+  window.controlsFixture = {
+    snapshot() {
+      const scroller = document.querySelector('#scroller');
+      return {mode, innerHeight, visualHeight: visualViewport.height, scrollY,
+        rootHeight: document.documentElement.scrollHeight,
+        scrollerTop: scroller?.scrollTop ?? null,
+        scrollerHeight: scroller?.clientHeight ?? null,
+        focused: document.activeElement.tagName};
+    },
+    removeOverlay() { document.querySelector('#scroller').remove(); }
+  };
+</script>

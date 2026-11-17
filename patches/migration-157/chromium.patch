@@ -37783,6 +37783,44 @@ index 8a9acc6dc7e9330243cd976d8ba128121b327b9a..bb219d50bd8d03443dd6c06b0c03cd39
  
    DCHECK(RuntimeEnabledFeatures::PagePopupEnabled());
    return MakeGarbageCollected<InternalPopupMenu>(this, select);
+diff --git a/third_party/blink/renderer/core/page/scrolling/root_scroller_controller.cc b/third_party/blink/renderer/core/page/scrolling/root_scroller_controller.cc
+index 22d969b690116ace30bfa37ea4163bbd083a6924..ac1ccc2a9b767e31bff174cafde3c6975641c2bb 100644
+--- a/third_party/blink/renderer/core/page/scrolling/root_scroller_controller.cc
++++ b/third_party/blink/renderer/core/page/scrolling/root_scroller_controller.cc
+@@ -5,6 +5,8 @@
+ #include "third_party/blink/renderer/core/page/scrolling/root_scroller_controller.h"
+ 
+ #include <cmath>
++
++#include "build/build_config.h"
+ 
+ #include "third_party/blink/renderer/core/css/style_change_reason.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+@@ -334,6 +336,24 @@
+       DCHECK(area);
+ 
+       if (ancestor_style.ScrollsOverflowY() && area->HasVerticalOverflow()) {
++#if BUILDFLAG(IS_OHOS)
++        // A viewport-fixed, full-screen scroller owns the visible page even
++        // when the document behind it can scroll (e.g. a 100vh body with the
++        // controls showing). Let it drive browser controls like a normal root
++        // scroller. IsValidRootScroller already requires it to fill the
++        // viewport; all visibility, clipping and unique-candidate checks still
++        // apply. Do not promote ordinary in-flow lists, transformed fixed
++        // descendants, frames, or horizontal-only scrollers this way.
++        const bool viewport_fixed_scroller =
++            style.GetPosition() == EPosition::kFixed &&
++            element.GetLayoutObject()->ContainingBlock() == ancestor &&
++            !element.IsFrameOwnerElement() &&
++            scrollable_area->HasVerticalOverflow() &&
++            document_->GetPage()->GetBrowserControls().TotalHeight() > 0;
++        if (viewport_fixed_scroller) {
++          continue;
++        }
++#endif
+         return false;
+       }
+     } else {
 diff --git a/third_party/blink/renderer/core/paint/paint_property_tree_builder.cc b/third_party/blink/renderer/core/paint/paint_property_tree_builder.cc
 index 83d55ed99ac4c2da70fc23e7683ed9ee839ce66d..97425d507c1b4d3a5de4312d4ed393d1a14af47b 100644
 --- a/third_party/blink/renderer/core/paint/paint_property_tree_builder.cc
