@@ -13,6 +13,7 @@ root=Path(sys.argv[1]).resolve()
 version='6.1.1.280'
 url='https://libsdl.org/harmonyos-devtools/commandline-tools-linux-x64-'+version+'.zip'
 size=2141466303
+expected_sha256='b9caf7b73c541b90e6c8f3c7c3de7f2bea9b35e41e80cd3525f2f759ebf16cf4'
 target=root/('harmonyos-clt-'+version)
 assert subprocess.run(['mountpoint','-q',str(root.parent)]).returncode==0
 if target.exists():
@@ -57,6 +58,7 @@ with archive.open('wb') as output:
             while chunk:=source.read(1024*1024):
                 digest.update(chunk)
                 output.write(chunk)
+assert digest.hexdigest()==expected_sha256, 'Packaging archive checksum mismatch'
 staging=root/('harmonyos-clt-'+version+'.installing')
 staging.mkdir(exist_ok=True)
 with zipfile.ZipFile(archive) as package:
