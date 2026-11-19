@@ -19,6 +19,8 @@ class FileChooserWindowSizeTest(unittest.TestCase):
                              if line.startswith((' ', '+')) and not line.startswith('+++'))
         policy = re.search(r'gfx::Size GetMinFileChooserWindowSize\(\) \{.*?'
                            r'return kMinFileChooserWindowSize;', migrated, re.S).group() + '\n}'
+        minimum = re.search(r'constexpr gfx::Size kMinFileChooserWindowSize.*?;',
+                            migrated, re.S).group()
         compiler = shutil.which('clang++') or shutil.which('g++')
         self.assertIsNotNone(compiler)
         with tempfile.TemporaryDirectory() as temp:
@@ -39,8 +41,7 @@ struct FeatureList {
   static bool IsEnabled(int) { return enabled; }
 };
 }
-constexpr gfx::Size kMinFileChooserWindowSize(400, 300);
-''' + policy + '''
+''' + minimum + '\n' + policy + '''
 bool allowed(int width, int height) {
   auto minimum = GetMinFileChooserWindowSize();
   return width >= minimum.width && height >= minimum.height;
@@ -58,6 +59,7 @@ int main() {
             for ohos in (0, 1):
                 binary = str(Path(temp) / f'policy-{ohos}')
                 subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                                '-Wunreachable-code-aggressive',
                                 f'-DIS_OHOS={ohos}', str(source), '-o', binary], check=True)
                 subprocess.run([binary], check=True)
 

@@ -5696,10 +5696,19 @@ index 17dac7762417aaf92b8ad0b986dff1747b6a7900..aa53c44a842f8babb4f86b65713b7dd8
        .Run(gfx::Rect(view_size), target_size,
             base::BindOnce(&ScreenshotTaker::OnGotScreenshot,
 diff --git a/chrome/browser/file_select_helper.cc b/chrome/browser/file_select_helper.cc
-index bcfed1898edb8eed02c9a44b93a9bbbea622304b..4919a0ec9eae33509386a5c69a04b3b4ebb2ff7d 100644
+index bcfed1898edb8eed02c9a44b93a9bbbea622304b..1c14431c1fc12d5e208246a2dbae3d4ca81fdfc0 100644
 --- a/chrome/browser/file_select_helper.cc
 +++ b/chrome/browser/file_select_helper.cc
-@@ -65,6 +65,10 @@
+@@ -56,39 +56,47 @@
+ #include "chrome/browser/ash/fusebox/fusebox_server.h"
+ #include "content/public/browser/site_instance.h"
+ #endif
+ 
+ #if BUILDFLAG(IS_ANDROID)
+ #include "base/android/content_uri_utils.h"
+ #else
+ #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
+ #include "chrome/browser/picture_in_picture/scoped_disallow_picture_in_picture.h"
  #include "chrome/browser/picture_in_picture/scoped_tuck_picture_in_picture.h"
  #endif  // BUILDFLAG(IS_ANDROID)
  
@@ -5710,21 +5719,45 @@ index bcfed1898edb8eed02c9a44b93a9bbbea622304b..4919a0ec9eae33509386a5c69a04b3b4
  using blink::mojom::FileChooserFileInfo;
  using blink::mojom::FileChooserFileInfoPtr;
  using blink::mojom::FileChooserParams;
-@@ -82,7 +86,12 @@ namespace {
- constexpr gfx::Size kMinFileChooserWindowSize(400, 300);
+ using blink::mojom::FileChooserParamsPtr;
+ using content::BrowserThread;
+ using content::WebContents;
+ 
+ DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kCancelButtonId);
+ 
+ namespace {
+ 
+ #if !BUILDFLAG(IS_ANDROID)
+ // The minimum size of the top-level window to safely show a file chooser
+ // dialog without occlusion risk (See crbug.com/479258455).
+-constexpr gfx::Size kMinFileChooserWindowSize(400, 300);
++// OHOS opens an independent system picker, like Android. A phone's logical
++// width can be below 400 DIP even when its app fills the screen. An empty
++// minimum disables only this desktop size policy; tab/lifecycle checks remain.
++constexpr gfx::Size kMinFileChooserWindowSize =
++    BUILDFLAG(IS_OHOS) ? gfx::Size() : gfx::Size(400, 300);
  
  gfx::Size GetMinFileChooserWindowSize() {
--  if (!base::FeatureList::IsEnabled(features::kFileChooserMinWindowSize)) {
-+  // OHOS opens an independent system picker, like Android. A phone's
-+  // logical width can be below the desktop 400-DIP occlusion threshold even
-+  // when its application window fills the screen. Keep the lifecycle and
-+  // active-tab checks, but do not apply that desktop size policy to OHOS.
-+  if (BUILDFLAG(IS_OHOS) ||
-+      !base::FeatureList::IsEnabled(features::kFileChooserMinWindowSize)) {
+   if (!base::FeatureList::IsEnabled(features::kFileChooserMinWindowSize)) {
      return gfx::Size();
    }
    return kMinFileChooserWindowSize;
-@@ -807,6 +816,10 @@ void FileSelectHelper::RunFileChooserOnUIThread(
+ }
+ 
+ void LogFileChooserWindowTooSmallDetails(content::WebContents* web_contents) {
+   if (!web_contents) {
+     return;
+   }
+@@ -798,24 +806,28 @@ void FileSelectHelper::RunFileChooserOnUIThread(
+       break;
+     default:
+       NOTREACHED();
+   }
+ 
+   gfx::NativeWindow owning_window =
+       platform_util::GetTopLevel(web_contents_->GetNativeView());
+ 
+ #if BUILDFLAG(IS_ANDROID)
    select_file_dialog_->SetAcceptTypes(params->accept_types);
    select_file_dialog_->SetUseMediaCapture(params->use_media_capture);
  #endif
@@ -5735,6 +5768,15 @@ index bcfed1898edb8eed02c9a44b93a9bbbea622304b..4919a0ec9eae33509386a5c69a04b3b4
  
    // Never consider the current scope as hung. The hang watching deadline (if
    // any) is not valid since the user can take unbounded time to choose the
+   // file.
+   base::HangWatcher::InvalidateActiveExpectations();
+ 
+   // 1-based index of default extension to show.
+   int file_type_index =
+       select_file_types_ && !select_file_types_->extensions.empty() ? 1 : 0;
+ 
+   // TODO(https://crbug.com/340178601): this might go out of scope before
+   // SelectFile() finishes - isn't this a potential UAF? is it ever actually
 diff --git a/chrome/browser/file_system_access/BUILD.gn b/chrome/browser/file_system_access/BUILD.gn
 index 01c5f8e2c7671abd5c621c0e8ddcae1fc8188f78..e8f2240cc493da5730cd9a2bbda9f8450a0612cf 100644
 --- a/chrome/browser/file_system_access/BUILD.gn
