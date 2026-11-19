@@ -101,12 +101,18 @@ fi
 engine_exports="$(python3 scripts/select-ci-engine.py | sed 's/^/export /')"
 eval "$engine_exports"
 if [[ "$CLOUD_PACKAGE" == true ]]; then
+  if [[ ! -x "$DEVECO_CLT_HOME/tool/node/bin/node" ]]; then
+    python3 .github/cloud/bootstrap-packaging.py "$root/toolchain"
+  fi
   [[ -x "$DEVECO_CLT_HOME/tool/node/bin/node" ]] || {
     echo "Packaging Command Line Tools missing: $DEVECO_CLT_HOME"; exit 1;
   }
   grep -q 'autoCreateEmptyFile' "$DEVECO_CLT_HOME/sdk/default/openharmony/ets/api/@ohos.file.picker.d.ts" || {
     echo 'Packaging SDK must provide the API 23 DocumentSaveOptions.autoCreateEmptyFile option'; exit 1;
   }
+  if [[ -f "$root/toolchain/packaging-clt-receipt.json" ]]; then
+    cp "$root/toolchain/packaging-clt-receipt.json" build-status/packaging-toolchain.json
+  fi
 fi
 bash "scripts/prepare-chromium-$CHROMIUM_MAJOR.sh"
 python3 .github/cloud/cache-health.py "$CHROMIUM_SRC/out/ohos_arm64" build-status/invalid-cache-outputs.json

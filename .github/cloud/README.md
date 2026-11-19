@@ -99,6 +99,16 @@ FATAL 和 Python 异常会进入实时诊断；最终发布会将 progress.json 
 更新为实际完成/失败/取消状态，避免旧进度在实例释放后仍停留在 99.7%。
 以上修复已通过本地测试，快照文件大小及实际重新生成结果由下一轮验证。
 
+回归运行 `44472401363` 证实根因是根目录 snapshot_blob.bin 为 0 字节，
+自动重建后 startup snapshot 为 375784 字节、context snapshot 为 754632 字节，
+内核增量构建 7 步后成功链接，Build ID 为 a3419ebade7a380e038f521100a0be4a5df20cb4。
+随后 HAR 打包发现 ArkTS SDK 仍为 API 22，缺少 API 23 新增的
+DocumentSaveOptions.autoCreateEmptyFile。打包工具改为独立的 Linux CLT 6.1.1.280
+（API 24），不改变现有 Chromium native SDK/sysroot。
+首次使用缺少工具链时，bootstrap-packaging.py 从 SDL 官方 CI 使用的公开华为
+工具包镜像导入完整 Linux CLT，校验分段范围、ZIP CRC、ELF 主机程序和 API 声明，
+记录来源与 SHA256 至保留盘，并写入构建诊断。以后实例复用该安装目录。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。
