@@ -489,7 +489,24 @@ export interface DroppedFileRef {
   viewPath?: string;
 }
 
+export interface ShellProxyConfig {
+  version: number;
+  mode: 'system' | 'direct' | 'custom';
+  scheme: 'http' | 'https' | 'socks5';
+  host: string;
+  port: number;
+  bypassRules: string;
+  bypassPrivateAddresses: boolean;
+  revision?: number;
+  hasCredentials?: boolean;
+}
+
 export interface BrowserCommandPayload {
+  proxyConfig?: ShellProxyConfig;
+  expectedRevision?: number;
+  credentialAction?: 'keep' | 'replace' | 'remove';
+  proxyUsername?: string;
+  proxyPassword?: string;
   popupWidget?: number;
   startupToken?: string;
   startupPhase?: 'ready' | 'frame' | 'cancel';

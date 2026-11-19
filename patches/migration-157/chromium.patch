@@ -2793,7 +2793,7 @@ index 7f9a06941c4ab1c4d5a664d78e0d5d68d20c03e0..769abed0a1f10f146ae57f6483f52012
  </translationbundle>
 \ No newline at end of file
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70da6e9a65 100644
+index 814b9d6..a3c64ca 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
 @@ -103,9 +103,9 @@ buildflag_header("buildflags") {
@@ -2820,7 +2820,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    if (is_mac) {
      public += [ "browser_process_platform_part_mac.h" ]
      deps += [
-@@ -1038,6 +1042,57 @@ source_set("core") {
+@@ -1038,6 +1042,61 @@ source_set("core") {
      "universal_web_contents_observers.cc",
    ]
  
@@ -2864,6 +2864,10 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
 +      "ui/ohos/shell_omnibox_ohos.cc",
 +      "ui/ohos/shell_omnibox_ohos.h",
 +      "ui/ohos/shell_prefs_ohos.cc",
++      "ui/ohos/shell_proxy_ohos.cc",
++      "ui/ohos/shell_proxy_ohos.h",
++      "ui/ohos/shell_proxy_vault_ohos.cc",
++      "ui/ohos/shell_proxy_vault_ohos.h",
 +      "ui/ohos/shell_search_engines_ohos.cc",
 +      "ui/ohos/shell_services_ohos.cc",
 +      "ui/ohos/shell_services_ohos.h",
@@ -2878,7 +2882,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    configs += [ "//build/config:precompiled_headers" ]
    defines = [ "ZLIB_CONST" ]
  
-@@ -1172,6 +1227,7 @@ source_set("core") {
+@@ -1172,6 +1231,7 @@ source_set("core") {
      "//chrome/browser/predictors:config",
      "//chrome/browser/predictors/lcp_critical_path_predictor:impl",
      "//chrome/browser/prefs",
@@ -2886,7 +2890,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      "//chrome/browser/preloading",
      "//chrome/browser/preloading:prefs",
      "//chrome/browser/preloading/prefetch/no_state_prefetch",
-@@ -1562,6 +1618,36 @@ source_set("core") {
+@@ -1562,6 +1622,36 @@ source_set("core") {
      ]
    }
  
@@ -2923,7 +2927,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    if (!is_android || is_desktop_android) {
      deps += [
        "//chrome/browser/ui/webui/ai_overlay_dialog",
-@@ -1832,6 +1918,87 @@ source_set("core") {
+@@ -1832,6 +1922,88 @@ source_set("core") {
      }
    }
  
@@ -2994,6 +2998,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
 +    # re-authentication window when the screen locks.
 +    libs = [
 +      "huks_ndk.z",
++      "asset_ndk.z",
 +      "ohcommonevent",
 +    ]
 +    deps += [
@@ -3011,7 +3016,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    if (is_android) {
      sources += [
        "after_startup_task_utils_android.cc",
-@@ -2023,9 +2190,14 @@ source_set("core") {
+@@ -2023,9 +2195,14 @@ source_set("core") {
  
    if (enable_screen_ai_service) {
      deps += [
@@ -3026,7 +3031,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      ]
    }
  
-@@ -2916,7 +3088,6 @@ source_set("browser") {
+@@ -2916,7 +3093,6 @@ source_set("browser") {
        "//chrome/browser/profile_resetter:impl",
        "//chrome/browser/record_replay",
        "//chrome/browser/record_replay:impl",
@@ -3034,7 +3039,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
        "//chrome/browser/sharing_hub",
        "//chrome/browser/sharing_hub:impl",
        "//chrome/browser/smart_card",
-@@ -3459,7 +3630,7 @@ source_set("browser") {
+@@ -3459,7 +3635,7 @@ source_set("browser") {
      ]
    }
  
@@ -3043,7 +3048,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      deps += [ "//chrome/browser/ui/webui/ai_overlay_dialog:impl" ]
    }
  
-@@ -3525,6 +3696,12 @@ source_set("browser") {
+@@ -3525,6 +3701,12 @@ source_set("browser") {
      }
    }
  
@@ -3056,7 +3061,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    if (is_mac) {
      deps += [ "//chrome/browser/ui/webui/unexportable_keys_internals" ]
  
-@@ -4151,7 +4328,7 @@ source_set("browser") {
+@@ -4151,7 +4333,7 @@ source_set("browser") {
        deps += [ "//ui/base/ime/linux" ]
      }
  
@@ -3065,7 +3070,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
        deps += [
          "//chrome/browser/profiles/batch_upload",
          "//chrome/browser/profiles/batch_upload:impl",
-@@ -4435,7 +4612,7 @@ source_set("browser") {
+@@ -4435,7 +4617,7 @@ source_set("browser") {
      }
    }
  
@@ -3074,7 +3079,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      deps += [
        "//chrome/browser/lifetime:termination_notification",
        "//chrome/browser/ui/autofill/payments",
-@@ -4465,7 +4642,7 @@ source_set("browser") {
+@@ -4465,7 +4647,7 @@ source_set("browser") {
      deps += [ "//chrome/browser/ui/webui/downloads" ]
    }
  
@@ -3083,7 +3088,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      deps += [
        "//chrome/browser/default_browser",
        "//chrome/browser/ui/download",
-@@ -4488,11 +4665,16 @@ source_set("browser") {
+@@ -4488,11 +4670,16 @@ source_set("browser") {
        "//chrome/browser/ui/webui/app_settings",
        "//chrome/browser/ui/webui/browser_switch",
        "//chrome/browser/ui/webui/intro",
@@ -3102,7 +3107,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      if (enable_dice_support) {
        deps += [
          "//chrome/browser/ui/views/profiles:cross_device_signin_qr_bubble_views",
-@@ -4634,7 +4816,7 @@ source_set("browser") {
+@@ -4634,7 +4821,7 @@ source_set("browser") {
    # Device signals sharing currently only supports win, mac, linux and
    # chromeos, so the corresponding consent functionality are
    # limited to the same set of platforms.
@@ -3111,7 +3116,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
      deps += [
        "//chrome/browser/ui/views/device_signals_consent",
        "//chrome/browser/ui/views/device_signals_consent:impl",
-@@ -5076,7 +5258,7 @@ source_set("browser") {
+@@ -5076,7 +5263,7 @@ source_set("browser") {
        ]
      }
  
@@ -3120,7 +3125,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
        deps += [ "//chrome/browser/ui/views:bluetooth_dialogs" ]
      }
  
-@@ -5381,7 +5563,6 @@ group("browser_public_dependencies") {
+@@ -5381,7 +5568,6 @@ group("browser_public_dependencies") {
        "//components/enterprise/buildflags",
        "//components/lens:buildflags",
        "//components/webapps/common:mojo_bindings",
@@ -3128,7 +3133,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
        "//third_party/lens_server_proto:lens_overlay_proto",
        "//third_party/nearby:encrypted_metadata_proto",
        "//third_party/nearby:rpc_resources_proto",
-@@ -5577,6 +5758,15 @@ group("browser_generated_files") {
+@@ -5577,6 +5763,15 @@ group("browser_generated_files") {
      public_deps +=
          [ "//chrome/browser/ui/webui/ai_overlay_dialog:mojo_bindings" ]
    }
@@ -3144,7 +3149,7 @@ index 814b9d649a31646c7bc072d882a5e11b70d5d6d6..a4a330e778ce1a6c35f52500298a8f70
    if (safe_browsing_mode == 1) {
      public_deps += [ "//chrome/browser/ui/webui/reset_password:mojo_bindings" ]
    }
-@@ -6475,3 +6665,11 @@ if (is_android) {
+@@ -6475,3 +6670,11 @@ if (is_android) {
      ]
    }
  }
@@ -6146,10 +6151,21 @@ index d09fe9e14906b96d4464b3f14fcfc0cc6f8f33c3..077f21256ef214cd56b7a9b8a7264af0
  source_set("navigation_predictor") {
    sources = [
 diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
-index 62ff3787b22a1227e47ea85ad4cfbda8707e1534..f477d8d650dca8a6ea329a3b9e55ea15edf38792 100644
+index 62ff378..e6b7e75 100644
 --- a/chrome/browser/net/profile_network_context_service.cc
 +++ b/chrome/browser/net/profile_network_context_service.cc
-@@ -134,9 +134,9 @@
+@@ -3,6 +3,10 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/net/profile_network_context_service.h"
++#include "build/build_config.h"
++#if BUILDFLAG(IS_OHOS)
++#include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
++#endif
+ 
+ #include <memory>
+ #include <optional>
+@@ -134,9 +138,9 @@
  #include "net/ssl/client_cert_store_mac.h"
  #endif  // BUILDFLAG(IS_MAC)
  
@@ -6161,7 +6177,7 @@ index 62ff3787b22a1227e47ea85ad4cfbda8707e1534..f477d8d650dca8a6ea329a3b9e55ea15
  
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
  #include "extensions/common/constants.h"
-@@ -1305,14 +1305,14 @@ ProfileNetworkContextService::CreateClientCertStore() {
+@@ -1305,14 +1309,14 @@ ProfileNetworkContextService::CreateClientCertStore() {
    return GetWrappedCertStore(profile_,
                               std::make_unique<net::ClientCertStoreMac>());
  #elif BUILDFLAG(IS_ANDROID)
@@ -6182,6 +6198,16 @@ index 62ff3787b22a1227e47ea85ad4cfbda8707e1534..f477d8d650dca8a6ea329a3b9e55ea15
  #else
  #error Unknown platform.
  #endif
+@@ -1479,6 +1483,9 @@ void ProfileNetworkContextService::ConfigureNetworkContextParamsInternal(
+   }
+ 
+   proxy_config_monitor_->AddToNetworkContextParams(network_context_params);
++#if BUILDFLAG(IS_OHOS)
++  chrome::ohos::ConfigureShellProxyNetworkContext(profile_, network_context_params);
++#endif
+ 
+   network_context_params->enable_certificate_reporting = true;
+ 
 diff --git a/chrome/browser/net/proxy_service_factory.cc b/chrome/browser/net/proxy_service_factory.cc
 index d60463495c24bba79d06ce5fddc025c109a7e1e0..9f06b12e29a6e751a756700d31950eac34a9a620 100644
 --- a/chrome/browser/net/proxy_service_factory.cc
@@ -6783,20 +6809,21 @@ index 66f9c0d285f331355dd808c821307c0467933a4f..b1ca9017e75a65f9351d3462958e1b85
        "persistent_renderer_prefs_manager.cc",
        "persistent_renderer_prefs_manager_factory.cc",
 diff --git a/chrome/browser/prefs/browser_prefs.cc b/chrome/browser/prefs/browser_prefs.cc
-index 334da9ad62b59013c44ba6335072e433157f40d6..abbb86b351f42d2e00a4c28063a0942f10cf7da8 100644
+index 334da9a..ee0d3d0 100644
 --- a/chrome/browser/prefs/browser_prefs.cc
 +++ b/chrome/browser/prefs/browser_prefs.cc
-@@ -60,6 +60,9 @@
+@@ -60,6 +60,10 @@
  #include "chrome/browser/permissions/quiet_notification_permission_ui_state.h"
  #include "chrome/browser/platform_experience/prefs.h"
  #include "chrome/browser/prefs/chrome_pref_service_factory.h"
 +#if BUILDFLAG(IS_OHOS)
 +#include "chrome/browser/ui/ohos/shell_password_cleanup_ohos.h"
++#include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
 +#endif
  #include "chrome/browser/prefs/incognito_mode_prefs.h"
  #include "chrome/browser/prefs/session_startup_pref.h"
  #include "chrome/browser/preloading/prefetch/prefetch_service/prefetch_origin_decider.h"
-@@ -2401,10 +2404,10 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
+@@ -2401,10 +2405,10 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
  #endif
  
  #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
@@ -6809,7 +6836,7 @@ index 334da9ad62b59013c44ba6335072e433157f40d6..abbb86b351f42d2e00a4c28063a0942f
  
  #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
    browser_switcher::BrowserSwitcherPrefs::RegisterProfilePrefs(registry);
-@@ -2464,6 +2467,12 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
+@@ -2464,6 +2468,13 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
  
    registry->RegisterBooleanPref(prefs::kPrivacyGuideViewed, false);
  
@@ -6817,6 +6844,7 @@ index 334da9ad62b59013c44ba6335072e433157f40d6..abbb86b351f42d2e00a4c28063a0942f
 +  // Remembers that passwords written before this platform could protect them
 +  // have been cleared, so the sweep runs once rather than every start.
 +  chrome::ohos::RegisterPasswordCleanupPrefs(registry);
++  chrome::ohos::RegisterShellProxyPrefs(registry);
 +#endif
 +
    RegisterProfilePrefsForMigration(registry);
@@ -9872,7 +9900,7 @@ index 969952d1c12f2bb5b55f936564a2b81bcb283823..3d7e7ec8d4d4c3f28ee6c6dddb7fc440
  source_set("prefs") {
    sources = [
 diff --git a/chrome/browser/ui/prefs/prefs_tab_helper.cc b/chrome/browser/ui/prefs/prefs_tab_helper.cc
-index 87dc1b8b9a63e634c67c1d5bc863dca39ab4a987..9216bf3f403b23bc26b07c1697160a7058053442 100644
+index 87dc1b8..9216bf3 100644
 --- a/chrome/browser/ui/prefs/prefs_tab_helper.cc
 +++ b/chrome/browser/ui/prefs/prefs_tab_helper.cc
 @@ -80,6 +80,23 @@ using content::WebContents;
@@ -41369,3 +41397,440 @@ index b85152c9ca8b8b48352199fe4e1c5521bd2089b4..471511ffbc933ee992b5a8333fc48213
          document->GetStyleEngine()
              .EnsureEnvironmentVariables()
              .UpdatePreferredTextScaleFromDocument();
+diff --git a/chrome/browser/net/proxy_config_monitor.cc b/chrome/browser/net/proxy_config_monitor.cc
+index da8654b..f96c112 100644
+--- a/chrome/browser/net/proxy_config_monitor.cc
++++ b/chrome/browser/net/proxy_config_monitor.cc
+@@ -3,6 +3,10 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/net/proxy_config_monitor.h"
++#include "build/build_config.h"
++#if BUILDFLAG(IS_OHOS)
++#include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
++#endif
+ 
+ #include <optional>
+ #include <utility>
+@@ -38,6 +42,9 @@ using content::BrowserThread;
+ ProxyConfigMonitor::ProxyConfigMonitor(Profile* profile) {
+   CHECK_CURRENTLY_ON(content::BrowserThread::UI, base::NotFatalUntil::M161);
+   CHECK(profile, base::NotFatalUntil::M161);
++#if BUILDFLAG(IS_OHOS)
++  chrome::ohos::InitializeShellProxy(profile);
++#endif
+ 
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   profile_ = profile;
+diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
+index 680a3df..5ea1970 100644
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -14,6 +14,9 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "build/build_config.h"
++#if BUILDFLAG(IS_OHOS)
++#include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
++#endif
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/browser/net/convert_explicitly_allowed_network_ports_pref.h"
+ #include "content/public/browser/reduce_accept_language_utils.h"
+@@ -200,10 +203,22 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+         pref_service->GetBoolean(prefs::kWebRTCPostQuantumKeyAgreement);
+   }
+ 
++#if BUILDFLAG(IS_OHOS)
++  // An effective override, never overwrites the user's saved WebRTC policy.
++  if (chrome::ohos::ShellProxyProtectsTraffic(profile)) {
++    prefs->webrtc_ip_handling_policy =
++        blink::ToWebRTCIPHandlingPolicy("disable_non_proxied_udp");
++    prefs->webrtc_ip_handling_urls.clear();
++  }
++#endif
+   ParsePortRange(pref_service->GetString(prefs::kWebRTCUDPPortRange),
+                  &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
+   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
+       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));
++#if BUILDFLAG(IS_OHOS)
++  if (chrome::ohos::ShellProxyProtectsTraffic(profile))
++    prefs->webrtc_local_ips_allowed_urls.clear();
++#endif
+   prefs->accept_languages = GetLanguageListForProfile(
+       profile, pref_service->GetString(language::prefs::kAcceptLanguages));
+ #if !BUILDFLAG(IS_MAC)
+diff --git a/net/http/http_auth_cache.h b/net/http/http_auth_cache.h
+index 1fbbbc4..b94abcf 100644
+--- a/net/http/http_auth_cache.h
++++ b/net/http/http_auth_cache.h
+@@ -34,6 +34,24 @@ namespace net {
+ // Entries can be looked up by either (origin, realm, scheme) or (origin, path).
+ class NET_EXPORT HttpAuthCache {
+  public:
++  // Explicit shell credentials are separate from cached challenge identities.
++  // They must not be copied by CopyProxyEntriesFrom or returned to a renderer.
++  void SetShellProxyCredentials(const std::string& scheme,
++                               const std::string& host, uint16_t port,
++                               const AuthCredentials& credentials) {
++    shell_proxy_scheme_ = scheme;
++    shell_proxy_host_ = host;
++    shell_proxy_port_ = port;
++    shell_proxy_credentials_ = credentials;
++  }
++  const AuthCredentials* ShellProxyCredentials(const std::string& scheme,
++                                               const std::string& host,
++                                               uint16_t port) const {
++    return !shell_proxy_host_.empty() && scheme == shell_proxy_scheme_ &&
++                   host == shell_proxy_host_ && port == shell_proxy_port_
++               ? &shell_proxy_credentials_ : nullptr;
++  }
++
+   class NET_EXPORT Entry {
+    public:
+     Entry(const Entry& other);
+@@ -244,6 +262,11 @@ class NET_EXPORT HttpAuthCache {
+   }
+ 
+  private:
++  std::string shell_proxy_scheme_;
++  std::string shell_proxy_host_;
++  uint16_t shell_proxy_port_ = 0;
++  AuthCredentials shell_proxy_credentials_;
++
+   struct EntryMapKey {
+     EntryMapKey(const url::SchemeHostPort& scheme_host_port,
+                 HttpAuth::Target target,
+diff --git a/net/http/http_auth_controller.cc b/net/http/http_auth_controller.cc
+index cc5afa5..e183862 100644
+--- a/net/http/http_auth_controller.cc
++++ b/net/http/http_auth_controller.cc
+@@ -335,6 +335,11 @@ int HttpAuthController::HandleAuthChallenge(
+ 
+     // From this point on, we are restartable.
+ 
++    if (identity_.invalid && shell_proxy_identity_used_) {
++      net_log_.EndEventWithNetErrorCode(NetLogEventType::AUTH_HANDLE_CHALLENGE,
++                                       ERR_INVALID_AUTH_CREDENTIALS);
++      return ERR_INVALID_AUTH_CREDENTIALS;
++    }
+     if (identity_.invalid) {
+       // We have exhausted all identity possibilities.
+       if (!handler_->AllowsExplicitCredentials()) {
+@@ -493,6 +498,21 @@ bool HttpAuthController::SelectNextAuthIdentityToTry() {
+     return true;
+   }
+ 
++  // Only a proxy challenge at the exact configured endpoint may use these
++  // credentials. A website 401 (even on the proxy host) can never receive them.
++  if (target_ == HttpAuth::AUTH_PROXY && !shell_proxy_identity_used_) {
++    const auto* credentials = http_auth_cache_->ShellProxyCredentials(
++        auth_scheme_host_port_.scheme(), auth_scheme_host_port_.host(),
++        auth_scheme_host_port_.port());
++    if (credentials && handler_->AllowsExplicitCredentials()) {
++      shell_proxy_identity_used_ = true;
++      identity_.source = HttpAuth::IDENT_SRC_EXTERNAL;
++      identity_.invalid = false;
++      identity_.credentials = *credentials;
++      return true;
++    }
++  }
++
+   // Check the auth cache for a realm entry.
+   HttpAuthCache::Entry* entry = http_auth_cache_->Lookup(
+       auth_scheme_host_port_, target_, handler_->realm(),
+diff --git a/net/http/http_auth_controller.h b/net/http/http_auth_controller.h
+index 136c79c..3735f5c 100644
+--- a/net/http/http_auth_controller.h
++++ b/net/http/http_auth_controller.h
+@@ -263,6 +263,7 @@ class NET_EXPORT_PRIVATE HttpAuthController
+   // True if we've used the username:password embedded in the URL.  This
+   // makes sure we use the embedded identity only once for the transaction,
+   // preventing an infinite auth restart loop.
++  bool shell_proxy_identity_used_ = false;
+   bool embedded_identity_used_ = false;
+ 
+   // True if default credentials have already been tried for this transaction
+diff --git a/net/proxy_resolution/proxy_config_service.cc b/net/proxy_resolution/proxy_config_service.cc
+index e32f7dd..21294a3 100644
+--- a/net/proxy_resolution/proxy_config_service.cc
++++ b/net/proxy_resolution/proxy_config_service.cc
+@@ -21,6 +21,8 @@
+ #include "net/proxy_resolution/proxy_config_service_mac.h"
+ #elif BUILDFLAG(IS_LINUX)
+ #include "net/proxy_resolution/proxy_config_service_linux.h"
++#elif BUILDFLAG(IS_OHOS)
++#include "net/proxy_resolution/proxy_config_service_ohos.h"
+ #elif BUILDFLAG(IS_ANDROID)
+ #include "net/proxy_resolution/proxy_config_service_android.h"
+ #endif
+@@ -127,6 +129,8 @@ ProxyConfigService::CreateSystemProxyConfigService(
+       kSystemProxyConfigTrafficAnnotation);
+ 
+   return std::move(linux_config_service);
++#elif BUILDFLAG(IS_OHOS)
++  return std::make_unique<ProxyConfigServiceOHOS>(main_task_runner);
+ #elif BUILDFLAG(IS_ANDROID)
+   return std::make_unique<ProxyConfigServiceAndroid>(
+       std::move(main_task_runner),
+diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socket.cc
+index 3eeeb7e..8212f2e 100644
+--- a/net/socket/socks5_client_socket.cc
++++ b/net/socket/socks5_client_socket.cc
+@@ -16,6 +16,7 @@
+ #include "base/numerics/byte_conversions.h"
+ #include "base/numerics/safe_conversions.h"
+ #include "base/strings/string_util.h"
++#include "base/strings/utf_string_conversions.h"
+ #include "base/trace_event/trace_event.h"
+ #include "net/base/io_buffer.h"
+ #include "net/base/sys_addrinfo.h"
+@@ -46,6 +47,13 @@ SOCKS5ClientSocket::SOCKS5ClientSocket(
+       net_log_(transport_socket_->NetLog()),
+       traffic_annotation_(traffic_annotation) {}
+ 
++void SOCKS5ClientSocket::SetProxyCredentials(const AuthCredentials& credentials) {
++  DCHECK_EQ(next_state_, STATE_NONE);
++  auth_required_ = true;
++  auth_username_ = base::UTF16ToUTF8(credentials.username());
++  auth_password_ = base::UTF16ToUTF8(credentials.password());
++}
++
+ SOCKS5ClientSocket::~SOCKS5ClientSocket() {
+   Disconnect();
+ }
+@@ -224,6 +232,18 @@ int SOCKS5ClientSocket::DoLoop(int last_io_result) {
+         net_log_.EndEventWithNetErrorCode(NetLogEventType::SOCKS5_GREET_READ,
+                                           rv);
+         break;
++      case STATE_AUTH_WRITE:
++        rv = DoAuthWrite();
++        break;
++      case STATE_AUTH_WRITE_COMPLETE:
++        rv = DoAuthWriteComplete(rv);
++        break;
++      case STATE_AUTH_READ:
++        rv = DoAuthRead();
++        break;
++      case STATE_AUTH_READ_COMPLETE:
++        rv = DoAuthReadComplete(rv);
++        break;
+       case STATE_HANDSHAKE_WRITE:
+         DCHECK_EQ(OK, rv);
+         net_log_.BeginEvent(NetLogEventType::SOCKS5_HANDSHAKE_WRITE);
+@@ -262,9 +282,14 @@ int SOCKS5ClientSocket::DoGreetWrite() {
+     return ERR_SOCKS_CONNECTION_FAILED;
+   }
+ 
++  if (auth_required_ && (auth_username_.empty() || auth_username_.size() > 255 ||
++                         auth_password_.empty() || auth_password_.size() > 255)) {
++    return ERR_INVALID_AUTH_CREDENTIALS;
++  }
++  static constexpr std::array<uint8_t, 3> kAuthenticatedGreeting{0x05, 0x01, 0x02};
+   if (!write_buf_) {
+     auto greet_buffer =
+-        base::MakeRefCounted<WrappedIOBuffer>(kSOCKS5GreetWriteData);
++        base::MakeRefCounted<WrappedIOBuffer>(auth_required_ ? kAuthenticatedGreeting : kSOCKS5GreetWriteData);
+     write_buf_ = base::MakeRefCounted<DrainableIOBuffer>(
+         std::move(greet_buffer), greet_buffer->size());
+   }
+@@ -323,12 +348,68 @@ int SOCKS5ClientSocket::DoGreetReadComplete(int result) {
+                                    "version", read_data[0]);
+     return ERR_SOCKS_CONNECTION_FAILED;
+   }
+-  if (read_data[1] != 0x00) {
++  if (read_data[1] != (auth_required_ ? 0x02 : 0x00)) {
+     net_log_.AddEventWithIntParams(NetLogEventType::SOCKS_UNEXPECTED_AUTH,
+                                    "method", read_data[1]);
+     return ERR_SOCKS_CONNECTION_FAILED;
+   }
+ 
++  read_buf_.reset();
++  next_state_ = auth_required_ ? STATE_AUTH_WRITE : STATE_HANDSHAKE_WRITE;
++  return OK;
++}
++
++int SOCKS5ClientSocket::DoAuthWrite() {
++  if (!write_buf_) {
++    std::vector<uint8_t> bytes{0x01, static_cast<uint8_t>(auth_username_.size())};
++    bytes.insert(bytes.end(), auth_username_.begin(), auth_username_.end());
++    bytes.push_back(static_cast<uint8_t>(auth_password_.size()));
++    bytes.insert(bytes.end(), auth_password_.begin(), auth_password_.end());
++    auto buffer = base::MakeRefCounted<VectorIOBuffer>(std::move(bytes));
++    const int size = buffer->size();
++    write_buf_ = base::MakeRefCounted<DrainableIOBuffer>(std::move(buffer), size);
++    auth_username_.clear();
++    auth_password_.clear();
++  }
++  next_state_ = STATE_AUTH_WRITE_COMPLETE;
++  return transport_socket_->Write(write_buf_.get(), write_buf_->BytesRemaining(),
++                                   io_callback_, traffic_annotation_);
++}
++
++int SOCKS5ClientSocket::DoAuthWriteComplete(int result) {
++  if (result < 0) return result;
++  if (result == 0) return ERR_CONNECTION_CLOSED;
++  write_buf_->DidConsume(result);
++  if (write_buf_->BytesRemaining()) {
++    next_state_ = STATE_AUTH_WRITE;
++  } else {
++    write_buf_.reset();
++    next_state_ = STATE_AUTH_READ;
++  }
++  return OK;
++}
++
++int SOCKS5ClientSocket::DoAuthRead() {
++  if (!read_buf_) {
++    read_buf_ = base::MakeRefCounted<GrowableIOBuffer>();
++    read_buf_->SetCapacity(2);
++  }
++  next_state_ = STATE_AUTH_READ_COMPLETE;
++  return transport_socket_->Read(read_buf_.get(), read_buf_->RemainingCapacity(),
++                                 io_callback_);
++}
++
++int SOCKS5ClientSocket::DoAuthReadComplete(int result) {
++  if (result < 0) return result;
++  if (result == 0) return ERR_CONNECTION_CLOSED;
++  read_buf_->set_offset(read_buf_->offset() + result);
++  if (read_buf_->RemainingCapacity()) {
++    next_state_ = STATE_AUTH_READ;
++    return OK;
++  }
++  const auto bytes = read_buf_->span_before_offset();
++  if (bytes[0] != 0x01 || bytes[1] != 0x00)
++    return ERR_INVALID_AUTH_CREDENTIALS;
+   read_buf_.reset();
+   next_state_ = STATE_HANDSHAKE_WRITE;
+   return OK;
+diff --git a/net/socket/socks5_client_socket.h b/net/socket/socks5_client_socket.h
+index fe8da48..213f3bd 100644
+--- a/net/socket/socks5_client_socket.h
++++ b/net/socket/socks5_client_socket.h
+@@ -13,6 +13,7 @@
+ 
+ #include "base/memory/scoped_refptr.h"
+ #include "net/base/address_list.h"
++#include "net/http/http_auth.h"
+ #include "net/base/completion_once_callback.h"
+ #include "net/base/completion_repeating_callback.h"
+ #include "net/base/host_port_pair.h"
+@@ -41,6 +42,10 @@ class NET_EXPORT_PRIVATE SOCKS5ClientSocket : public StreamSocket {
+                      const HostPortPair& destination,
+                      const NetworkTrafficAnnotationTag& traffic_annotation);
+ 
++  // Set before Connect. Authenticated connections advertise ONLY RFC1929;
++  // accepting a server-selected no-auth method would silently downgrade.
++  void SetProxyCredentials(const AuthCredentials& credentials);
++
+   SOCKS5ClientSocket(const SOCKS5ClientSocket&) = delete;
+   SOCKS5ClientSocket& operator=(const SOCKS5ClientSocket&) = delete;
+ 
+@@ -82,6 +87,10 @@ class NET_EXPORT_PRIVATE SOCKS5ClientSocket : public StreamSocket {
+     STATE_GREET_WRITE_COMPLETE,
+     STATE_GREET_READ,
+     STATE_GREET_READ_COMPLETE,
++    STATE_AUTH_WRITE,
++    STATE_AUTH_WRITE_COMPLETE,
++    STATE_AUTH_READ,
++    STATE_AUTH_READ_COMPLETE,
+     STATE_HANDSHAKE_WRITE,
+     STATE_HANDSHAKE_WRITE_COMPLETE,
+     STATE_HANDSHAKE_READ,
+@@ -108,6 +117,13 @@ class NET_EXPORT_PRIVATE SOCKS5ClientSocket : public StreamSocket {
+   void OnReadWriteComplete(CompletionOnceCallback callback, int result);
+ 
+   int DoLoop(int last_io_result);
++  int DoAuthWrite();
++  int DoAuthWriteComplete(int result);
++  int DoAuthRead();
++  int DoAuthReadComplete(int result);
++  bool auth_required_ = false;
++  std::string auth_username_;
++  std::string auth_password_;
+   int DoHandshakeRead();
+   int DoHandshakeReadComplete(int result);
+   int DoHandshakeWrite();
+diff --git a/net/socket/socks_connect_job.cc b/net/socket/socks_connect_job.cc
+index a7af8f2..d26158f 100644
+--- a/net/socket/socks_connect_job.cc
++++ b/net/socket/socks_connect_job.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "net/socket/socks_connect_job.h"
++#include "net/http/http_auth_cache.h"
+ 
+ #include <memory>
+ #include <utility>
+@@ -176,9 +177,19 @@ int SOCKSConnectJob::DoSOCKSConnect() {
+ 
+   // Add a SOCKS connection on top of the tcp socket.
+   if (socks_params_->is_socks_v5()) {
+-    socket_ = std::make_unique<SOCKS5ClientSocket>(
++    auto socks5 = std::make_unique<SOCKS5ClientSocket>(
+         transport_connect_job_->PassSocket(), socks_params_->destination(),
+         socks_params_->traffic_annotation());
++    const auto endpoint = std::visit([](const auto& value) {
++      return HostPortPair(value.host(), value.port());
++    }, socks_params_->transport_params()->destination());
++    if (auto* cache = common_connect_job_params()->http_auth_cache.get()) {
++      if (const auto* credentials = cache->ShellProxyCredentials(
++              "socks5", endpoint.host(), endpoint.port())) {
++        socks5->SetProxyCredentials(*credentials);
++      }
++    }
++    socket_ = std::move(socks5);
+   } else {
+     auto socks_socket = std::make_unique<SOCKSClientSocket>(
+         transport_connect_job_->PassSocket(), socks_params_->destination(),
+diff --git a/services/network/network_context.cc b/services/network/network_context.cc
+index 7c2bc9f..cf96492 100644
+--- a/services/network/network_context.cc
++++ b/services/network/network_context.cc
+@@ -814,6 +814,16 @@ NetworkContext::NetworkContext(
+       std::move(on_url_request_context_builder_configured),
+       params_->bound_network);
+   url_request_context_ = url_request_context_owner_.url_request_context.get();
++  if (!params_->shell_proxy_host.empty()) {
++    url_request_context_->http_transaction_factory()->GetSession()
++        ->http_auth_cache()->SetShellProxyCredentials(
++            params_->shell_proxy_scheme, params_->shell_proxy_host,
++            params_->shell_proxy_port,
++            net::AuthCredentials(base::UTF8ToUTF16(params_->shell_proxy_username),
++                                 base::UTF8ToUTF16(params_->shell_proxy_password)));
++    params_->shell_proxy_username.clear();
++    params_->shell_proxy_password.clear();
++  }
+ 
+   cookie_manager_ = std::make_unique<CookieManager>(
+       url_request_context_, std::move(session_cleanup_cookie_store),
+@@ -3214,6 +3224,9 @@ URLRequestContextOwner NetworkContext::MakeURLRequestContext(
+   session_params.key_auth_cache_server_entries_by_network_anonymization_key =
+       params_->split_auth_cache_by_network_anonymization_key;
+ 
++  if (params_->shell_proxy_protection) {
++    session_params.enable_quic = false;
++  }
+   builder.set_http_network_session_params(session_params);
+   builder.set_quic_context(std::move(quic_context));
+ 
+diff --git a/services/network/public/mojom/network_context.mojom b/services/network/public/mojom/network_context.mojom
+index ba22365..72ded95 100644
+--- a/services/network/public/mojom/network_context.mojom
++++ b/services/network/public/mojom/network_context.mojom
+@@ -443,6 +443,14 @@ struct NetworkContextParams {
+   // |proxy_config_client_request|.
+   //
+   // If both are null, the NetworkContext will not use a proxy.
++  // Browser-provided, context-local proxy credentials. Never exposed to a
++  // renderer, copied between contexts, or serialized into a proxy URL.
++  string shell_proxy_scheme;
++  string shell_proxy_host;
++  uint16 shell_proxy_port = 0;
++  string shell_proxy_username;
++  string shell_proxy_password;
++  bool shell_proxy_protection = false;
+   ProxyConfigWithAnnotation? initial_proxy_config;
+   pending_receiver<ProxyConfigClient>? proxy_config_client_receiver;
+ 

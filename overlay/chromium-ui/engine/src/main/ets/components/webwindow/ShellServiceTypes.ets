@@ -633,6 +633,8 @@ export interface SiteSettingsEvent extends ShellServiceEvent {
 }
 
 export interface AboutInfoEvent extends ShellServiceEvent {
+  proxyApiVersion?: number;
+  proxySocks5Auth?: boolean;
   requestId: number;
   pageInfoApiVersion?: number;
   chromiumVersion: string;

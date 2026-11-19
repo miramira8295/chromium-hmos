@@ -14,6 +14,7 @@
 #include <string_view>
 #include <utility>
 
+#include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
 #include "base/command_line.h"
 #include "base/process/ohos_jit_startup.h"
 #include "base/values.h"
@@ -94,6 +95,8 @@ void GetAboutInfo(const ShellCommandContext& context,
   event.Set("urlProtectionApiVersion", 2);
   event.Set("siteProtectionApiVersion", 1);
   event.Set("pageInfoApiVersion", 1);
+  event.Set("proxyApiVersion", 1);
+  event.Set("proxySocks5Auth", true);
   event.Set("ruleSourcesApiVersion", 1);
   // What the password sync commands understand. 1 is passwordSyncAuthorize,
   // getPasswordsForSync, applyPasswords and the passwordsChanged event. The
@@ -128,6 +131,10 @@ constexpr SettingsCommand kSettingsCommands[] = {
     {"getSearchEngines", &settings_internal::GetSearchEngines},
     {"setDefaultSearchEngine", &settings_internal::SetDefaultSearchEngine},
     // Preferences (shell_prefs_ohos.cc).
+    {"getProxySettings", &settings_internal::GetProxySettings},
+    {"applyProxySettings", &settings_internal::ApplyProxySettings},
+    {"testProxySettings", &settings_internal::TestProxySettings},
+    {"cancelProxyTest", &settings_internal::CancelProxyTest},
     {"getPrefs", &settings_internal::GetPrefs},
     {"setPref", &settings_internal::SetPref},
     // Site settings (shell_site_settings_ohos.cc).
