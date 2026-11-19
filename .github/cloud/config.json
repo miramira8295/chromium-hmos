@@ -5,6 +5,7 @@
   "disk_id": "d-gw8hklmz2vbu7gozleno",
   "disk_uuid": "7e5aa3ce-605e-432a-b833-89516c643543",
   "engine_major": 157,
+  "packaging_clt": "harmonyos-clt-6.1.1.280/command-line-tools",
   "role_arn": "acs:ram::1349864334375917:role/chromium-ci",
   "oidc_provider_arn": "acs:ram::1349864334375917:oidc-provider/github-action",
   "audience": "sts.aliyuncs.com",

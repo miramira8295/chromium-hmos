@@ -37,10 +37,12 @@ c=json.load(open(sys.argv[1]))
 assert re.fullmatch(r'[0-9a-f]{40}', c['sha'])
 assert re.fullmatch(r'\d+-\d+', c['run_key'])
 assert c['branch'] == f'hmos-{int(c["major"])}-adapter'
+assert re.fullmatch(r'harmonyos-clt-[0-9.]+/command-line-tools', c['packaging_clt'])
 values={
  'GITHUB_SHA':c['sha'], 'GITHUB_REF_NAME':c['branch'], 'GITHUB_ACTIONS':'true',
  'CLOUD_RUN_KEY':c['run_key'], 'CLOUD_DISK_UUID':c['disk_uuid'],
  'CHROMIUM_MAJOR':str(int(c['major'])), 'NINJA_JOBS':str(int(c['jobs'])),
+ 'CLOUD_PACKAGING_CLT':c['packaging_clt'],
  'CLOUD_PACKAGE':'true' if c['package'] else 'false',
  'CRASH_BUILD_ID':c['crash_build_id'], 'CRASH_ADDRESSES':c['crash_addresses']}
 for key,value in values.items(): print('export '+key+'='+shlex.quote(value))
@@ -82,7 +84,7 @@ if [[ -f "$root/.swap" ]] && ! swapon --noheadings --raw --show=NAME | grep -Fxq
 fi
 export PATH="/root/.cargo/bin:$root/toolchain/harmonyos-clt/command-line-tools/tool/node/bin:$root/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0 DEPOT_TOOLS_METRICS=0
-export DEVECO_CLT_HOME="$root/toolchain/harmonyos-clt/command-line-tools"
+export DEVECO_CLT_HOME="$root/toolchain/$CLOUD_PACKAGING_CLT"
 export JAVA_HOME
 JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
 export SKIP_HAP=1
@@ -98,6 +100,14 @@ if [[ -f "$root/ci-build.log" ]]; then
 fi
 engine_exports="$(python3 scripts/select-ci-engine.py | sed 's/^/export /')"
 eval "$engine_exports"
+if [[ "$CLOUD_PACKAGE" == true ]]; then
+  [[ -x "$DEVECO_CLT_HOME/tool/node/bin/node" ]] || {
+    echo "Packaging Command Line Tools missing: $DEVECO_CLT_HOME"; exit 1;
+  }
+  grep -q 'autoCreateEmptyFile' "$DEVECO_CLT_HOME/sdk/default/openharmony/ets/api/@ohos.file.picker.d.ts" || {
+    echo 'Packaging SDK must provide the API 23 DocumentSaveOptions.autoCreateEmptyFile option'; exit 1;
+  }
+fi
 bash "scripts/prepare-chromium-$CHROMIUM_MAJOR.sh"
 python3 .github/cloud/cache-health.py "$CHROMIUM_SRC/out/ohos_arm64" build-status/invalid-cache-outputs.json
 bash scripts/symbolize-previous-native-build.sh

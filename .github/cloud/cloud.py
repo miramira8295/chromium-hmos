@@ -464,6 +464,7 @@ class Controller:
         request = {
             'sha': sha, 'branch': os.environ['GITHUB_REF_NAME'], 'run_key': self.run_key,
             'disk_uuid': self.config['disk_uuid'], 'major': self.major, 'jobs': self.config['jobs'],
+            'packaging_clt': self.config['packaging_clt'],
             'package': os.environ.get('CLOUD_PACKAGE', 'true') == 'true',
             'crash_build_id': os.environ.get('CRASH_BUILD_ID', ''),
             'crash_addresses': os.environ.get('CRASH_ADDRESSES', ''),
