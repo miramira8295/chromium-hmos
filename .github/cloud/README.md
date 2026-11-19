@@ -8,7 +8,7 @@
 资源标识集中在 [config.json](config.json)：
 
 - 地域 `eu-central-1`。
-- 启动模板 `lt-gw8eis82pr9mv0e4sqjt`，固定版本 `4`（32 vCPU / 64 GB，编译并发 j32）。
+- 启动模板 `lt-gw8eis82pr9mv0e4sqjt`，固定版本 `3`（32 vCPU / 32 GB，编译并发 j26；保留 swap 兜底）。
 - 抢占式实例显式设置 `SpotDuration=1`，创建后提供一小时保护期；超过后仍可能回收。
 - 长期数据盘 `d-gw8hklmz2vbu7gozleno`，文件系统 UUID
   `7e5aa3ce-605e-432a-b833-89516c643543`。
