@@ -5696,7 +5696,7 @@ index 17dac7762417aaf92b8ad0b986dff1747b6a7900..aa53c44a842f8babb4f86b65713b7dd8
        .Run(gfx::Rect(view_size), target_size,
             base::BindOnce(&ScreenshotTaker::OnGotScreenshot,
 diff --git a/chrome/browser/file_select_helper.cc b/chrome/browser/file_select_helper.cc
-index bcfed1898edb8eed02c9a44b93a9bbbea622304b..51df20c285711459bce1aee7a61cb5cd206375c6 100644
+index bcfed1898edb8eed02c9a44b93a9bbbea622304b..4919a0ec9eae33509386a5c69a04b3b4ebb2ff7d 100644
 --- a/chrome/browser/file_select_helper.cc
 +++ b/chrome/browser/file_select_helper.cc
 @@ -65,6 +65,10 @@
@@ -5710,7 +5710,21 @@ index bcfed1898edb8eed02c9a44b93a9bbbea622304b..51df20c285711459bce1aee7a61cb5cd
  using blink::mojom::FileChooserFileInfo;
  using blink::mojom::FileChooserFileInfoPtr;
  using blink::mojom::FileChooserParams;
-@@ -807,6 +811,10 @@ void FileSelectHelper::RunFileChooserOnUIThread(
+@@ -82,7 +86,12 @@ namespace {
+ constexpr gfx::Size kMinFileChooserWindowSize(400, 300);
+ 
+ gfx::Size GetMinFileChooserWindowSize() {
+-  if (!base::FeatureList::IsEnabled(features::kFileChooserMinWindowSize)) {
++  // OHOS opens an independent system picker, like Android. A phone's
++  // logical width can be below the desktop 400-DIP occlusion threshold even
++  // when its application window fills the screen. Keep the lifecycle and
++  // active-tab checks, but do not apply that desktop size policy to OHOS.
++  if (BUILDFLAG(IS_OHOS) ||
++      !base::FeatureList::IsEnabled(features::kFileChooserMinWindowSize)) {
+     return gfx::Size();
+   }
+   return kMinFileChooserWindowSize;
+@@ -807,6 +816,10 @@ void FileSelectHelper::RunFileChooserOnUIThread(
    select_file_dialog_->SetAcceptTypes(params->accept_types);
    select_file_dialog_->SetUseMediaCapture(params->use_media_capture);
  #endif
