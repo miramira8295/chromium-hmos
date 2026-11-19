@@ -132,6 +132,7 @@ constexpr SettingsCommand kSettingsCommands[] = {
     {"setDefaultSearchEngine", &settings_internal::SetDefaultSearchEngine},
     // Preferences (shell_prefs_ohos.cc).
     {"getProxySettings", &settings_internal::GetProxySettings},
+    {"getProxyCredentials", &settings_internal::GetProxyCredentials},
     {"applyProxySettings", &settings_internal::ApplyProxySettings},
     {"testProxySettings", &settings_internal::TestProxySettings},
     {"cancelProxyTest", &settings_internal::CancelProxyTest},

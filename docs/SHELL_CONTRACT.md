@@ -1505,3 +1505,5 @@ Scope is Profile traffic (pages, downloads, workers, normal extension fetches).
 System NetworkContexts (including component updates), ArkTS HTTP, Huawei account
 and Cloud DB SDK requests are **not** covered and the settings page says so.
 PAC editing and a guarantee that every OS/app request is proxied are not exposed.
+
+Proxy credential readback: the settings page may explicitly issue `getProxyCredentials` with `expectedRevision`. A targeted `proxyCredentials` response contains `revision`, `status` and, on success, `proxyUsername` / `proxyPassword`. Readback is advertised by `credentialReadback:true` in proxy snapshots. Secrets are never included in `getProxySettings` or broadcasts. The shell must discard late responses and clear secret fields after consumption. `proxyTestResult` now includes `netError`, `netErrorName`, and `httpStatus`; tunnel establishment and target HTTP failures have distinct statuses.

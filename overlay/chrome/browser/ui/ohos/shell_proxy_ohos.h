@@ -15,6 +15,7 @@ void ConfigureShellProxyNetworkContext(Profile* profile, network::mojom::Network
 bool ShellProxyProtectsTraffic(Profile* profile);
 namespace settings_internal {
 void GetProxySettings(const ShellCommandContext&, const base::DictValue&);
+void GetProxyCredentials(const ShellCommandContext&, const base::DictValue&);
 void ApplyProxySettings(const ShellCommandContext&, const base::DictValue&);
 void TestProxySettings(const ShellCommandContext&, const base::DictValue&);
 void CancelProxyTest(const ShellCommandContext&, const base::DictValue&);

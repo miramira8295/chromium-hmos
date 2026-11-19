@@ -211,7 +211,7 @@ export interface BrowserRuntimeEvent {
   startupPhase?: 'ready' | 'frame';
   startupStatus?: 'waiting' | 'ready' | 'presented';
   version: number;
-  event: 'proxySettings' | 'proxyApplyResult' | 'proxyTestResult' | 'proxySettingsChanged' | 'proxyTestInvalidated' | 'resourceList' | 'resourcesChanged' | 'resourceActionResult' | 'resourcesRequested' |
+  event: 'proxyCredentials' | 'proxySettings' | 'proxyApplyResult' | 'proxyTestResult' | 'proxySettingsChanged' | 'proxyTestInvalidated' | 'resourceList' | 'resourcesChanged' | 'resourceActionResult' | 'resourcesRequested' |
     'startupAck' | 'pictureInPictureState' | 'systemPrintReady' | 'systemPrintFailed' | 'shareRequested' |
     'castRequested' | 'filePickerRequested' | 'pwaInstalled' | 'pwaMenuModel' |
     'pwaMenuClosed' | 'inputRecovered' | 'systemActionRequested' |

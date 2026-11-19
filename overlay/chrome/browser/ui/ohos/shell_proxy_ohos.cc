@@ -268,11 +268,14 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
  private:
   void Complete(scoped_refptr<net::HttpResponseHeaders> headers) {
     const int error = loader_->NetError();
+    net_error_ = error;
     std::string status = "targetFailed";
     const int response = headers ? headers->response_code() : 0;
     if (error == net::OK && response >= 200 && response < 300) status = "passed";
     else if (error == net::ERR_INVALID_AUTH_CREDENTIALS || error == net::ERR_PROXY_AUTH_REQUESTED || response == 407) status = "authenticationFailed";
     else if (net::IsCertificateError(error) || error == net::ERR_PROXY_CERTIFICATE_INVALID) status = "certificateFailed";
+    else if (error == net::ERR_TUNNEL_CONNECTION_FAILED) status = "tunnelFailed";
+    else if (error == net::OK && response >= 400) status = "targetHttpError";
     else if (error == net::ERR_TIMED_OUT) status = "timeout";
     else if (error == net::ERR_SOCKS_CONNECTION_FAILED || error == net::ERR_PROXY_AUTH_UNSUPPORTED) status = "handshakeFailed";
     else if (error == net::ERR_PROXY_CONNECTION_FAILED || error == net::ERR_NAME_NOT_RESOLVED || error == net::ERR_CONNECTION_REFUSED) status = "unreachable";
@@ -286,6 +289,8 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
     event.Set("status", status); event.Set("httpStatus", response);
     event.Set("elapsedMs", (base::TimeTicks::Now() - started_).InMillisecondsF());
     event.Set("testUrl", kTestUrl);
+    event.Set("netError", net_error_);
+    event.Set("netErrorName", net::ErrorToShortString(net_error_));
     if (browser_) ReplyToShell(context_, std::move(event));
     loader_.reset(); factory_.reset(); network_.reset();
   }
@@ -293,6 +298,7 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
   int request_id_;
   base::WeakPtr<BrowserWindowInterface> browser_;
   bool finished_ = false;
+  int net_error_ = net::OK;
   base::TimeTicks started_;
   mojo::Remote<network::mojom::NetworkContext> network_;
   mojo::Remote<network::mojom::URLLoaderFactory> factory_;
@@ -357,6 +363,7 @@ base::DictValue Snapshot(Profile* profile) {
   result.Set("status", state->invalid ? "blocked" : "ready");
   result.Set("effectiveBlocked", state->invalid);
   result.Set("proxyApiVersion", 1);
+  result.Set("credentialReadback", true);
   result.Set("httpAuth", true); result.Set("socks5Auth", true);
   result.Set("testUrl", kTestUrl);
   return result;
@@ -466,6 +473,33 @@ namespace settings_internal {
 void GetProxySettings(const ShellCommandContext& context, const base::DictValue& command) {
   if (!SettingsProfile(context)) return;
   Reply(context, command, "proxySettings", "");
+}
+void GetProxyCredentials(const ShellCommandContext& context, const base::DictValue& command) {
+  auto* profile = SettingsProfile(context);
+  if (!profile) return;
+  const auto saved = Desired(profile);
+  const int revision = std::max(0, saved.FindInt("revision").value_or(0));
+  base::DictValue event;
+  event.Set("event", "proxyCredentials");
+  event.Set("requestId", ReadRequestId(command));
+  event.Set("revision", revision);
+  std::string status = "ready";
+  if (Controlled(profile)) status = "controlled";
+  else if (command.FindInt("expectedRevision") != revision) status = "conflict";
+  else if (const auto ref = String(saved, "credentialRef"); !ref.empty()) {
+    auto secret = LoadShellProxySecret(ref);
+    if (!secret) status = "secureStorageFailed";
+    else {
+      event.Set("proxyUsername", secret->username);
+      event.Set("proxyPassword", secret->password);
+      std::fill(secret->username.begin(), secret->username.end(), '\0');
+      std::fill(secret->password.begin(), secret->password.end(), '\0');
+    }
+  }
+  event.Set("status", status);
+  // Explicit settings-page request only: never include secrets in snapshots
+  // or broadcast them to other windows/profiles.
+  ReplyToShell(context, std::move(event));
 }
 void ApplyProxySettings(const ShellCommandContext& context, const base::DictValue& command) {
   auto* profile = SettingsProfile(context);
