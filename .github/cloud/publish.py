@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -45,6 +46,17 @@ def release():
          str(artifacts / 'SHA256SUMS'), '--clobber')
 
 
+def finish_progress(folder, result):
+    progress = folder / 'progress.json'
+    if progress.exists():
+        value = json.loads(progress.read_text())
+        pipeline = result['pipeline_status']
+        terminal = {'failure': 'failed', 'cancelled': 'cancelled'}.get(pipeline, result['status'])
+        value.update(status=terminal, phase='finished', pipeline_status=pipeline,
+                     updated_at=datetime.now(timezone.utc).isoformat())
+        progress.write_text(json.dumps(value, indent=2) + '\n')
+
+
 def status():
     folder = ROOT / 'build-status'
     folder.mkdir(exist_ok=True)
@@ -66,6 +78,7 @@ def status():
         result = {'status': 'failed', 'reason': 'Cloud preparation or diagnostics retrieval failed'}
     result['pipeline_status'] = os.environ.get('CLOUD_JOB_STATUS', 'unknown')
     summary.write_text(json.dumps(result, indent=2) + '\n')
+    finish_progress(folder, result)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
             output.write('### Cloud native build\n\n```json\n' + json.dumps(result, indent=2) + '\n```\n')

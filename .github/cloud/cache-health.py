@@ -7,6 +7,8 @@ import sys
 
 
 def generated_format(path):
+    if path.name in ('snapshot_blob.bin', 'v8_context_snapshot.bin'):
+        return 'snapshot'
     if path.name.endswith('_type_mappings'):
         return 'typemap'
     if path.name.endswith('.mojom-module'):
@@ -25,6 +27,15 @@ def repair(out, report):
     if log.exists():
         names = {fields[3] for line in log.read_text(errors='replace').splitlines()
                  if len(fields := line.split('\t')) >= 5}
+    snapshots = []
+    for directory in [out, *(path for path in out.iterdir() if path.is_dir() and not path.is_symlink())]:
+        for filename in ('snapshot_blob.bin', 'v8_context_snapshot.bin'):
+            path = directory / filename
+            if path.is_file() and not path.is_symlink():
+                name = str(path.relative_to(out))
+                names.add(name)
+                snapshots.append({'path': name, 'bytes': path.stat().st_size})
+    Path(report).with_name('v8-snapshot-inputs.json').write_text(json.dumps(snapshots, indent=2) + '\n')
     # Interrupted actions may never reach .ninja_log. Cover the generated
     # trees of both the OHOS target and host toolchains, using known formats
     # that cannot legitimately be empty. Empty stamps/ordinary sources stay.

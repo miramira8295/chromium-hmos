@@ -90,6 +90,15 @@ language_detection_model 五个此前失败的 C++ 目标均已成功编译。
 新建流程现可只读等待同仓库上一轮 CI 实例释放该盘（最长十分钟）；
 仍拒绝占用磁盘的手动/其他仓库实例，超时也不创建或强制拆盘。
 
+运行 `44463846591` 完成大部分编译后，在 14040/14042 步因 V8 context snapshot
+失败退出，CI 成功释放实例。完整 native 日志显示启动 snapshot_blob.bin 已成功
+打开，但 gin/v8_initializer.cc 的 MapV8File 失败，生成器退出 -5。
+针对空快照缓存增加 snapshot_blob.bin/v8_context_snapshot.bin 检查和大小审计，
+并将已启用的 V8 context snapshot 纳入前置构建目标，避免最后才发现失败。
+FATAL 和 Python 异常会进入实时诊断；最终发布会将 progress.json 从 running
+更新为实际完成/失败/取消状态，避免旧进度在实例释放后仍停留在 99.7%。
+以上修复已通过本地测试，快照文件大小及实际重新生成结果由下一轮验证。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。

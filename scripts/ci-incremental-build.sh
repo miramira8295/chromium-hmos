@@ -520,6 +520,9 @@ else
       obj/third_party/blink/renderer/modules/webgpu/webgpu/external_texture_helper.o
     )
   fi
+  if grep -Eq '^[[:space:]]*use_v8_context_snapshot[[:space:]]*=[[:space:]]*true([[:space:]]|$)' "${src}/${out}/args.gn"; then
+    migration_checks+=(snapshot_blob.bin v8_context_snapshot.bin)
+  fi
   ( cd "$src" && third_party/ninja/ninja -C "$out" -j "$jobs" -k "$preflight_failures" \
       obj/chrome/common/ohos/adblock/execution/decision_throttle.o \
       obj/chrome/browser/core/adblock.o obj/chrome/renderer/renderer/adblock.o \
@@ -528,7 +531,7 @@ else
       -k "${NINJA_MAX_FAILURES:-20}" gn_all ) \
     2>&1 | tee "$log" \
     | awk -v every="${PROGRESS_EVERY:-50}" '
-        /^FAILED:/ || /error:|undefined symbol:|ninja: error:/ {
+        /^FAILED:/ || /error:|undefined symbol:|ninja: error:|FATAL:|Traceback|[A-Za-z]+Error:/ {
           print; fflush(); next
         }
         /^\[[0-9]+\/[0-9]+\]/ {
@@ -556,7 +559,7 @@ else
       tr '\r' '\n' <"$log" | grep '^FAILED:' | sed 's/^FAILED: //' | cut -c1-110 | sort -u
       printf '\n## diagnostics\n'
       tr '\r' '\n' <"$log" \
-        | grep -E '^\.\./\.\.[^ ]*: *(error|fatal error): |undefined symbol:' \
+        | grep -E '^\.\./\.\.[^ ]*: *(error|fatal error): |undefined symbol:|FATAL:|Error:|failed with exit code' \
         | sed -E 's#^\.\./\.\./##' | sort -u | head -60
       printf '\n## log tail\n'
       tr '\r' '\n' <"$log" | tail -120

@@ -465,6 +465,39 @@ class CacheTest(unittest.TestCase):
             self.assertEqual(git('ls-tree', '-r', '--name-only', pushed[0]), 'build-status/latest.json')
             self.assertEqual(git('rev-list', '--parents', '-n1', pushed[0]), pushed[0])
 
+    def test_final_progress_cannot_remain_running_after_failure_or_cancel(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for native, pipeline, expected in [('failed', 'failure', 'failed'),
+                                                ('ok', 'failure', 'failed'),
+                                                ('ok', 'cancelled', 'cancelled'),
+                                                ('ok', 'success', 'ok')]:
+                with self.subTest(native=native, pipeline=pipeline):
+                    progress = root / 'progress.json'
+                    progress.write_text(json.dumps({'status': 'running', 'steps': 14000,
+                                                    'total': 14042, 'percent': 99.7}))
+                    publisher.finish_progress(root, {'status': native, 'pipeline_status': pipeline})
+                    value = json.loads(progress.read_text())
+                    self.assertEqual(value['status'], expected)
+                    self.assertEqual(value['phase'], 'finished')
+                    self.assertEqual(value['steps'], 14000)
+
+    def test_empty_startup_snapshots_are_rebuilt_without_deleting_valid_binary_data(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            host = root / 'clang_x64_v8_arm64'
+            host.mkdir()
+            (root / 'snapshot_blob.bin').write_bytes(b'')
+            (host / 'v8_context_snapshot.bin').write_bytes(b'')
+            (host / 'snapshot_blob.bin').write_bytes(b'valid snapshot fixture')
+            (root / 'unrelated.bin').write_bytes(b'')
+            self.assertEqual(cache.repair(root, root / 'report.json'),
+                             ['clang_x64_v8_arm64/v8_context_snapshot.bin', 'snapshot_blob.bin'])
+            self.assertEqual((host / 'snapshot_blob.bin').read_bytes(), b'valid snapshot fixture')
+            self.assertTrue((root / 'unrelated.bin').exists())
+            inventory = json.loads((root / 'v8-snapshot-inputs.json').read_text())
+            self.assertIn({'path': 'snapshot_blob.bin', 'bytes': 0}, inventory)
+
     def test_remote_bootstrap_failure_records_exit_before_any_disk_operation(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
