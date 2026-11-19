@@ -19,6 +19,7 @@
  */
 
 #include "net/proxy_resolution/proxy_config_service_ohos.h"
+#include "third_party/ohos_ndk/includes/ohos_adapter/ohos_adapter_helper.h"
 
 #include "arkweb/chromium_ext/url/ohos/log_utils.h"
 #include "base/check_op.h"
@@ -331,9 +332,9 @@ class ProxyConfigServiceOHOS::Delegate
   void FetchInitialConfig() {
     ProxyConfigWithAnnotation proxy_config;
     GetLatestProxyConfigInternal(get_property_callback_, &proxy_config);
-    main_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&Delegate::SetNewConfigInMainSequence, this,
-                                  proxy_config));
+    // Constructor runs on the owning sequence. Publish before returning so
+    // the first NetworkContext cannot observe a temporary direct config.
+    SetNewConfigInMainSequence(proxy_config);
   }
 
   // Called only in the network sequence.
@@ -358,6 +359,10 @@ class ProxyConfigServiceOHOS::Delegate
 
   // Called by NWEB adapter.
   void ProxySettingsChanged() {
+    if (!InMainSequence()) {
+      main_task_runner_->PostTask(FROM_HERE, base::BindOnce(&Delegate::ProxySettingsChanged, this));
+      return;
+    }
     if (has_proxy_override_) {
       return;
     }
@@ -374,6 +379,11 @@ class ProxyConfigServiceOHOS::Delegate
                               int port,
                               const std::string& pac_url,
                               const std::vector<std::string>& exclusion_list) {
+    if (!InMainSequence()) {
+      main_task_runner_->PostTask(FROM_HERE, base::BindOnce(
+          &Delegate::ProxySettingsChangedTo, this, host, port, pac_url, exclusion_list));
+      return;
+    }
 #if BUILDFLAG(ARKWEB_NETWORK_PROXY)
     LOG(INFO) << "ohos_network ProxySettingsChangedTo has_proxy_override_ "
               << has_proxy_override_ << ", proxy host "
@@ -483,12 +493,19 @@ std::shared_ptr<NetProxyEventCallback> NetProxyEventCallback::GetInstance() {
   OHOS::NWeb::OhosAdapterHelper::GetInstance()
       .GetNetProxyInstance()
       .RegNetProxyEvent(*proxy_event_callback_);
+  // Chrome shell does not construct NWebImpl, which normally starts this.
+  OHOS::NWeb::OhosAdapterHelper::GetInstance().GetNetProxyInstance().StartListen();
   return *proxy_event_callback_;
 }
 
 void NetProxyEventCallback::AddObserver(ProxyConfigServiceOHOS* observer) {
   base::AutoLock auto_lock(services_lock_);
   services_.push_back(observer);
+}
+
+void NetProxyEventCallback::RemoveObserver(ProxyConfigServiceOHOS* observer) {
+  base::AutoLock auto_lock(services_lock_);
+  services_.remove(observer);
 }
 
 void NetProxyEventCallback::Changed(
@@ -509,12 +526,13 @@ ProxyConfigServiceOHOS::ProxyConfigServiceOHOS(
     : delegate_(
           new Delegate(main_task_runner, base::BindRepeating(&GetProperty))) {
   delegate_->FetchInitialConfig();
-  std::shared_ptr<NetProxyEventCallback> callback =
-      NetProxyEventCallback::GetInstance();
-  callback->AddObserver(this);
+  callback_ = NetProxyEventCallback::GetInstance();
+  callback_->AddObserver(this);
 }
 
-ProxyConfigServiceOHOS::~ProxyConfigServiceOHOS() {}
+ProxyConfigServiceOHOS::~ProxyConfigServiceOHOS() {
+  if (callback_) callback_->RemoveObserver(this);
+}
 
 void ProxyConfigServiceOHOS::set_exclude_pac_url(bool enabled) {
   delegate_->set_exclude_pac_url(enabled);

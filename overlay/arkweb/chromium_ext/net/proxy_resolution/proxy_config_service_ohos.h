@@ -29,7 +29,7 @@
 #include "base/synchronization/lock.h"
 #include "net/base/net_export.h"
 #include "net/proxy_resolution/proxy_config_service.h"
-#include "third_party/ohos_ndk/includes/ohos_adapter/ohos_adapter_helper.h"
+#include "third_party/ohos_ndk/includes/ohos_adapter/net_proxy_adapter.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -121,6 +121,7 @@ class NET_EXPORT ProxyConfigServiceOHOS : public ProxyConfigService {
                               const std::vector<std::string>& exclusion_list);
 
   scoped_refptr<Delegate> delegate_;
+  std::shared_ptr<NetProxyEventCallback> callback_;
 };
 
 class NetProxyEventCallback : public OHOS::NWeb::NetProxyEventCallbackAdapter {
@@ -134,6 +135,7 @@ class NetProxyEventCallback : public OHOS::NWeb::NetProxyEventCallbackAdapter {
                const std::vector<std::string>& exclusionList) override;
 
   void AddObserver(ProxyConfigServiceOHOS*);
+  void RemoveObserver(ProxyConfigServiceOHOS*);
 
  private:
   NetProxyEventCallback() = default;
