@@ -503,7 +503,6 @@ export interface ShellProxyConfig {
 
 export interface BrowserCommandPayload {
   proxyConfig?: ShellProxyConfig;
-  expectedRevision?: number;
   credentialAction?: 'keep' | 'replace' | 'remove';
   proxyUsername?: string;
   proxyPassword?: string;
