@@ -296,6 +296,23 @@ class Controller:
         values = self.cloud.api('DescribeInstances', InstanceIds=[instance_id])['Instances']['Instance']
         return values[0] if values else None
 
+    def observe_builder(self):
+        """Read ECS independently of SSH; absence alone does not prove reclamation."""
+        try:
+            instance = self.instance(self.state['instance_id'])
+            fields = ('InstanceId', 'Status', 'InstanceType', 'Cpu', 'Memory',
+                      'CreationTime', 'StartTime', 'AutoReleaseTime',
+                      'SpotStrategy', 'SpotDuration', 'OperationLocks')
+            observation = ({key: instance.get(key) for key in fields} if instance else
+                           {'InstanceId': self.state['instance_id'], 'Status': 'NotFound'})
+        except Exception as error:
+            # Never print SDK transport exceptions, which may embed signed URLs.
+            observation = {'Status': 'Unknown', 'error_type': type(error).__name__}
+        observation['observed_at'] = datetime.now(timezone.utc).isoformat()
+        write_json(ROOT / 'build-status/cloud-instance-observation.json', observation)
+        print('ECS observation after SSH failure: ' + json.dumps(observation), flush=True)
+        return observation['Status']
+
     def own(self, instance):
         actual = tags(instance)
         expected = {'ci-project': PROJECT, 'ci-repository': self.repository,
@@ -502,8 +519,17 @@ class Controller:
                 failures = 0
             except (subprocess.SubprocessError, json.JSONDecodeError):
                 failures += 1
-                if failures >= 6:
-                    raise RuntimeError('SSH unavailable; instance may have been reclaimed. Cache remains on data disk')
+                if failures in (1, 6, 12, 18):
+                    instance_status = self.observe_builder()
+                    if instance_status in ('NotFound', 'Stopped', 'Stopping'):
+                        raise RuntimeError('SSH unavailable; ECS status=' + instance_status +
+                                           '. Cache remains on data disk')
+                # Keep a running builder alive through sustained I/O pressure.
+                # Six SSH timeouts alone are not evidence of spot reclamation.
+                if failures >= 20:
+                    instance_status = self.observe_builder()
+                    raise RuntimeError('SSH unavailable after 20 attempts; ECS status=' +
+                                       instance_status + '. Cache remains on data disk')
                 time.sleep(10)
                 continue
             print(result['log'], end='', flush=True)
@@ -575,6 +601,7 @@ class Controller:
 
     def cleanup_instance(self, instance):
         self.own(instance)
+        print("Cleanup observed ECS status:", instance["InstanceId"], instance["Status"], flush=True)
         instance_id = instance['InstanceId']
         if instance.get('OperationLocks', {}).get('LockReason'):
             raise RuntimeError('Instance has operation locks; retaining it to protect the data disk')

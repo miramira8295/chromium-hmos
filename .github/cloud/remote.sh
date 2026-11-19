@@ -6,10 +6,12 @@ exec > >(tee -a "$bootstrap/build.log") 2>&1
 task=''
 repo=''
 status=''
+monitor_pid=''
 finish() {
   local rc=$?
   trap - EXIT
   set +eu
+  if [[ -n "$monitor_pid" ]]; then kill "$monitor_pid" 2>/dev/null; wait "$monitor_pid" 2>/dev/null; fi
   if [[ -d "$task" ]]; then
     mkdir -p "$status"
     if [[ -d "$repo/build-status" ]]; then
@@ -98,6 +100,8 @@ if [[ "$CLOUD_PACKAGE" == false ]]; then export SKIP_PACKAGE=1; fi
 # An isolated task checkout preserves any manual changes in the old repo/.
 git clone --no-checkout "$bootstrap/repo.bundle" "$repo"
 git -C "$repo" checkout --detach "$GITHUB_SHA"
+python3 "$repo/.github/cloud/resource-monitor.py" "$status/runtime-resources.jsonl" &
+monitor_pid=$!
 cd "$repo"
 mkdir -p build-status
 if [[ -f "$root/ci-build.log" ]]; then

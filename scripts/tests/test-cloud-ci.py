@@ -123,6 +123,18 @@ class LifecycleTest(unittest.TestCase):
         mutations = [name for name, _ in self.ecs.calls if not name.startswith('Describe')]
         self.assertEqual(mutations, ['RunInstances', 'AttachDisk', 'StopInstance', 'DetachDisk', 'DeleteInstance'])
 
+    def test_ssh_failure_observation_distinguishes_running_from_missing(self):
+        self.controller.save(instance_id='i-builder')
+        self.ecs.instance = owned_instance()
+        self.ecs.instance.update(Cpu=32, Memory=32768, UserData='must-not-log')
+        self.assertEqual(self.controller.observe_builder(), 'Running')
+        saved = json.loads((self.root / 'build-status/cloud-instance-observation.json').read_text())
+        self.assertEqual(saved['Memory'], 32768)
+        self.assertNotIn('UserData', saved)
+        self.ecs.instance = None
+        self.assertEqual(self.controller.observe_builder(), 'NotFound')
+        self.assertTrue(all(name == 'DescribeInstances' for name, _ in self.ecs.calls))
+
     def test_permission_probes_never_create_or_attach_resources(self):
         original = self.ecs.api
         probes = []
@@ -300,18 +312,26 @@ class LifecycleTest(unittest.TestCase):
         self.assertIn('--property=SetLoginEnvironment=yes', launch)
         self.assertEqual(self.ecs.calls, [])
 
-    def test_lost_ssh_fails_without_creating_a_second_instance(self):
+    def test_lost_ssh_checks_ecs_and_keeps_running_instance_for_twenty_attempts(self):
         self.controller.save(instance_id='i-builder', ip='192.0.2.10')
         self.controller.scp = lambda *args, **kwargs: None
+        attempts = []
         def ssh(command, **kwargs):
             if command.startswith('python3'):
+                attempts.append(command)
                 raise subprocess.TimeoutExpired('ssh', 60)
             return subprocess.CompletedProcess([], 0, '', '')
         self.controller.ssh = ssh
         with patch.object(cloud.subprocess, 'run'), patch.object(cloud.time, 'sleep'):
-            with self.assertRaisesRegex(RuntimeError, 'SSH unavailable'):
+            with self.assertRaisesRegex(RuntimeError, 'ECS status=NotFound'):
                 self.controller.run()
-        self.assertEqual(self.ecs.calls, [])
+            self.assertEqual(len(attempts), 1)
+            self.ecs.instance = owned_instance()
+            attempts.clear()
+            with self.assertRaisesRegex(RuntimeError, '20 attempts; ECS status=Running'):
+                self.controller.run()
+            self.assertEqual(len(attempts), 20)
+        self.assertTrue(all(name == 'DescribeInstances' for name, _ in self.ecs.calls))
 
     def test_artifacts_from_another_commit_are_rejected(self):
         self.controller.save(instance_id='i-builder', ip='192.0.2.10')
