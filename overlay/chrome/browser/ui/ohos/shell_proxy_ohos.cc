@@ -24,6 +24,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/browser/ui/ohos/shell_proxy_vault_ohos.h"
 #include "chrome/browser/ui/ohos/shell_services_ohos.h"
 #include "chrome/browser/ui/ohos/shell_settings_ohos_internal.h"
@@ -321,6 +322,7 @@ base::DictValue Snapshot(Profile* profile) {
   result.Set("source", source);
   result.Set("controlled", Controlled(profile));
   result.Set("status", state->invalid ? "blocked" : "ready");
+  result.Set("effectiveBlocked", state->invalid);
   result.Set("proxyApiVersion", 1);
   result.Set("httpAuth", true); result.Set("socks5Auth", true);
   result.Set("testUrl", kTestUrl);
