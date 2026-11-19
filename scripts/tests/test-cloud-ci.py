@@ -309,6 +309,14 @@ class LifecycleTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_unsigned_sts_exchange_includes_mandatory_common_parameters(self):
+        first = cloud.oidc_parameters(CONFIG, 'test-only-token', '123')
+        second = cloud.oidc_parameters(CONFIG, 'test-only-token', '123')
+        self.assertRegex(first['Timestamp'], r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')
+        self.assertNotEqual(first['SignatureNonce'], second['SignatureNonce'])
+        self.assertEqual(first['OIDCToken'], 'test-only-token')
+        self.assertEqual(first['RoleArn'], CONFIG['role_arn'])
+
     def test_auth_error_diagnostics_do_not_expose_oidc_token(self):
         reply = json.dumps({'Code': 'InvalidIdentityToken', 'Message': 'Rejected test-sensitive-token'}).encode()
         error = urllib.error.HTTPError('https://sts.aliyuncs.com/', 400, 'Bad Request', {}, io.BytesIO(reply))

@@ -15,6 +15,7 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
+import uuid
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -51,6 +52,15 @@ def github_output(key, value):
             output.write(f'{key}={value}\n')
 
 
+def oidc_parameters(config, token, run_id):
+    return {
+        'Action': 'AssumeRoleWithOIDC', 'Version': '2015-04-01', 'Format': 'JSON',
+        'Timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'SignatureNonce': str(uuid.uuid4()),
+        'RoleArn': config['role_arn'], 'OIDCProviderArn': config['oidc_provider_arn'],
+        'OIDCToken': token, 'RoleSessionName': 'chromium-' + run_id, 'DurationSeconds': '3600'}
+
+
 class Cloud:
     def __init__(self, config):
         self.config = config
@@ -67,12 +77,8 @@ class Cloud:
             'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
         token = http_json(request, 'GitHub OIDC',
                           [os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']])['value']
-        payload = urllib.parse.urlencode({
-            'Action': 'AssumeRoleWithOIDC', 'Version': '2015-04-01', 'Format': 'JSON',
-            'RoleArn': self.config['role_arn'],
-            'OIDCProviderArn': self.config['oidc_provider_arn'], 'OIDCToken': token,
-            'RoleSessionName': 'chromium-' + os.environ['GITHUB_RUN_ID'],
-            'DurationSeconds': '3600'}).encode()
+        payload = urllib.parse.urlencode(oidc_parameters(
+            self.config, token, os.environ['GITHUB_RUN_ID'])).encode()
         request = urllib.request.Request('https://sts.aliyuncs.com/', data=payload)
         reply = http_json(request, 'STS AssumeRoleWithOIDC', [token])
         if 'Credentials' not in reply:
