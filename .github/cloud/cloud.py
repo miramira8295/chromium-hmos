@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """GitHub-hosted controller for one tagged ECS builder and one retained disk."""
 import argparse
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import ipaddress
@@ -70,6 +71,7 @@ class Cloud:
     def authenticate(self):
         # Tokens stay on the GitHub-hosted controller, never on ECS or disk.
         from aliyunsdkcore.client import AcsClient
+        from aliyunsdkcore.auth.credentials import StsTokenCredential
         endpoint = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
         endpoint += ('&' if '?' in endpoint else '?') + urllib.parse.urlencode(
             {'audience': self.config['audience']})
@@ -77,6 +79,11 @@ class Cloud:
             'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
         token = http_json(request, 'GitHub OIDC',
                           [os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']])['value']
+        # Only public binding claims are logged, never the JWT or its signature.
+        encoded = token.split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+        print('OIDC identity:', json.dumps({key: claims.get(key) for key in
+              ('iss', 'aud', 'sub', 'repository', 'ref')}, ensure_ascii=False), flush=True)
         payload = urllib.parse.urlencode(oidc_parameters(
             self.config, token, os.environ['GITHUB_RUN_ID'])).encode()
         request = urllib.request.Request('https://sts.aliyuncs.com/', data=payload)
@@ -84,9 +91,8 @@ class Cloud:
         if 'Credentials' not in reply:
             raise RuntimeError('OIDC exchange failed: ' + str(reply.get('Code', 'unknown')))
         credentials = reply['Credentials']
-        self.client = AcsClient(credentials['AccessKeyId'], credentials['AccessKeySecret'],
-                                self.config['region'],
-                                security_token=credentials['SecurityToken'])
+        self.client = AcsClient(region_id=self.config['region'], credential=StsTokenCredential(
+            credentials['AccessKeyId'], credentials['AccessKeySecret'], credentials['SecurityToken']))
         self.refresh_at = time.monotonic() + 3000
 
     def api(self, action, **params):

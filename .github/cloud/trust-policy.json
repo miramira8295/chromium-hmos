@@ -1,0 +1,24 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ],
+      "Principal": {
+        "Federated": "acs:ram::1349864334375917:oidc-provider/github-action"
+      },
+      "Condition": {
+        "StringEquals": {
+          "oidc:iss": "https://token.actions.githubusercontent.com",
+          "oidc:aud": "sts.aliyuncs.com"
+        },
+        "StringLike": {
+          "oidc:sub": "repo:miramira8295@300834246/chromium-hmos@1372926316:ref:refs/heads/*"
+        }
+      }
+    }
+  ]
+}

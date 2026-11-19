@@ -309,6 +309,15 @@ class LifecycleTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_oidc_role_trust_uses_ram_action_not_the_sts_api_name(self):
+        trust = json.loads((ROOT / '.github/cloud/trust-policy.json').read_text())['Statement'][0]
+        self.assertIn('sts:AssumeRole', trust['Action'])
+        self.assertNotIn('sts:AssumeRoleWithOIDC', trust['Action'])
+        self.assertEqual(trust['Principal']['Federated'], CONFIG['oidc_provider_arn'])
+        self.assertEqual(trust['Condition']['StringEquals']['oidc:aud'], CONFIG['audience'])
+        self.assertEqual(trust['Condition']['StringLike']['oidc:sub'],
+                         'repo:miramira8295@300834246/chromium-hmos@1372926316:ref:refs/heads/*')
+
     def test_unsigned_sts_exchange_includes_mandatory_common_parameters(self):
         first = cloud.oidc_parameters(CONFIG, 'test-only-token', '123')
         second = cloud.oidc_parameters(CONFIG, 'test-only-token', '123')

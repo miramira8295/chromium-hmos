@@ -18,6 +18,17 @@ ARN、资源 ID、UUID 均不是凭证。SSH 私钥只能存于 GitHub Actions S
 `ALIYUN_SSH_KEY`，不得提交到仓库。此 Secret 已由用户配置，2026-11-19 已确认仓库中存在。
 RAM 角色绑定 [ram-policy.json](ram-policy.json)，用户已确认授权。
 身份提供商信任策略允许本仓库分支，后续升级无需修改这层信任。
+角色信任策略完整示例为 [trust-policy.json](trust-policy.json)。注意信任策略的
+`Action` 是 `sts:AssumeRole`，而运行时调用的 STS API 名称是 `AssumeRoleWithOIDC`。
+
+首次联调记录：已补齐 STS 请求的 Timestamp/SignatureNonce。运行
+`44444232779` 返回 `AuthenticationFail.NoPermission`。用户核对后确认控制台的
+Action 已是正确的 `sts:AssumeRole`，此前将运行失败归因于 Action 的判断过早。
+通过 GitHub OIDC 设置 API 查到本仓库 `use_immutable_subject=true`，主体前缀实际为
+`repo:miramira8295@300834246/chromium-hmos@1372926316`，旧的无 ID 条件无法匹配。
+需按 trust-policy.json 更新 `oidc:sub`，保留分支通配符。
+同时已用实际安装的官方 SDK 核对并修正 STS 凭证客户端的初始化方式。
+截至该次失败，未取得 STS 凭证，也没有创建任何 ECS 实例。
 
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
