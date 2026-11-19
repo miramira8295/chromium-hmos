@@ -47,6 +47,13 @@ ResourceGroupLevelIdentityBasedPolicy`。此字段不足以单独证明控制台
 预检入口是现有 Incremental build 的 `preflight_only` 输入，不执行编译和实例清理。
 截至本记录，所有创建请求均被拒绝，没有 CI 实例产生，正式运行的清理任务成功。
 
+后续进展：修正关联资源授权后，预检 `44448517904` 的三种请求全部返回
+`DryRunOperation`。正式运行 `44448609956` 创建实例并成功挂载数据盘，
+完成源码准备后因 systemd 服务没有 HOME、Rust 初始化失败而退出。
+该运行清理成功，实例已释放，保留盘未删除；失败没有发布 HAR。
+启动服务改用显式 `User=root` 和 `SetLoginEnvironment=yes`，由 systemd
+按用户数据库提供 HOME/LOGNAME/SHELL，避免与交互 SSH 会话的环境不一致。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。

@@ -386,6 +386,7 @@ class Controller:
                             (HERE / 'remote.sh', 'remote.sh')]:
             self.scp(local, self.bootstrap + '/' + name)
         command = ['systemd-run', '--unit=' + self.unit, '--collect',
+                   '--property=User=root', '--property=SetLoginEnvironment=yes',
                    '--property=KillMode=control-group', '--property=RuntimeMaxSec=18300',
                    '--property=TimeoutStopSec=60', '/bin/bash', self.bootstrap + '/remote.sh',
                    self.bootstrap]

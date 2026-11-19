@@ -263,6 +263,9 @@ class LifecycleTest(unittest.TestCase):
             self.controller.run()
         self.assertEqual(self.controller.state['build_exit'], 17)
         self.assertTrue(any('KillMode=control-group' in value for value in commands))
+        launch = next(value for value in commands if value.startswith('systemd-run '))
+        self.assertIn('--property=User=root', launch)
+        self.assertIn('--property=SetLoginEnvironment=yes', launch)
         self.assertEqual(self.ecs.calls, [])
 
     def test_lost_ssh_fails_without_creating_a_second_instance(self):
