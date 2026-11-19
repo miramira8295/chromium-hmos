@@ -28,7 +28,18 @@ Action 已是正确的 `sts:AssumeRole`，此前将运行失败归因于 Action 
 `repo:miramira8295@300834246/chromium-hmos@1372926316`，旧的无 ID 条件无法匹配。
 需按 trust-policy.json 更新 `oidc:sub`，保留分支通配符。
 同时已用实际安装的官方 SDK 核对并修正 STS 凭证客户端的初始化方式。
-截至该次失败，未取得 STS 凭证，也没有创建任何 ECS 实例。
+用户更新不可变主体条件后，运行 `44445363387` 已取得 STS 凭证，
+成功读取数据盘、模板和镜像，但 `RunInstances` 返回 `Forbidden.RAM`。
+运行 `44446176328` 的详细诊断为 `ecs:RunInstances / ImplicitDeny /
+ResourceGroupLevelIdentityBasedPolicy`。此字段不足以单独证明控制台授权范围填错，
+用户确认已经按账号级别授权。
+
+运行 `44447416534` 使用 `preflight_only=true`，对模板、模板加显式参数、
+不使用模板三种请求执行 `DryRun=true`，均返回相同权限拒绝，没有创建资源。
+下一步通过 `ram:DecodeDiagnosticMessage` 解码服务返回的诊断密文；
+[ram-policy.json](ram-policy.json) 已增加这项只读权限，需更新控制台默认策略版本。
+预检入口是现有 Incremental build 的 `preflight_only` 输入，不执行编译和实例清理。
+截至本记录，所有创建请求均被拒绝，没有 CI 实例产生，正式运行的清理任务成功。
 
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。

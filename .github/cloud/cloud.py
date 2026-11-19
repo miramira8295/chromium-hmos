@@ -102,14 +102,17 @@ class Cloud:
         self.refresh_at = time.monotonic() + 3000
 
     def api(self, action, **params):
+        return self.rpc(action, params, f'ecs.{self.config["region"]}.aliyuncs.com', '2014-05-26')
+
+    def rpc(self, action, params, domain, version):
         from aliyunsdkcore.request import CommonRequest
         if time.monotonic() >= self.refresh_at:
             self.authenticate()
         request = CommonRequest()
         request.set_accept_format('json')
         request.set_protocol_type('https')
-        request.set_domain(f'ecs.{self.config["region"]}.aliyuncs.com')
-        request.set_version('2014-05-26')
+        request.set_domain(domain)
+        request.set_version(version)
         request.set_action_name(action)
         request.set_method('POST')
         request.add_query_param('RegionId', self.config['region'])
@@ -287,6 +290,16 @@ class Controller:
             results.append(result)
             print(name + ': ' + ecs_error_details(result), flush=True)
         write_json(ROOT / 'build-status/cloud-preflight.json', results)
+        encoded = results[0].get('AccessDeniedDetail', {}).get('EncodedDiagnosticMessage')
+        if encoded and hasattr(self.cloud, 'rpc'):
+            try:
+                decoded = self.cloud.rpc('DecodeDiagnosticMessage',
+                                         {'EncodedDiagnosticMessage': encoded},
+                                         'ram.aliyuncs.com', '2015-05-01')
+                write_json(ROOT / 'build-status/cloud-permission-decoded.json', decoded)
+                print('Decoded permission diagnosis: ' + json.dumps(decoded, ensure_ascii=False), flush=True)
+            except ECSServiceError as error:
+                print('Permission diagnosis could not be decoded: ' + ecs_error_details(error.reply), flush=True)
 
     def provision(self):
         self.initialize()

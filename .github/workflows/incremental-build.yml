@@ -68,7 +68,9 @@ jobs:
         if: always()
         with:
           name: cloud-permission-preflight
-          path: build-status/cloud-preflight.json
+          path: |
+            build-status/cloud-preflight.json
+            build-status/cloud-permission-decoded.json
           if-no-files-found: ignore
 
   legacy-build:

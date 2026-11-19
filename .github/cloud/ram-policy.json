@@ -3,6 +3,11 @@
   "Statement": [
     {
       "Effect": "Allow",
+      "Action": "ram:DecodeDiagnosticMessage",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
       "Action": ["ecs:DescribeInstances", "ecs:DescribeDisks", "ecs:DescribeImages"],
       "Resource": "*"
     },
