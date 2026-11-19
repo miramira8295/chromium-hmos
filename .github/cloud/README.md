@@ -66,6 +66,16 @@ API 22 / Native 6.0.2.130 缺少 `native_avplaybackstate.h` 和 VP9/AV1 profile 
 来源、SHA256 和备份路径写在盘内 `toolchain/target-sdk-receipt.json`。
 恢复服务后，之前失败的两个媒体对象已编译通过；完整编译和 HAR 发布仍待验证。
 
+运行 `44453038887` 使用模板 3 和显式一小时保护期，实时进度上传已实测
+按 550、600、650 等间隔 50 的步数写入 `build-results`。之后主编译遇到
+Mojo typemap JSON 解析失败，以及 host toolchain 的生成声明缺失。
+旧缓存检查只检查 Ninja 日志中部分扩展名的零字节文件，漏掉了生成头文件、
+无扩展名的 `__type_mappings` 和尚未写入 Ninja 日志的中断输出。
+现补充 OHOS/host `gen/` 已知格式检查：Mojo/Protobuf 空生成源码、
+无法解析的 typemap JSON 和截断的 Mojo module pickle；pickle 仅分析操作码，
+不反序列化执行。完成/失败诊断保留原始 native 日志，下一轮同时保留上轮日志。
+此处记录的是待云端回归验证的修复，不能据此认为所有源码编译错误均已解决。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。

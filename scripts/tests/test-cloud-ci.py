@@ -9,6 +9,7 @@ import importlib.util
 import io
 import json
 import os
+import pickle
 from pathlib import Path
 import subprocess
 import sys
@@ -459,6 +460,31 @@ class CacheTest(unittest.TestCase):
             self.assertEqual(removed, ['incomplete.js', 'incomplete.o'])
             for name in ['valid.o', 'valid.stamp', 'source.cc', 'unknown.o', 'outside.o']:
                 self.assertTrue((root / name).exists())
+
+    def test_interrupted_host_generators_are_repaired_without_ninja_log_entries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            broken = {
+                'clang_x64_v8_arm64/gen/feature/on_device_feature.mojom.h': b'',
+                'clang_x64_v8_arm64/gen/gpu/shader_cache.pb.h': b'',
+                'clang_x64_v8_arm64/gen/mojom/empty__type_mappings': b'',
+                'gen/mojom/truncated__type_mappings': b'{"c++":',
+                'gen/mojom/truncated.mojom-module': pickle.dumps({'module': 'test'})[:-3],
+            }
+            good = {
+                'gen/mojom/valid__type_mappings': b'// generated mapping\n{"c++": {}}',
+                'gen/mojom/valid.mojom-module': pickle.dumps({'module': 'test'}),
+                'gen/mojom/valid.mojom.h': b'namespace test {}',
+                'gen/empty.stamp': b'', 'gen/ordinary.h': b'', 'gen/ordinary.cc': b'',
+            }
+            for name, data in {**broken, **good}.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            removed = cache.repair(root, root / 'report.json')
+            self.assertEqual(removed, sorted(broken))
+            for name, data in good.items():
+                self.assertEqual((root / name).read_bytes(), data)
 
     def test_reset_invalidates_snapshot_receipt(self):
         with tempfile.TemporaryDirectory() as folder:

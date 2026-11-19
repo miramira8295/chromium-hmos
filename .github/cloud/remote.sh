@@ -15,6 +15,9 @@ finish() {
     if [[ -d "$repo/build-status" ]]; then
       cp -a "$repo/build-status/." "$status/"
     fi
+    if [[ -f "$root/ci-build.log" ]]; then
+      cp "$root/ci-build.log" "$status/native-build.log"
+    fi
     if [[ ! -f "$status/latest.json" ]]; then
       printf '{"status":"failed","exit_code":%s}\n' "$rc" > "$status/latest.json"
     fi
@@ -90,6 +93,9 @@ git clone --no-checkout "$bootstrap/repo.bundle" "$repo"
 git -C "$repo" checkout --detach "$GITHUB_SHA"
 cd "$repo"
 mkdir -p build-status
+if [[ -f "$root/ci-build.log" ]]; then
+  cp "$root/ci-build.log" build-status/previous-native-build.log
+fi
 engine_exports="$(python3 scripts/select-ci-engine.py | sed 's/^/export /')"
 eval "$engine_exports"
 bash "scripts/prepare-chromium-$CHROMIUM_MAJOR.sh"
