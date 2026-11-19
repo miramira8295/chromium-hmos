@@ -1460,3 +1460,46 @@ form data, DOM serialization, arbitrary selectors, or caller script is accepted.
 View and DOM samples straddle an asynchronous renderer callback; this is a diagnostic
 snapshot, not an atomic rendering transaction. Absent visual viewport/fullscreen
 geometry is zero with the corresponding availability flag false.
+
+### Proxy configuration (proxyApiVersion 1)
+
+`getAboutInfo` advertises `proxyApiVersion:1` and `proxySocks5Auth:true`.
+All proxy commands are native shell commands, unavailable to web content.
+
+- `getProxySettings {requestId}` → `proxySettings`.
+- `applyProxySettings {requestId, expectedRevision, proxyConfig, credentialAction,
+  proxyUsername?, proxyPassword?}` → `proxyApplyResult` after an atomic disk write.
+- `testProxySettings` uses the same draft and credential fields, without saving.
+  → `proxyTestResult {requestId,status,httpStatus,elapsedMs,testUrl}`.
+- `cancelProxyTest` cancels only the calling window's test. A network change
+  invalidates the test, including previously successful results.
+
+Config contains `version:1, mode:system|direct|custom, scheme:http|https|socks5,
+host, port, bypassRules` (newline-separated explicit hosts or `*.domain`),
+`bypassPrivateAddresses`. Readback adds `revision,hasCredentials`. Credentials
+use `keep|replace|remove`; keeping credentials requires the same endpoint.
+They never appear in replies, URLs or plain preferences. Immutable device-only
+AssetStoreKit records are retired after restart. Nonsecret selection is shared
+by regular and temporary phone profiles in `files/lumie-proxy.json`.
+
+Snapshots carry `desired`, `effective`, `revision`, `effectiveRevision`,
+`source`, `controlled`, `restartRequired`, `status`, `httpAuth`, `socks5Auth`.
+`proxySettingsChanged` broadcasts committed changes. `savedRestartRequired`
+means **persisted, not applied to the current process**. The old effective
+selection stays in force for all existing/new contexts until full restart.
+No arbitrary timer signifies success. Compare-and-swap conflicts return
+`conflict`; missing replies require readback before retrying writes.
+
+Manual routing has no DIRECT fallback except explicit bypass and Chromium's
+implicit loopback rules. Custom mode disables QUIC and direct NetworkContext
+UDP/TCP socket APIs and WebTransport, and overlays the WebRTC IP policy without
+changing the user's saved policy. Tests use a disposable in-memory context and
+HTTPS headers from IANA's `https://example.com/`, no browser cookies, no redirects,
+no IP lookup and no bypass exceptions. Failure codes distinguish authentication,
+TLS, handshake, unreachable proxy, timeout and target failure. SOCKS5 auth
+advertises only method 2, rejects downgrade and sends destination hostnames.
+
+Scope is Profile traffic (pages, downloads, workers, normal extension fetches).
+System NetworkContexts (including component updates), ArkTS HTTP, Huawei account
+and Cloud DB SDK requests are **not** covered and the settings page says so.
+PAC editing and a guarantee that every OS/app request is proxied are not exposed.

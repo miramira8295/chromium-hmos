@@ -41785,7 +41785,7 @@ index a7af8f2..d26158f 100644
      auto socks_socket = std::make_unique<SOCKSClientSocket>(
          transport_connect_job_->PassSocket(), socks_params_->destination(),
 diff --git a/services/network/network_context.cc b/services/network/network_context.cc
-index 7c2bc9f..cf96492 100644
+index 7c2bc9f..70f3f6a 100644
 --- a/services/network/network_context.cc
 +++ b/services/network/network_context.cc
 @@ -814,6 +814,16 @@ NetworkContext::NetworkContext(
@@ -41805,7 +41805,59 @@ index 7c2bc9f..cf96492 100644
  
    cookie_manager_ = std::make_unique<CookieManager>(
        url_request_context_, std::move(session_cleanup_cookie_store),
-@@ -3214,6 +3224,9 @@ URLRequestContextOwner NetworkContext::MakeURLRequestContext(
+@@ -2031,6 +2041,7 @@ void NetworkContext::OnNewSCTAuditingReportSent() {
+ void NetworkContext::CreateUDPSocket(
+     mojo::PendingReceiver<mojom::UDPSocket> receiver,
+     mojo::PendingRemote<mojom::UDPSocketListener> listener) {
++  if (params_->shell_proxy_protection) return;
+   socket_factory_->CreateUDPSocket(std::move(receiver), std::move(listener));
+ }
+ 
+@@ -2044,6 +2055,10 @@ void NetworkContext::CreateRestrictedUDPSocket(
+     bool allow_multicast,
+     bool allow_source_specific_multicast,
+     CreateRestrictedUDPSocketCallback callback) {
++  if (params_->shell_proxy_protection) {
++    std::move(callback).Run(net::ERR_BLOCKED_BY_CLIENT, std::nullopt);
++    return;
++  }
+   // SimpleHostResolver is transitively owned by |this|.
+   socket_factory_->CreateRestrictedUDPSocket(
+       addr, mode, traffic_annotation, std::move(params), std::move(receiver),
+@@ -2071,6 +2086,11 @@ void NetworkContext::CreateTCPConnectedSocket(
+     mojo::PendingReceiver<mojom::TCPConnectedSocket> receiver,
+     mojo::PendingRemote<mojom::SocketObserver> observer,
+     CreateTCPConnectedSocketCallback callback) {
++  if (params_->shell_proxy_protection) {
++    std::move(callback).Run(net::ERR_BLOCKED_BY_CLIENT, std::nullopt,
++                            std::nullopt, {}, {});
++    return;
++  }
+   socket_factory_->CreateTCPConnectedSocket(
+       local_addr, remote_addr_list, std::move(tcp_connected_socket_options),
+       traffic_annotation, std::move(receiver), std::move(observer),
+@@ -2082,6 +2102,10 @@ void NetworkContext::CreateTCPBoundSocket(
+     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
+     mojo::PendingReceiver<mojom::TCPBoundSocket> receiver,
+     CreateTCPBoundSocketCallback callback) {
++  if (params_->shell_proxy_protection) {
++    std::move(callback).Run(net::ERR_BLOCKED_BY_CLIENT, std::nullopt);
++    return;
++  }
+   socket_factory_->CreateTCPBoundSocket(
+       local_addr,
+       static_cast<net::NetworkTrafficAnnotationTag>(traffic_annotation),
+@@ -2188,7 +2212,8 @@ void NetworkContext::CreateWebTransport(
+         url_loader_network_observer,
+     mojom::ClientSecurityStatePtr client_security_state,
+     const base::UnguessableToken& network_restrictions_id) {
+-  if (!IsNetworkForNetworkRestrictionsIdAndUrlAllowed(network_restrictions_id,
++  if (params_->shell_proxy_protection ||
++      !IsNetworkForNetworkRestrictionsIdAndUrlAllowed(network_restrictions_id,
+                                                       url, key)) {
+     mojo::Remote<mojom::WebTransportHandshakeClient> remote_handshake_client(
+         std::move(pending_handshake_client));
+@@ -3214,6 +3239,9 @@ URLRequestContextOwner NetworkContext::MakeURLRequestContext(
    session_params.key_auth_cache_server_entries_by_network_anonymization_key =
        params_->split_auth_cache_by_network_anonymization_key;
  

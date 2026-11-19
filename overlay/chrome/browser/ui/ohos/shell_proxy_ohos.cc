@@ -8,6 +8,12 @@
 #include <string>
 #include <utility>
 #include "base/command_line.h"
+#include "base/files/file_util.h"
+#include "base/files/important_file_writer.h"
+#include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_split.h"
@@ -30,6 +36,7 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_change_notifier.h"
 #include "net/http/http_response_headers.h"
 #include "net/proxy_resolution/proxy_config.h"
 #include "net/proxy_resolution/proxy_config_with_annotation.h"
@@ -150,9 +157,26 @@ net::ProxyConfigWithAnnotation BlockedConfig() {
   config.Set("scheme", "http"); config.Set("host", "127.0.0.1"); config.Set("port", 9);
   return NetworkConfig(config, true);
 }
+base::FilePath SharedConfigPath(Profile* profile) {
+  // Phone private browsing uses files/chromium-profiles/incognito/Default,
+  // whereas normal browsing uses files/chromium-profile/Default.
+  auto user_data = profile->GetOriginalProfile()->GetPath().DirName();
+  auto files = user_data.BaseName().value() == "chromium-profile"
+      ? user_data.DirName()
+      : user_data.DirName().BaseName().value() == "chromium-profiles"
+          ? user_data.DirName().DirName() : user_data;
+  return files.AppendASCII("lumie-proxy.json");
+}
 base::DictValue Desired(Profile* profile) {
-  const auto& saved = profile->GetPrefs()->GetDict(kDesired);
-  return saved.empty() ? DefaultConfig() : saved.Clone();
+  // Must finish before the profile creates any network context. An unreadable
+  // existing file is an error, never a reason to reset to system/direct.
+  base::ScopedAllowBlocking allow;
+  const auto path = SharedConfigPath(profile);
+  if (!base::PathExists(path)) return DefaultConfig();
+  std::string bytes;
+  if (!base::ReadFileToStringWithMaxSize(path, &bytes, 65536)) return base::DictValue();
+  auto saved = base::JSONReader::ReadDict(bytes, base::JSON_PARSE_RFC);
+  return saved ? std::move(*saved) : base::DictValue();
 }
 std::string Source(Profile* profile) {
   const auto* pref = profile->GetPrefs()->FindPreference(proxy_config::prefs::kProxy);
@@ -166,9 +190,18 @@ std::string Source(Profile* profile) {
 }
 bool Controlled(Profile* profile) { return Source(profile) != "user"; }
 
-class ProxyTest {
+class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
-  ProxyTest(ShellCommandContext context, int request_id) : context_(context), request_id_(request_id) {}
+  ProxyTest(ShellCommandContext context, int request_id) : context_(context), request_id_(request_id) {
+    net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
+  }
+  ~ProxyTest() override { net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this); }
+  void OnNetworkChanged(net::NetworkChangeNotifier::ConnectionType) override {
+    if (!finished_) { Finish("networkChanged", 0); return; }
+    base::DictValue event;
+    event.Set("event", "proxyTestInvalidated");
+    ReplyToShell(context_,std::move(event));
+  }
   void Start(const base::DictValue& config, const std::optional<ShellProxySecret>& secret) {
     auto params = g_browser_process->system_network_context_manager()->CreateDefaultNetworkContextParams();
     params->context_name = "lumie-proxy-test";
@@ -250,6 +283,7 @@ base::DictValue PublicConfig(const base::DictValue& config) {
   auto result = config.Clone();
   result.Set("hasCredentials", !String(config, "credentialRef").empty());
   result.Remove("credentialRef");
+  result.Remove("_retired");
   return result;
 }
 base::DictValue Snapshot(Profile* profile) {
@@ -323,10 +357,12 @@ void InitializeShellProxy(Profile* profile) {
                   ProxyConfigDictionary::CreateFixedServers(Server(config), Bypass(config)));
   }
   // References retired by a committed save can be removed after restart.
-  for (const auto& ref : prefs->GetList(kRetired)) {
-    if (ref.is_string() && ref.GetString() != String(config,"credentialRef")) RemoveShellProxySecret(ref.GetString());
+  if (const auto* retired = config.FindList("_retired")) {
+    for (const auto& ref : *retired) {
+      if (ref.is_string() && ref.GetString() != String(config,"credentialRef"))
+        RemoveShellProxySecret(ref.GetString());
+    }
   }
-  prefs->ClearPref(kRetired);
 }
 bool ShellProxyProtectsTraffic(Profile* profile) {
   auto* state = State(profile);
@@ -396,23 +432,32 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
   if (revision >= 2147483646) { RemoveShellProxySecret(new_ref); Reply(context,command,"proxyApplyResult","revisionExhausted"); return; }
   config->Set("revision", revision + 1);
   state->saving = true;
-  auto* prefs = profile->GetPrefs();
   const auto old_ref = String(saved,"credentialRef");
-  if (!old_ref.empty() && old_ref != String(*config,"credentialRef")) {
-    auto retired = prefs->GetList(kRetired).Clone();
-    retired.Append(old_ref); prefs->SetList(kRetired,std::move(retired));
+  auto retired = saved.FindList("_retired") ? saved.FindList("_retired")->Clone() : base::ListValue();
+  // Retain credentials referenced by a live configuration until restart.
+  if (!old_ref.empty() && old_ref != String(*config,"credentialRef")) retired.Append(old_ref);
+  config->Set("_retired",std::move(retired));
+  std::string bytes;
+  if (!base::JSONWriter::Write(*config, &bytes)) {
+    state->saving = false; RemoveShellProxySecret(new_ref);
+    Reply(context,command,"proxyApplyResult","storageFailed"); return;
   }
-  prefs->SetDict(kDesired, std::move(*config));
-  // Persist only the desired selection. Live contexts and credentials remain
-  // unchanged until a full process restart, including new incognito windows.
-  prefs->CommitPendingWrite(base::BindOnce(
-      [](base::WeakPtr<ProxyState> state, ShellCommandContext context, int id) {
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
+                  base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
+      base::BindOnce([](base::FilePath path, std::string bytes) {
+        return base::ImportantFileWriter::WriteFileAtomically(path, bytes);
+      }, SharedConfigPath(profile), std::move(bytes)),
+      base::BindOnce([](base::WeakPtr<ProxyState> state,
+                        ShellCommandContext context, int id,
+                        std::string new_ref, bool written) {
+        if (!written) RemoveShellProxySecret(new_ref);
         if (!state) return;
         state->saving = false;
-        base::DictValue request; request.Set("requestId", id);
-        Reply(context,request,"proxyApplyResult","savedRestartRequired");
-        Broadcast(SettingsProfile(context));
-      }, state->weak.GetWeakPtr(), context, ReadRequestId(command)));
+        base::DictValue request; request.Set("requestId",id);
+        Reply(context,request,"proxyApplyResult", written ? "savedRestartRequired" : "storageFailed");
+        if (written) Broadcast(SettingsProfile(context));
+      },state->weak.GetWeakPtr(),context,ReadRequestId(command),new_ref));
 }
 void TestProxySettings(const ShellCommandContext& context, const base::DictValue& command) {
   auto* profile = SettingsProfile(context);
