@@ -297,7 +297,11 @@ ProxyState* State(Profile* profile) {
   return static_cast<ProxyState*>(profile->GetOriginalProfile()->GetUserData(&kStateKey));
 }
 base::DictValue PublicConfig(const base::DictValue& config) {
-  auto result = config.Clone();
+  // A damaged file must still leave the settings editor usable. The snapshot
+  // reports blocked separately; defaults here are an editable recovery draft,
+  // never the network configuration.
+  auto result = Validate(config) ? config.Clone() : DefaultConfig();
+  result.Set("revision", std::max(0, config.FindInt("revision").value_or(0)));
   result.Set("hasCredentials", !String(config, "credentialRef").empty());
   result.Remove("credentialRef");
   result.Remove("_retired");
@@ -309,8 +313,8 @@ base::DictValue Snapshot(Profile* profile) {
   auto result = base::DictValue();
   result.Set("desired", PublicConfig(desired));
   result.Set("effective", PublicConfig(state->effective));
-  result.Set("revision", desired.FindInt("revision").value_or(0));
-  result.Set("effectiveRevision", state->effective.FindInt("revision").value_or(0));
+  result.Set("revision", std::max(0, desired.FindInt("revision").value_or(0)));
+  result.Set("effectiveRevision", std::max(0, state->effective.FindInt("revision").value_or(0)));
   result.Set("restartRequired", desired != state->effective);
   auto source = Source(profile);
   if (source == "user" && String(state->effective, "mode") == "system") source = "system";
@@ -428,7 +432,7 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
   auto config = input ? Validate(*input) : std::nullopt;
   if (Controlled(profile)) error = "controlled";
   else if (state->saving) error = "busy";
-  else if (command.FindInt("expectedRevision") != saved.FindInt("revision")) error = "conflict";
+  else if (command.FindInt("expectedRevision") != std::max(0, saved.FindInt("revision").value_or(0))) error = "conflict";
   else if (!config) error = "invalidConfig";
   if (!error.empty()) { Reply(context, command, "proxyApplyResult", error); return; }
   std::string new_ref;
@@ -446,7 +450,7 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
       config->Set("credentialRef", new_ref);
     } else if (action != "remove") { Reply(context,command,"proxyApplyResult","invalidCredentials"); return; }
   }
-  const int revision = saved.FindInt("revision").value_or(0);
+  const int revision = std::max(0, saved.FindInt("revision").value_or(0));
   if (revision >= 2147483646) { RemoveShellProxySecret(new_ref); Reply(context,command,"proxyApplyResult","revisionExhausted"); return; }
   config->Set("revision", revision + 1);
   state->saving = true;

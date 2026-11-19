@@ -20,7 +20,10 @@
 #ifndef NET_PROXY_RESOLUTION_PROXY_CONFIG_SERVICE_OHOS_H_
 #define NET_PROXY_RESOLUTION_PROXY_CONFIG_SERVICE_OHOS_H_
 
+#include <list>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/functional/callback_forward.h"

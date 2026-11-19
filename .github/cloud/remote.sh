@@ -82,6 +82,11 @@ printf 'Preparing commit %s with -j%s\n' "$GITHUB_SHA" "$NINJA_JOBS"
 if [[ -f "$root/.swap" ]] && ! swapon --noheadings --raw --show=NAME | grep -Fxq "$root/.swap"; then
   swapon "$root/.swap"
 fi
+# Some builder images disable proactive swap entirely. At -j32 that can
+# exhaust RAM and stall SSH before the controller can collect diagnostics.
+if [[ -f "$root/.swap" && "$(sysctl -n vm.swappiness)" == 0 ]]; then
+  sysctl -w vm.swappiness=60
+fi
 export PATH="/root/.cargo/bin:$root/toolchain/harmonyos-clt/command-line-tools/tool/node/bin:$root/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0 DEPOT_TOOLS_METRICS=0
 export DEVECO_CLT_HOME="$root/toolchain/$CLOUD_PACKAGING_CLT"
