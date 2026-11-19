@@ -76,6 +76,14 @@ Mojo typemap JSON 解析失败，以及 host toolchain 的生成声明缺失。
 不反序列化执行。完成/失败诊断保留原始 native 日志，下一轮同时保留上轮日志。
 此处记录的是待云端回归验证的修复，不能据此认为所有源码编译错误均已解决。
 
+回归运行 `44455399891` 的缓存审计实际发现并移除 48 个损坏生成文件，
+包括 model_broker 的 Mojo 头文件、多个 typemap 和 disk_cache_proto.pb.h/cc，
+与上一轮的错误吻合。重新生成后，host toolchain 的 on_device_features、
+memory_program_cache、tflite_op_resolver、optimization_guide_features、
+language_detection_model 五个此前失败的 C++ 目标均已成功编译。
+主编译在约 850/35740 步时没有新 FAILED；完整链接及 HAR 仍在进行。
+对应 Adapter CI `44455399955` 已通过（云端生命周期/进度/缓存测试共 33 项）。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。
