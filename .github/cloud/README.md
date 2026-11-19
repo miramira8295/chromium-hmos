@@ -38,6 +38,12 @@ ResourceGroupLevelIdentityBasedPolicy`。此字段不足以单独证明控制台
 不使用模板三种请求执行 `DryRun=true`，均返回相同权限拒绝，没有创建资源。
 下一步通过 `ram:DecodeDiagnosticMessage` 解码服务返回的诊断密文；
 [ram-policy.json](ram-policy.json) 已增加这项只读权限，需更新控制台默认策略版本。
+用户补充解码权限后，运行 `44447853593` 成功取得诊断明文：拒绝的资源实际是
+`acs:ecs:eu-central-1:1349864334375917:disk/*`，操作是 `ecs:RunInstances`。
+该次鉴权只提供 `acs:MFAPresent` 和 `acs:ResourceGroupId` 条件，
+未提供实例的请求标签和计费条件，`MatchedPolicies=[]`。
+因此旧策略把实例条件套在全部关联资源上，导致创建系统盘的子鉴权无法匹配。
+修复需为关联资源单独授权；实例创建条件继续仅作用于 `instance/*`。
 预检入口是现有 Incremental build 的 `preflight_only` 输入，不执行编译和实例清理。
 截至本记录，所有创建请求均被拒绝，没有 CI 实例产生，正式运行的清理任务成功。
 
