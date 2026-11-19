@@ -270,6 +270,14 @@ class Controller:
                                LaunchTemplateId=self.config['launch_template_id'],
                                **{'LaunchTemplateVersion.1': self.config['launch_template_version']})
         template = reply['LaunchTemplateVersionSets']['LaunchTemplateVersionSet'][0]['LaunchTemplateData']
+        references = {key: template[key] for key in
+                      ('ImageId', 'VSwitchId', 'SecurityGroupId', 'SecurityGroupIds', 'KeyPairName',
+                       'ResourceGroupId', 'InstanceType', 'SystemDiskCategory', 'SystemDiskSize')
+                      if key in template}
+        image = self.cloud.api('DescribeImages', ImageId=template['ImageId'])['Images']['Image'][0]
+        references['ImageDiskMappings'] = image.get('DiskDeviceMappings', {})
+        write_json(ROOT / 'build-status/cloud-template-resources.json', references)
+        print('Template resource references: ' + json.dumps(references, ensure_ascii=False), flush=True)
         params = create_parameters(self.config, template, disk, self.repository, self.run_id, self.attempt)
         expanded = dict(params)
         for key in ('ImageId', 'InstanceType', 'VSwitchId', 'SecurityGroupId', 'KeyPairName'):

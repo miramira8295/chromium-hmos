@@ -71,6 +71,7 @@ jobs:
           path: |
             build-status/cloud-preflight.json
             build-status/cloud-permission-decoded.json
+            build-status/cloud-template-resources.json
           if-no-files-found: ignore
 
   legacy-build:
