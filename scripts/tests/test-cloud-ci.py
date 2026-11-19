@@ -6,6 +6,7 @@ No SSH, cloud authentication, provisioning or other network traffic is used.
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
@@ -306,6 +309,16 @@ class LifecycleTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_auth_error_diagnostics_do_not_expose_oidc_token(self):
+        reply = json.dumps({'Code': 'InvalidIdentityToken', 'Message': 'Rejected test-sensitive-token'}).encode()
+        error = urllib.error.HTTPError('https://sts.aliyuncs.com/', 400, 'Bad Request', {}, io.BytesIO(reply))
+        with patch.object(cloud.urllib.request, 'urlopen', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                cloud.http_json(urllib.request.Request('https://sts.aliyuncs.com/'),
+                                'STS', ['test-sensitive-token'])
+        self.assertIn('InvalidIdentityToken', str(raised.exception))
+        self.assertNotIn('test-sensitive-token', str(raised.exception))
+
     def test_status_publication_builds_an_orphan_tree_without_changing_checkout(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

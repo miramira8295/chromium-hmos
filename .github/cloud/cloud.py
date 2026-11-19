@@ -14,10 +14,28 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 PROJECT = 'chromium-hmos'
+
+
+def http_json(request, label, redactions=()):
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        try:
+            reply = json.loads(error.read())
+        except (ValueError, UnicodeError):
+            reply = {}
+        message = str(reply.get('Message', reply.get('message', '')))
+        for secret in redactions:
+            if secret:
+                message = message.replace(secret, '[REDACTED]')
+        code = str(reply.get('Code', reply.get('code', 'unknown')))
+        raise RuntimeError(f'{label}: HTTP {error.code}, {code}: {message[:600]}') from None
 
 
 def write_json(path, value):
@@ -47,8 +65,8 @@ class Cloud:
             {'audience': self.config['audience']})
         request = urllib.request.Request(endpoint, headers={
             'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            token = json.load(response)['value']
+        token = http_json(request, 'GitHub OIDC',
+                          [os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']])['value']
         payload = urllib.parse.urlencode({
             'Action': 'AssumeRoleWithOIDC', 'Version': '2015-04-01', 'Format': 'JSON',
             'RoleArn': self.config['role_arn'],
@@ -56,8 +74,7 @@ class Cloud:
             'RoleSessionName': 'chromium-' + os.environ['GITHUB_RUN_ID'],
             'DurationSeconds': '3600'}).encode()
         request = urllib.request.Request('https://sts.aliyuncs.com/', data=payload)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            reply = json.load(response)
+        reply = http_json(request, 'STS AssumeRoleWithOIDC', [token])
         if 'Credentials' not in reply:
             raise RuntimeError('OIDC exchange failed: ' + str(reply.get('Code', 'unknown')))
         credentials = reply['Credentials']
