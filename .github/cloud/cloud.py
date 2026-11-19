@@ -391,7 +391,20 @@ class Controller:
             raise RuntimeError('Configured data disk does not match this engine branch')
         disk = self.disk()
         if disk['Status'] != 'Available' or disk.get('InstanceId'):
-            raise RuntimeError('Retained disk is still attached/in use; detach it from the manual builder first')
+            previous = self.instance(disk['InstanceId']) if disk.get('InstanceId') else None
+            owner = tags(previous) if previous else {}
+            if (owner.get('ci-project') != PROJECT or owner.get('ci-repository') != self.repository
+                    or not re.fullmatch(r'\d+', owner.get('ci-run', ''))
+                    or owner['ci-run'] == self.run_id):
+                raise RuntimeError('Retained disk is still attached/in use; detach it from the manual builder first')
+            # Spot reclamation locks the old instance before detaching its
+            # disk. Wait read-only; never force-detach or create a paid builder
+            # while that predecessor still owns the retained filesystem.
+            print('Waiting for previous CI builder to release the retained disk', flush=True)
+            self.wait(lambda: (value := self.disk())['Status'] == 'Available'
+                      and not value.get('InstanceId'),
+                      'Previous CI builder still owns the retained disk; no new instance created', seconds=600)
+            disk = self.disk()
         template = self.cloud.api('DescribeLaunchTemplateVersions',
                                   LaunchTemplateId=self.config['launch_template_id'],
                                   **{'LaunchTemplateVersion.1': self.config['launch_template_version']})

@@ -145,7 +145,37 @@ class LifecycleTest(unittest.TestCase):
         self.ecs.disk.update(Status='In_use', InstanceId='i-manual-paused')
         with self.assertRaisesRegex(RuntimeError, 'still attached'):
             self.controller.provision()
-        self.assertEqual([name for name, _ in self.ecs.calls], ['DescribeDisks'])
+        self.assertEqual([name for name, _ in self.ecs.calls], ['DescribeDisks', 'DescribeInstances'])
+
+    def test_replacement_waits_read_only_for_previous_ci_disk_before_spending(self):
+        self.ecs.instance = owned_instance()
+        for tag in self.ecs.instance['Tags']['Tag']:
+            if tag['TagKey'] == 'ci-run':
+                tag['TagValue'] = '122'
+        self.ecs.disk.update(Status='In_use', InstanceId='i-builder')
+        original = self.controller.wait
+        def wait(predicate, message, **kwargs):
+            if message.startswith('Previous CI builder'):
+                self.assertTrue(all(name.startswith('Describe') for name, _ in self.ecs.calls))
+                self.assertEqual(kwargs['seconds'], 600)
+                self.ecs.disk.update(Status='Available', InstanceId='')
+                self.ecs.instance = None
+            return original(predicate, message, **kwargs)
+        self.controller.wait = wait
+        self.controller.provision()
+        self.assertEqual([name for name, _ in self.ecs.calls if not name.startswith('Describe')],
+                         ['RunInstances', 'AttachDisk'])
+
+    def test_replacement_wait_timeout_never_detaches_or_creates(self):
+        self.ecs.instance = owned_instance()
+        for tag in self.ecs.instance['Tags']['Tag']:
+            if tag['TagKey'] == 'ci-run':
+                tag['TagValue'] = '122'
+        self.ecs.disk.update(Status='In_use', InstanceId='i-builder')
+        with patch.object(self.controller, 'wait', side_effect=TimeoutError('still locked')):
+            with self.assertRaisesRegex(TimeoutError, 'locked'):
+                self.controller.provision()
+        self.assertTrue(all(name.startswith('Describe') for name, _ in self.ecs.calls))
 
     def test_wrong_engine_cannot_touch_disk(self):
         os.environ['GITHUB_REF_NAME'] = 'hmos-155-adapter'
