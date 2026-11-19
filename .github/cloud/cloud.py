@@ -248,7 +248,7 @@ def create_parameters(config, template, disk, repository, run_id, attempt):
         'LaunchTemplateVersion': config['launch_template_version'],
         'ZoneId': disk['ZoneId'], 'Amount': 1, 'MinAmount': 1,
         'ClientToken': token, 'InstanceName': f'chromium-ci-{run_id}-{attempt}',
-        'InstanceChargeType': 'PostPaid', 'SpotStrategy': 'SpotAsPriceGo',
+        'InstanceChargeType': 'PostPaid', 'SpotStrategy': 'SpotAsPriceGo', 'SpotDuration': 1,
         # Independent upper bound if the GitHub controller itself disappears.
         'AutoReleaseTime': (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'SystemDisk.DeleteWithInstance': True,
