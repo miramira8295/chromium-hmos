@@ -54,6 +54,17 @@ ResourceGroupLevelIdentityBasedPolicy`。此字段不足以单独证明控制台
 启动服务改用显式 `User=root` 和 `SetLoginEnvironment=yes`，由 systemd
 按用户数据库提供 HOME/LOGNAME/SHELL，避免与交互 SSH 会话的环境不一致。
 
+运行 `44449167561` 验证登录环境修复后，命中保留盘旧 SDK 的真实编译错误：
+API 22 / Native 6.0.2.130 缺少 `native_avplaybackstate.h` 和 VP9/AV1 profile 定义。
+该运行同样完成失败清理。运行 `44449707131` 在实例就绪后暂时冻结构建服务，
+将本机已安装的官方 SDK 26.0.0.105 的完整目标 sysroot 上传到保留盘，
+保留 Linux 主机工具；目标库已核对为 OHOS ELF（非 macOS 主机库）。
+原 sysroot 备份为 native/sysroot-api22-6.0.2.130-backup，当前链接指向
+`/root/chromium-157/toolchain/target-sdk-26.0.0.105/sysroot`。
+更新保留了 1612 个内容一致文件的时间戳，883 个新增/修改文件标记为更新；
+来源、SHA256 和备份路径写在盘内 `toolchain/target-sdk-receipt.json`。
+恢复服务后，之前失败的两个媒体对象已编译通过；完整编译和 HAR 发布仍待验证。
+
 启动模板必须指定密钥对、交换机、实例规格和仅包含系统盘的镜像，
 不能携带数据盘快照，也不需要绑定 ECS RAM 实例角色。
 实例与长期盘需要在同一可用区；创建时显式使用数据盘的 ZoneId。
