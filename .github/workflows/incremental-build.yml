@@ -16,6 +16,10 @@ on:
       - '.github/cloud/**'
   workflow_dispatch:
     inputs:
+      preflight_only:
+        description: 'Check cloud creation permissions with DryRun; create no resources'
+        type: boolean
+        default: false
       package:
         description: 'Package the unsigned engine HAR (HAP signing stays local)'
         type: boolean
@@ -45,8 +49,30 @@ permissions:
   contents: write
 
 jobs:
+  cloud-preflight:
+    if: github.ref == 'refs/heads/hmos-157-adapter' && inputs.preflight_only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r .github/cloud/requirements.txt
+      - name: Compare creation permission with DryRun only
+        run: python3 .github/cloud/cloud.py diagnose
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-permission-preflight
+          path: build-status/cloud-preflight.json
+          if-no-files-found: ignore
+
   legacy-build:
-    if: github.ref == 'refs/heads/hmos-155-adapter'
+    if: github.ref == 'refs/heads/hmos-155-adapter' && !inputs.preflight_only
     runs-on: [self-hosted, harmonyos-chromium]
     timeout-minutes: 1440
     strategy:
@@ -232,7 +258,7 @@ jobs:
 
 
   cloud-build:
-    if: github.ref == 'refs/heads/hmos-157-adapter'
+    if: github.ref == 'refs/heads/hmos-157-adapter' && !inputs.preflight_only
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:

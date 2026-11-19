@@ -122,6 +122,24 @@ class LifecycleTest(unittest.TestCase):
         mutations = [name for name, _ in self.ecs.calls if not name.startswith('Describe')]
         self.assertEqual(mutations, ['RunInstances', 'AttachDisk', 'StopInstance', 'DetachDisk', 'DeleteInstance'])
 
+    def test_permission_probes_never_create_or_attach_resources(self):
+        original = self.ecs.api
+        probes = []
+        def api(action, **params):
+            if action == 'RunInstances':
+                self.assertIs(params.get('DryRun'), True)
+                probes.append(params)
+                code = 'Forbidden.RAM' if len(probes) == 1 else 'DryRunOperation'
+                raise cloud.ECSServiceError(action, {'Code': code})
+            self.assertTrue(action.startswith('Describe'))
+            return original(action, **params)
+        self.ecs.api = api
+        self.controller.diagnose()
+        self.assertEqual(len(probes), 3)
+        self.assertNotIn('LaunchTemplateId', probes[-1])
+        self.assertIsNone(self.ecs.instance)
+        self.assertEqual(self.ecs.disk['Status'], 'Available')
+
     def test_occupied_disk_fails_before_spending_on_a_new_instance(self):
         self.ecs.disk.update(Status='In_use', InstanceId='i-manual-paused')
         with self.assertRaisesRegex(RuntimeError, 'still attached'):

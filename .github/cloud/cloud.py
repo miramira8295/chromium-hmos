@@ -23,6 +23,12 @@ ROOT = HERE.parents[1]
 PROJECT = 'chromium-hmos'
 
 
+class ECSServiceError(RuntimeError):
+    def __init__(self, action, reply):
+        self.reply = reply
+        super().__init__(f'ECS {action} failed: ' + ecs_error_details(reply))
+
+
 def http_json(request, label, redactions=()):
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -124,7 +130,7 @@ class Cloud:
             code = error.get_error_code() if hasattr(error, 'get_error_code') else type(error).__name__
             raise RuntimeError(f'ECS {action} failed ({code})') from None
         if not 200 <= status < 300:
-            raise RuntimeError(f'ECS {action} failed: ' + ecs_error_details(reply))
+            raise ECSServiceError(action, reply)
         return reply
 
 
@@ -253,6 +259,34 @@ class Controller:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, 'w') as stream:
             stream.write(key.rstrip() + '\n')
+
+    def diagnose(self):
+        """Compare authorization contexts using RunInstances DryRun only."""
+        disk = self.disk()
+        reply = self.cloud.api('DescribeLaunchTemplateVersions',
+                               LaunchTemplateId=self.config['launch_template_id'],
+                               **{'LaunchTemplateVersion.1': self.config['launch_template_version']})
+        template = reply['LaunchTemplateVersionSets']['LaunchTemplateVersionSet'][0]['LaunchTemplateData']
+        params = create_parameters(self.config, template, disk, self.repository, self.run_id, self.attempt)
+        expanded = dict(params)
+        for key in ('ImageId', 'InstanceType', 'VSwitchId', 'SecurityGroupId', 'KeyPairName'):
+            if template.get(key):
+                expanded[key] = template[key]
+        for key in ('Category', 'Size'):
+            if template.get('SystemDisk', {}).get(key):
+                expanded['SystemDisk.' + key] = template['SystemDisk'][key]
+        inline = {key: value for key, value in expanded.items()
+                  if key not in ('LaunchTemplateId', 'LaunchTemplateVersion')}
+        results = []
+        for name, probe in [('template', params), ('template-explicit', expanded), ('inline', inline)]:
+            try:
+                self.cloud.api('RunInstances', **probe, DryRun=True)
+                result = {'probe': name, 'Code': 'UnexpectedSuccess'}
+            except ECSServiceError as error:
+                result = {'probe': name, **error.reply}
+            results.append(result)
+            print(name + ': ' + ecs_error_details(result), flush=True)
+        write_json(ROOT / 'build-status/cloud-preflight.json', results)
 
     def provision(self):
         self.initialize()
@@ -475,7 +509,7 @@ class Controller:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['provision', 'run', 'fetch', 'cleanup'])
+    parser.add_argument('command', choices=['provision', 'run', 'fetch', 'cleanup', 'diagnose'])
     args = parser.parse_args()
     config = json.loads((HERE / 'config.json').read_text())
     controller = Controller(config)
