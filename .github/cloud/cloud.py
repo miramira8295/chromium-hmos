@@ -530,9 +530,23 @@ class Controller:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['provision', 'run', 'fetch', 'cleanup', 'diagnose'])
+    parser.add_argument('command', choices=['provision', 'run', 'fetch', 'cleanup', 'diagnose', 'inspect'])
+    parser.add_argument('--run-id', help='Existing GitHub run to inspect (read only)')
     args = parser.parse_args()
     config = json.loads((HERE / 'config.json').read_text())
+    if args.command == 'inspect':
+        if not args.run_id or not re.fullmatch(r'\d+', args.run_id):
+            parser.error('inspect requires a numeric --run-id')
+        reply = Cloud(config).api('DescribeInstances', **{
+            'Tag.1.Key': 'ci-project', 'Tag.1.Value': PROJECT,
+            'Tag.2.Key': 'ci-repository', 'Tag.2.Value': os.environ['GITHUB_REPOSITORY'],
+            'Tag.3.Key': 'ci-run', 'Tag.3.Value': args.run_id, 'PageSize': 100})
+        instances = [{key: instance.get(key) for key in
+                      ('InstanceId', 'Status', 'PublicIpAddress', 'Tags')}
+                     for instance in reply['Instances']['Instance']]
+        write_json(ROOT / 'build-status/cloud-inspect.json', instances)
+        print(json.dumps(instances, ensure_ascii=False), flush=True)
+        return
     controller = Controller(config)
     getattr(controller, args.command)()
 

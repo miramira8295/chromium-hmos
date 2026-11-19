@@ -6,13 +6,40 @@ on:
   pull_request:
     branches: [hmos-157-adapter, hmos-155-adapter]
   workflow_dispatch:
+    inputs:
+      cloud_run_id:
+        description: 'Optional existing cloud build run ID to inspect (read only)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
+  inspect-cloud-builder:
+    if: github.event_name == 'workflow_dispatch' && inputs.cloud_run_id != '' && github.ref == 'refs/heads/hmos-157-adapter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r .github/cloud/requirements.txt
+      - name: Inspect tagged instances without changing them
+        env:
+          CLOUD_INSPECT_RUN: ${{ inputs.cloud_run_id }}
+        run: python3 .github/cloud/cloud.py inspect --run-id "$CLOUD_INSPECT_RUN"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-inspect-${{ inputs.cloud_run_id }}
+          path: build-status/cloud-inspect.json
+
   verify-publication:
-    if: github.ref == 'refs/heads/hmos-157-adapter' || github.ref == 'refs/heads/hmos-155-adapter' || github.base_ref == 'hmos-157-adapter' || github.base_ref == 'hmos-155-adapter'
+    if: inputs.cloud_run_id == '' && (github.ref == 'refs/heads/hmos-157-adapter' || github.ref == 'refs/heads/hmos-155-adapter' || github.base_ref == 'hmos-157-adapter' || github.base_ref == 'hmos-155-adapter')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
