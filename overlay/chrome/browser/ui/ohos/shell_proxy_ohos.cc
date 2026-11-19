@@ -237,7 +237,6 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
   }
   void Start(const base::DictValue& config, const std::optional<ShellProxySecret>& secret) {
     auto params = g_browser_process->system_network_context_manager()->CreateDefaultNetworkContextParams();
-    params->context_name = "lumie-proxy-test";
     params->http_cache_enabled = false;
     params->initial_proxy_config = NetworkConfig(config, true);
     params->shell_proxy_protection = true;
