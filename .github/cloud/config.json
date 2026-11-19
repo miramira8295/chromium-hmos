@@ -1,0 +1,12 @@
+{
+  "region": "eu-central-1",
+  "launch_template_id": "lt-gw8eis82pr9mv0e4sqjt",
+  "launch_template_version": "2",
+  "disk_id": "d-gw8hklmz2vbu7gozleno",
+  "disk_uuid": "7e5aa3ce-605e-432a-b833-89516c643543",
+  "engine_major": 157,
+  "role_arn": "acs:ram::1349864334375917:role/chromium-ci",
+  "oidc_provider_arn": "acs:ram::1349864334375917:oidc-provider/github-action",
+  "audience": "sts.aliyuncs.com",
+  "jobs": 32
+}

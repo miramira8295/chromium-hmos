@@ -14,6 +14,15 @@ snapshot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(snapshot)
 
 
+def snapshot_is_current(target, receipt, index_receipt, expected):
+    """A receipt alone cannot survive a gclient/reset of the adapted index."""
+    result = subprocess.run(['git', '-C', str(target), 'write-tree'],
+                            capture_output=True, text=True)
+    index = result.stdout.strip() if result.returncode == 0 else ''
+    return bool(index and receipt.exists() and receipt.read_text().strip() == expected and
+                index_receipt.exists() and index_receipt.read_text().strip() == index)
+
+
 def main():
     src = Path(sys.argv[1]).resolve()
     if src != Path('/root/chromium-157/src'):
@@ -36,8 +45,12 @@ def main():
             raise ValueError(f'Patch checksum mismatch: {patch.name}')
         actual = git(target, 'rev-parse', 'HEAD')
         receipt = target / '.git/ohos-157-snapshot'
+        index_receipt = target / '.git/ohos-157-snapshot-index'
         expected = actual + ':' + digest
-        if receipt.exists() and receipt.read_text().strip() == expected:
+        # gclient/reset can remove adaptations while leaving an untracked
+        # receipt behind. The index written by git apply --3way must match the
+        # recorded tree as well. Legacy receipts are revalidated once.
+        if snapshot_is_current(target, receipt, index_receipt, expected):
             continue
         try:
             # Unported repositories still need the 155 base; rebased patches
@@ -50,6 +63,7 @@ def main():
                                 '--depth=1', 'origin', entry['source_base']], check=True)
             snapshot.apply_snapshot(target, patch)
             receipt.write_text(expected + '\n')
+            index_receipt.write_text(git(target, 'write-tree') + '\n')
         except subprocess.CalledProcessError as error:
             failures.append({'repository': entry['path'], 'target_revision': actual,
                              'returncode': error.returncode,

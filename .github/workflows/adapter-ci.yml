@@ -26,6 +26,9 @@ jobs:
         run: python3 scripts/tests/test-155-snapshot.py
       - name: Verify 157 migration cannot access stable engine trees
         run: python3 scripts/tests/test-157-isolation.py
+      - name: Check disposable cloud builder and retained-disk lifecycle
+        if: env.CHROMIUM_MAJOR == '157'
+        run: python3 scripts/tests/test-cloud-ci.py
       - name: Verify public tree
         run: scripts/verify-public-tree.sh
       - name: Check scripts

@@ -1,0 +1,43 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ecs:DescribeInstances", "ecs:DescribeDisks", "ecs:DescribeImages"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ecs:DescribeLaunchTemplateVersions",
+      "Resource": "acs:ecs:eu-central-1:1349864334375917:launchtemplate/lt-gw8eis82pr9mv0e4sqjt"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ecs:RunInstances",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "acs:RequestTag/ci-project": "chromium-hmos",
+          "ecs:InstanceChargeType": "PostPaid"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ecs:TagResources",
+      "Resource": "acs:ecs:eu-central-1:1349864334375917:instance/*",
+      "Condition": {"StringEquals": {"acs:RequestTag/ci-project": "chromium-hmos"}}
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["ecs:StopInstance", "ecs:DeleteInstance", "ecs:AttachDisk", "ecs:DetachDisk"],
+      "Resource": "acs:ecs:eu-central-1:1349864334375917:instance/*",
+      "Condition": {"StringEquals": {"acs:ResourceTag/ci-project": "chromium-hmos"}}
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["ecs:AttachDisk", "ecs:DetachDisk"],
+      "Resource": "acs:ecs:eu-central-1:1349864334375917:disk/d-gw8hklmz2vbu7gozleno"
+    }
+  ]
+}

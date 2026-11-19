@@ -2,53 +2,31 @@
 # Preparation and native compilation are exclusively push-CI operations.
 set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_REF_NAME:-}" == hmos-157-adapter ]] || exit 1
-readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root
 readonly root=/root/chromium-157
 readonly src="$root/src"
-readonly old=/root/chromium-154
 readonly revision="${CHROMIUM_REVISION:?}"
 [[ "${CHROMIUM_SRC:-}" == "$src" && "$revision" == 7d4508cbfffd289d7015f7703bce215d3ab123bf ]] || exit 1
 mkdir -p "$repo_root/build-status"
 exec > >(tee -a "$repo_root/build-status/preparation-157.log") 2>&1
-# The global workflow concurrency lock excludes concurrent native builds.
-# Never read from or mutate the independent 155 checkout/cache.
-if [[ ! -d "$root" ]]; then
-  [[ -d "$old/src/.git" ]] || { echo 'Missing retired 154 seed'; exit 1; }
-  mv "$old" "$root"
-fi
-if [[ ! -f "$root/.retired-154-saved" ]]; then
-  mkdir -p "$root/retired-154" "$root/sdk-links"
-  git -C "$src" diff --binary HEAD > "$root/retired-154/native-working-tree.patch"
-  git -C "$src" status --porcelain > "$root/retired-154/status.txt"
-  cp "$root/.gclient" "$root/retired-154/gclient"
-  cp "$src/out/ohos_arm64/args.gn" "$root/retired-154/args.gn"
-  rsync -a "$src/ohos_sdk/" "$root/sdk-links/"
-  if [[ -d "$src/out" ]]; then mv "$src/out" "$root/retired-154/out"; fi
-  mkdir -p "$root/depot_tools"
-  rsync -a "$src/third_party/depot_tools/" "$root/depot_tools/"
-  touch "$root/.retired-154-saved"
-fi
+# The retained disk is provisioned separately. Daily CI must never move out/
+# into a retired-engine directory, reset a source tree, or run gclient sync
+# behind an existing snapshot receipt. New engine revisions require explicit
+# bootstrap on a suitable retained disk.
+mountpoint -q "$root" || { echo 'Build data disk is not mounted'; exit 1; }
+[[ -d "$src/.git" && -f "$root/.gclient" ]] || { echo 'Prepared Chromium tree is missing'; exit 1; }
+[[ "$(git -C "$src" rev-parse HEAD)" == "$revision" ]] || {
+  echo 'Source revision differs from the pin; bootstrap this engine explicitly'; exit 1;
+}
+[[ -x "$root/depot_tools/gclient" ]] || { echo 'Persistent depot_tools are missing'; exit 1; }
 export PATH="$root/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0 DEPOT_TOOLS_METRICS=0
-if [[ ! -f "$root/.deps-$revision" ]]; then
-  git -C "$src" remote set-url origin https://github.com/chromium/chromium.git
-  git -C "$src" -c gc.auto=0 fetch --depth=1 origin "$revision"
-  git -C "$src" reset --hard "$revision"
-  tools_revision=$(python3 - "$src/DEPS" <<'PY'
-import re, sys
-from pathlib import Path
-s = Path(sys.argv[1]).read_text(); s = s[s.index("'src/third_party/depot_tools':"):]
-print(re.search(r'[0-9a-f]{40}', s).group())
-PY
-  )
-  git -C "$root/depot_tools" -c gc.auto=0 fetch --depth=1 origin "$tools_revision"
-  git -C "$root/depot_tools" reset --hard "$tools_revision"
-  sed -i 's#https://chromium.googlesource.com/chromium/src.git#https://github.com/chromium/chromium.git#' "$root/.gclient"
-  (cd "$root" && gclient sync --nohooks --noprehooks --no-history --shallow --jobs=8 --reset --force -D --revision "src@$revision")
-  touch "$root/.deps-$revision"
-fi
 mkdir -p "$src/ohos_sdk"
-rsync -a "$root/sdk-links/" "$src/ohos_sdk/"
+if [[ -d "$root/sdk-links" ]]; then
+  rsync -a "$root/sdk-links/" "$src/ohos_sdk/"
+fi
+[[ -d "$src/ohos_sdk/native/sysroot" ]] || { echo 'HarmonyOS native SDK is missing'; exit 1; }
 python3 "$repo_root/scripts/apply-157-snapshot.py" "$src"
 rsync -a --checksum --no-times "$repo_root/overlay/" "$src/"
 mkdir -p "$root/deps_code/webview"

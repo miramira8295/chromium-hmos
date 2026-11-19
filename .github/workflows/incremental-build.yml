@@ -1,8 +1,8 @@
 name: Incremental build
 
-# Builds the adapter on the self-hosted machine that already has the Chromium
-# tree, so a change can be compiled in minutes instead of the hours a fresh
-# checkout costs.
+# Chromium 157: GitHub-hosted orchestration + disposable ECS spot builder.
+# Chromium 155 retains its isolated legacy runner. The native build scripts
+# and the persistent source/output disk remain the source of truth.
 
 on:
   push:
@@ -13,10 +13,11 @@ on:
       - 'scripts/**'
       - 'config/**'
       - '.github/workflows/incremental-build.yml'
+      - '.github/cloud/**'
   workflow_dispatch:
     inputs:
       package:
-        description: 'Also build and upload the HAP'
+        description: 'Package the unsigned engine HAR (HAP signing stays local)'
         type: boolean
         default: true
       crash_build_id:
@@ -44,8 +45,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    if: github.ref == 'refs/heads/hmos-157-adapter' || github.ref == 'refs/heads/hmos-155-adapter'
+  legacy-build:
+    if: github.ref == 'refs/heads/hmos-155-adapter'
     runs-on: [self-hosted, harmonyos-chromium]
     timeout-minutes: 1440
     strategy:
@@ -113,18 +114,20 @@ jobs:
       - name: Report
         if: always()
         run: |
-          echo '### Build result' >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat build-status/latest.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo '{}' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          if [ -s build-status/errors.txt ]; then
-            echo '<details><summary>diagnostics</summary>' >> "$GITHUB_STEP_SUMMARY"
-            echo '' >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            head -80 build-status/errors.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo '</details>' >> "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            echo '### Build result'
+            echo '```json'
+            cat build-status/latest.json 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s build-status/errors.txt ]; then
+              echo '<details><summary>diagnostics</summary>'
+              echo ''
+              echo '```'
+              head -80 build-status/errors.txt
+              echo '```'
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Locate verification HAR
         id: verification-har
@@ -226,3 +229,82 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           rm -f /tmp/libweb_engine.unstripped.so.gz /tmp/SHA256SUMS
+
+
+  cloud-build:
+    if: github.ref == 'refs/heads/hmos-157-adapter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      ALIYUN_SSH_KEY: ${{ secrets.ALIYUN_SSH_KEY }}
+      CLOUD_PACKAGE: ${{ github.event_name != 'workflow_dispatch' || inputs.package }}
+      CRASH_BUILD_ID: ${{ inputs.crash_build_id }}
+      CRASH_ADDRESSES: ${{ inputs.crash_addresses }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install cloud controller dependency
+        run: python3 -m pip install -r .github/cloud/requirements.txt
+      - name: Create spot instance and attach retained disk
+        id: provision
+        run: python3 .github/cloud/cloud.py provision
+      - name: Compile and package on ECS
+        run: python3 .github/cloud/cloud.py run
+      - name: Recover diagnostics and verify artifacts
+        if: always() && steps.provision.outcome == 'success'
+        run: python3 .github/cloud/cloud.py fetch
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: build-status/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload verified engine artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-har-${{ github.sha }}
+          path: cloud-artifacts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Publish engine prerelease
+        if: success() && (github.event_name != 'workflow_dispatch' || inputs.publish_artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/cloud/publish.py release
+      - name: Publish build status and summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUD_JOB_STATUS: ${{ job.status }}
+        run: python3 .github/cloud/publish.py status
+
+  cloud-cleanup:
+    needs: cloud-build
+    if: always() && github.ref == 'refs/heads/hmos-157-adapter' && needs.cloud-build.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ALIYUN_SSH_KEY: ${{ secrets.ALIYUN_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install cloud controller dependency
+        run: python3 -m pip install -r .github/cloud/requirements.txt
+      - name: Stop builder, detach retained disk and release instance
+        run: python3 .github/cloud/cloud.py cleanup
