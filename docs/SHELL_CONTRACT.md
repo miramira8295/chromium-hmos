@@ -1483,7 +1483,9 @@ AssetStoreKit records are retired after restart. Nonsecret selection is shared
 by regular and temporary phone profiles in `files/lumie-proxy.json`.
 
 Snapshots carry `desired`, `effective`, `revision`, `effectiveRevision`,
-`source`, `controlled`, `restartRequired`, `status`, `httpAuth`, `socks5Auth`.
+`source`, `controlled`, `restartRequired`, `effectiveBlocked`, `status`, `httpAuth`, `socks5Auth`.
+`effectiveBlocked` remains true until restart even after a successful recovery
+save; a malformed file exposes an editable default draft without enabling it.
 `proxySettingsChanged` broadcasts committed changes. `savedRestartRequired`
 means **persisted, not applied to the current process**. The old effective
 selection stays in force for all existing/new contexts until full restart.

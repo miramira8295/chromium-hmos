@@ -25,6 +25,7 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/ohos/shell_proxy_vault_ohos.h"
 #include "chrome/browser/ui/ohos/shell_services_ohos.h"
 #include "chrome/browser/ui/ohos/shell_settings_ohos_internal.h"
@@ -194,7 +195,9 @@ bool Controlled(Profile* profile) { return Source(profile) != "user"; }
 
 class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
-  ProxyTest(ShellCommandContext context, int request_id) : context_(context), request_id_(request_id) {
+  ProxyTest(ShellCommandContext context, int request_id)
+      : context_(context), request_id_(request_id),
+        browser_(context.browser ? context.browser->GetWeakPtr() : base::WeakPtr<BrowserWindowInterface>()) {
     net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   }
   ~ProxyTest() override { net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this); }
@@ -202,7 +205,7 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
     if (!finished_) { Finish("networkChanged", 0); return; }
     base::DictValue event;
     event.Set("event", "proxyTestInvalidated");
-    ReplyToShell(context_,std::move(event));
+    if (browser_) ReplyToShell(context_,std::move(event));
   }
   void Start(const base::DictValue& config, const std::optional<ShellProxySecret>& secret) {
     auto params = g_browser_process->system_network_context_manager()->CreateDefaultNetworkContextParams();
@@ -256,11 +259,12 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
     event.Set("status", status); event.Set("httpStatus", response);
     event.Set("elapsedMs", (base::TimeTicks::Now() - started_).InMillisecondsF());
     event.Set("testUrl", kTestUrl);
-    ReplyToShell(context_, std::move(event));
+    if (browser_) ReplyToShell(context_, std::move(event));
     loader_.reset(); factory_.reset(); network_.reset();
   }
   ShellCommandContext context_;
   int request_id_;
+  base::WeakPtr<BrowserWindowInterface> browser_;
   bool finished_ = false;
   base::TimeTicks started_;
   mojo::Remote<network::mojom::NetworkContext> network_;
@@ -479,14 +483,16 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
       }, SharedConfigPath(profile), std::move(bytes)),
       base::BindOnce([](base::WeakPtr<ProxyState> state,
                         ShellCommandContext context, int id,
+                        base::WeakPtr<BrowserWindowInterface> browser,
                         std::string new_ref, bool written) {
         if (!written) RemoveShellProxySecret(new_ref);
         if (!state) return;
         state->saving = false;
         base::DictValue request; request.Set("requestId",id);
-        Reply(context,request,"proxyApplyResult", written ? "savedRestartRequired" : "storageFailed");
-        if (written) Broadcast(SettingsProfile(context));
-      },state->weak.GetWeakPtr(),context,ReadRequestId(command),new_ref));
+        if (browser) Reply(context,request,"proxyApplyResult", written ? "savedRestartRequired" : "storageFailed");
+        if (written) Broadcast(state->profile_);
+      },state->weak.GetWeakPtr(),context,ReadRequestId(command),
+        context.browser ? context.browser->GetWeakPtr() : base::WeakPtr<BrowserWindowInterface>(),new_ref));
 }
 void TestProxySettings(const ShellCommandContext& context, const base::DictValue& command) {
   auto* profile = SettingsProfile(context);
