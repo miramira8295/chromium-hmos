@@ -54,6 +54,13 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "url/gurl.h"
 
+namespace net {
+// Match the platform proxy-setting getter helper used by Chromium on Linux.
+// Its existing thread-restriction exception permits the bounded startup read
+// before any Profile NetworkContext can issue requests.
+class ScopedAllowBlockingForSettingGetter : public base::ScopedAllowBlocking {};
+}  // namespace net
+
 namespace chrome::ohos {
 namespace {
 constexpr char kDesired[] = "ohos.proxy.desired";
@@ -177,7 +184,7 @@ base::FilePath SharedConfigPath(Profile* profile) {
 base::DictValue Desired(Profile* profile) {
   // Must finish before the profile creates any network context. An unreadable
   // existing file is an error, never a reason to reset to system/direct.
-  base::ScopedAllowBlocking allow;
+  net::ScopedAllowBlockingForSettingGetter allow;
   const auto path = SharedConfigPath(profile);
   if (!base::PathExists(path)) return DefaultConfig();
   std::string bytes;
