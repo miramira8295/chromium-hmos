@@ -3,12 +3,16 @@
 #include "chrome/browser/ui/ohos/shell_proxy_ohos.h"
 
 #include <algorithm>
+#include <fcntl.h>
+#include <sys/file.h>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/files/important_file_writer.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -181,6 +185,23 @@ base::DictValue Desired(Profile* profile) {
   auto saved = base::JSONReader::ReadDict(bytes, base::JSON_PARSE_RFC);
   return saved ? std::move(*saved) : base::DictValue();
 }
+// All phone processes use the same lock file. The UI-side revision check is
+// only an early error; the authoritative check and commit happen under flock.
+int CommitConfig(base::FilePath path, int expected_revision, std::string bytes) {
+  base::ScopedFD lock(open(path.AddExtensionASCII("lock").value().c_str(),
+                           O_CREAT | O_RDWR | O_CLOEXEC, 0600));
+  if (!lock.is_valid() || flock(lock.get(), LOCK_EX) != 0) return 2;
+  int current_revision = 0;
+  if (base::PathExists(path)) {
+    std::string current;
+    if (base::ReadFileToStringWithMaxSize(path, &current, 65536)) {
+      auto saved = base::JSONReader::ReadDict(current, base::JSON_PARSE_RFC);
+      if (saved) current_revision = std::max(0, saved->FindInt("revision").value_or(0));
+    }
+  }
+  if (current_revision != expected_revision) return 1;
+  return base::ImportantFileWriter::WriteFileAtomically(path, bytes) ? 0 : 2;
+}
 std::string Source(Profile* profile) {
   const auto* pref = profile->GetPrefs()->FindPreference(proxy_config::prefs::kProxy);
   if (pref && pref->IsManaged()) return "policy";
@@ -292,6 +313,8 @@ class ProxyState : public base::SupportsUserData::Data, public ProfileObserver {
   raw_ptr<Profile> profile_;
   PrefChangeRegistrar registrar_;
   base::DictValue effective;
+  std::optional<ShellProxySecret> effective_secret;
+  std::set<std::string> cleaned_refs;
   bool invalid = false;
   bool saving = false;
   std::unique_ptr<ProxyTest> test;
@@ -368,6 +391,11 @@ void InitializeShellProxy(Profile* profile) {
   auto state = std::make_unique<ProxyState>(profile);
   state->effective = Desired(profile);
   state->invalid = !Validate(state->effective).has_value();
+  const auto credential_ref = String(state->effective, "credentialRef");
+  if (!state->invalid && String(state->effective, "mode") == "custom" && !credential_ref.empty()) {
+    state->effective_secret = LoadShellProxySecret(credential_ref);
+    state->invalid = !state->effective_secret.has_value();
+  }
   const auto config = state->effective.Clone();
   const bool invalid = state->invalid;
   profile->SetUserData(&kStateKey, std::move(state));
@@ -387,8 +415,10 @@ void InitializeShellProxy(Profile* profile) {
   // References retired by a committed save can be removed after restart.
   if (const auto* retired = config.FindList("_retired")) {
     for (const auto& ref : *retired) {
-      if (ref.is_string() && ref.GetString() != String(config,"credentialRef"))
+      if (ref.is_string() && ref.GetString() != String(config,"credentialRef")) {
         RemoveShellProxySecret(ref.GetString());
+        State(profile)->cleaned_refs.insert(ref.GetString());
+      }
     }
   }
 }
@@ -408,7 +438,10 @@ void ConfigureShellProxyNetworkContext(Profile* profile, network::mojom::Network
   }
   const auto ref = String(config,"credentialRef");
   if (String(config,"mode") != "custom" || ref.empty()) return;
-  const auto secret = LoadShellProxySecret(ref);
+  // Freeze the effective secret with the effective configuration. A second
+  // phone process may retire the disk asset after its own restart; existing
+  // profiles must still be able to recreate their network contexts.
+  const auto& secret = state->effective_secret;
   if (!secret) {
     // Device locked / secure store unavailable: never start unauthenticated or
     // direct. A restart after unlocking is required, and the UI reports blocked.
@@ -462,35 +495,41 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
   state->saving = true;
   const auto old_ref = String(saved,"credentialRef");
   base::ListValue retired;
-  // Only references used by this process still need retirement. Earlier ones
-  // were already removed during initialization; do not grow the file forever.
-  const auto active_ref = String(state->effective,"credentialRef");
-  if (!active_ref.empty() && active_ref != String(*config,"credentialRef") && active_ref != old_ref)
-    retired.Append(active_ref);
-  // Retain credentials referenced by a live configuration until restart.
-  if (!old_ref.empty() && old_ref != String(*config,"credentialRef")) retired.Append(old_ref);
+  std::set<std::string> retired_refs;
+  if (const auto* previous = saved.FindList("_retired")) {
+    for (const auto& ref : *previous) {
+      if (ref.is_string() && !state->cleaned_refs.contains(ref.GetString()))
+        retired_refs.insert(ref.GetString());
+    }
+  }
+  // Preserve intermediate saves too, so replacing a draft several times
+  // before restart cannot orphan secure assets.
+  retired_refs.insert(String(state->effective,"credentialRef"));
+  retired_refs.insert(old_ref);
+  retired_refs.erase("");
+  retired_refs.erase(String(*config,"credentialRef"));
+  for (const auto& ref : retired_refs) retired.Append(ref);
   config->Set("_retired",std::move(retired));
   std::string bytes;
-  if (!base::JSONWriter::Write(*config, &bytes)) {
+  if (!base::JSONWriter::Write(*config, &bytes) || bytes.size() > 65536) {
     state->saving = false; RemoveShellProxySecret(new_ref);
     Reply(context,command,"proxyApplyResult","storageFailed"); return;
   }
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
                   base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
-      base::BindOnce([](base::FilePath path, std::string bytes) {
-        return base::ImportantFileWriter::WriteFileAtomically(path, bytes);
-      }, SharedConfigPath(profile), std::move(bytes)),
+      base::BindOnce(&CommitConfig, SharedConfigPath(profile), revision, std::move(bytes)),
       base::BindOnce([](base::WeakPtr<ProxyState> state,
                         ShellCommandContext context, int id,
                         base::WeakPtr<BrowserWindowInterface> browser,
-                        std::string new_ref, bool written) {
-        if (!written) RemoveShellProxySecret(new_ref);
+                        std::string new_ref, int result) {
+        if (result != 0) RemoveShellProxySecret(new_ref);
         if (!state) return;
         state->saving = false;
         base::DictValue request; request.Set("requestId",id);
-        if (browser) Reply(context,request,"proxyApplyResult", written ? "savedRestartRequired" : "storageFailed");
-        if (written) Broadcast(state->profile_);
+        if (browser) Reply(context,request,"proxyApplyResult", result == 0 ? "savedRestartRequired" :
+                          result == 1 ? "conflict" : "storageFailed");
+        if (result == 0) Broadcast(state->profile_);
       },state->weak.GetWeakPtr(),context,ReadRequestId(command),
         context.browser ? context.browser->GetWeakPtr() : base::WeakPtr<BrowserWindowInterface>(),new_ref));
 }
