@@ -28,6 +28,7 @@
 #include "chrome/browser/ui/ohos/shell_services_ohos.h"
 #include "chrome/browser/ui/ohos/shell_settings_ohos_internal.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
@@ -267,8 +268,24 @@ class ProxyTest : public net::NetworkChangeNotifier::NetworkChangeObserver {
   base::WeakPtrFactory<ProxyTest> weak_{this};
 };
 
-class ProxyState : public base::SupportsUserData::Data {
+void Broadcast(Profile* profile);
+class ProxyState : public base::SupportsUserData::Data, public ProfileObserver {
  public:
+  explicit ProxyState(Profile* profile) : profile_(profile) { profile_->AddObserver(this); }
+  ~ProxyState() override { if (profile_) profile_->RemoveObserver(this); }
+  void Watch() {
+    registrar_.Init(profile_->GetPrefs());
+    registrar_.Add(proxy_config::prefs::kProxy, base::BindRepeating(
+        [](base::WeakPtr<ProxyState> state) {
+          if (state && state->profile_) Broadcast(state->profile_);
+        }, weak.GetWeakPtr()));
+  }
+  void OnProfileWillBeDestroyed(Profile* profile) override {
+    registrar_.RemoveAll(); test.reset(); weak.InvalidateWeakPtrs();
+    profile->RemoveObserver(this); profile_ = nullptr;
+  }
+  raw_ptr<Profile> profile_;
+  PrefChangeRegistrar registrar_;
   base::DictValue effective;
   bool invalid = false;
   bool saving = false;
@@ -338,7 +355,7 @@ void RegisterShellProxyPrefs(PrefRegistrySimple* registry) {
 void InitializeShellProxy(Profile* profile) {
   profile = profile->GetOriginalProfile();
   if (profile->GetUserData(&kStateKey)) return;
-  auto state = std::make_unique<ProxyState>();
+  auto state = std::make_unique<ProxyState>(profile);
   state->effective = Desired(profile);
   state->invalid = !Validate(state->effective).has_value();
   const auto config = state->effective.Clone();
@@ -356,6 +373,7 @@ void InitializeShellProxy(Profile* profile) {
     prefs->SetDict(proxy_config::prefs::kProxy,
                   ProxyConfigDictionary::CreateFixedServers(Server(config), Bypass(config)));
   }
+  State(profile)->Watch();
   // References retired by a committed save can be removed after restart.
   if (const auto* retired = config.FindList("_retired")) {
     for (const auto& ref : *retired) {
@@ -433,7 +451,12 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
   config->Set("revision", revision + 1);
   state->saving = true;
   const auto old_ref = String(saved,"credentialRef");
-  auto retired = saved.FindList("_retired") ? saved.FindList("_retired")->Clone() : base::ListValue();
+  base::ListValue retired;
+  // Only references used by this process still need retirement. Earlier ones
+  // were already removed during initialization; do not grow the file forever.
+  const auto active_ref = String(state->effective,"credentialRef");
+  if (!active_ref.empty() && active_ref != String(*config,"credentialRef") && active_ref != old_ref)
+    retired.Append(active_ref);
   // Retain credentials referenced by a live configuration until restart.
   if (!old_ref.empty() && old_ref != String(*config,"credentialRef")) retired.Append(old_ref);
   config->Set("_retired",std::move(retired));
