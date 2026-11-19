@@ -29,6 +29,81 @@ class ECSServiceError(RuntimeError):
         super().__init__(f'ECS {action} failed: ' + ecs_error_details(reply))
 
 
+class ProgressPublisher:
+    """Publish sampled Ninja progress from the controller; no token reaches ECS."""
+    def __init__(self, folder=None):
+        self.folder = folder or ROOT / 'build-status'
+        self.partial = ''
+        self.last = None
+        self.pending = None
+        self.blob_sha = None
+
+    def consume(self, chunk):
+        lines = (self.partial + chunk).replace('\r', '\n').split('\n')
+        self.partial = lines.pop()
+        for line in lines:
+            match = re.match(r'^\[(\d+)/(\d+)\]\s*(.*)', line)
+            if not match:
+                continue
+            completed, total = map(int, match.group(1, 2))
+            if not total or completed > total:
+                continue
+            # Phase starts and completion are useful in addition to each 50.
+            if completed != 1 and completed != total and completed % 50:
+                continue
+            if self.last == (completed, total):
+                continue
+            self.last = completed, total
+            self.pending = {
+                'status': 'running', 'phase': 'compiling',
+                'steps': completed, 'total': total,
+                'percent': round(completed * 100 / total, 2),
+                'target': match.group(3)[:500],
+                'commit': os.environ['GITHUB_SHA'],
+                'run_id': os.environ['GITHUB_RUN_ID'],
+                'run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', '1'),
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+                'url': f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/'
+                       + os.environ['GITHUB_RUN_ID']}
+            self.flush()
+
+    def flush(self):
+        if self.pending is None:
+            return
+        write_json(self.folder / 'progress.json', self.pending)
+        try:
+            self.upload(self.pending)
+            self.pending = None
+        except (RuntimeError, subprocess.SubprocessError, OSError) as error:
+            # Progress is advisory; a GitHub outage must not stop compilation.
+            print(f'Progress upload deferred ({type(error).__name__})', flush=True)
+
+    def upload(self, progress):
+        endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/contents/build-status/progress.json'
+        for attempt in range(2):
+            if self.blob_sha is None:
+                current = subprocess.run(['gh', 'api', endpoint + '?ref=build-results'],
+                                         capture_output=True, text=True, timeout=30)
+                if current.returncode == 0:
+                    self.blob_sha = json.loads(current.stdout)['sha']
+                elif '(HTTP 404)' not in current.stderr:
+                    raise RuntimeError('Cannot read progress revision')
+            payload = {
+                'branch': 'build-results',
+                'message': f'build {progress["run_id"]}: {progress["steps"]}/{progress["total"]}',
+                'content': base64.b64encode((json.dumps(progress, indent=2) + '\n').encode()).decode()}
+            if self.blob_sha:
+                payload['sha'] = self.blob_sha
+            result = subprocess.run(['gh', 'api', '--method', 'PUT', endpoint, '--input', '-'],
+                                    input=json.dumps(payload), capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                self.blob_sha = json.loads(result.stdout)['content']['sha']
+                return
+            self.blob_sha = None
+            if attempt or not any(code in result.stderr for code in ('(HTTP 409)', '(HTTP 422)')):
+                raise RuntimeError('Cannot upload progress revision')
+
+
 def http_json(request, label, redactions=()):
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -391,6 +466,7 @@ class Controller:
                    '--property=TimeoutStopSec=60', '/bin/bash', self.bootstrap + '/remote.sh',
                    self.bootstrap]
         self.ssh(shlex.join(command))
+        progress = ProgressPublisher()
         deadline = time.monotonic() + 18000
         offset = 0
         failures = 0
@@ -417,6 +493,8 @@ class Controller:
                 time.sleep(10)
                 continue
             print(result['log'], end='', flush=True)
+            progress.consume(result['log'])
+            progress.flush()
             offset += result['size']
             if result['exit'] is not None and result['size'] < 131072:
                 self.save(build_exit=result['exit'])
@@ -543,7 +621,8 @@ def main():
             'Tag.2.Key': 'ci-repository', 'Tag.2.Value': os.environ['GITHUB_REPOSITORY'],
             'Tag.3.Key': 'ci-run', 'Tag.3.Value': args.run_id, 'PageSize': 100})
         instances = [{key: instance.get(key) for key in
-                      ('InstanceId', 'Status', 'PublicIpAddress', 'Tags')}
+                      ('InstanceId', 'Status', 'PublicIpAddress', 'Tags', 'AutoReleaseTime',
+                       'CreationTime', 'StartTime', 'SpotStrategy', 'InstanceChargeType', 'OperationLocks')}
                      for instance in reply['Instances']['Instance']]
         write_json(ROOT / 'build-status/cloud-inspect.json', instances)
         print(json.dumps(instances, ensure_ascii=False), flush=True)

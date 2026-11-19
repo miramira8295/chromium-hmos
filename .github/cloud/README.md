@@ -126,6 +126,14 @@ API 22 / Native 6.0.2.130 缺少 `native_avplaybackstate.h` 和 VP9/AV1 profile 
 `package=false` 只编译，不要求 HAR；`publish_artifacts=false` 不创建 prerelease，
 产物仍作为 workflow artifact 保存。HAP 签名和手机安装继续留在本机。
 
+编译进度每完成 50 个 Ninja 步骤上传到 `build-results` 分支的
+`build-status/progress.json`，阶段开始和结束也会更新。字段包含步数、总数、
+百分比、目标、源码提交和运行链接；预检和主编译使用各自的计数。
+GitHub 写权限只留在调度机，上传失败保留最新快照供下轮轮询重试，
+不影响 ECS 上的编译。最终状态发布同时保留这份进度文件。
+运行 `44449707131` 启动时尚无实时上传逻辑，本轮由本机临时旁路进程读取
+SSH 日志补充上传，不重启 Ninja；后续运行由 GitHub 调度机直接完成。
+
 ## 本地检查
 
 ```sh

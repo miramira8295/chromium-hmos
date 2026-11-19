@@ -330,6 +330,44 @@ class LifecycleTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_live_progress_samples_actual_step_numbers_across_ninja_phases(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+                'GITHUB_SHA': '1' * 40, 'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}):
+            progress = cloud.ProgressPublisher(Path(folder))
+            uploaded = []
+            progress.upload = lambda value: uploaded.append(value.copy())
+            progress.consume('[1/14] preflight\n[14/14] done\n[1/201] main\n[49/201] skip\n[5')
+            progress.consume('0/201] source\n[50/201] duplicate\n[100/201] source\n[201/201] done\n')
+            self.assertEqual([(item['steps'], item['total']) for item in uploaded],
+                             [(1, 14), (14, 14), (1, 201), (50, 201), (100, 201), (201, 201)])
+            self.assertEqual(uploaded[-1]['percent'], 100)
+            self.assertEqual(json.loads((Path(folder) / 'progress.json').read_text())['steps'], 201)
+
+    def test_progress_upload_failure_keeps_latest_snapshot_for_retry(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+                'GITHUB_SHA': '1' * 40, 'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '123'}):
+            progress = cloud.ProgressPublisher(Path(folder))
+            progress.upload = lambda value: (_ for _ in ()).throw(RuntimeError('offline'))
+            progress.consume('[50/200] target\n')
+            self.assertEqual(progress.pending['steps'], 50)
+            uploaded = []
+            progress.upload = lambda value: uploaded.append(value.copy())
+            progress.flush()
+            self.assertIsNone(progress.pending)
+            self.assertEqual(uploaded[0]['steps'], 50)
+
+    def test_progress_api_reloads_revision_after_final_status_rewrites_branch(self):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}):
+            progress = cloud.ProgressPublisher()
+            progress.blob_sha = 'stale'
+            replies = [subprocess.CompletedProcess([], 1, '', '(HTTP 409)'),
+                       subprocess.CompletedProcess([], 0, '{"sha":"current"}', ''),
+                       subprocess.CompletedProcess([], 0, '{"content":{"sha":"next"}}', '')]
+            with patch.object(cloud.subprocess, 'run', side_effect=replies) as run:
+                progress.upload({'run_id': '123', 'steps': 50, 'total': 200})
+            self.assertEqual(progress.blob_sha, 'next')
+            self.assertEqual(json.loads(run.call_args.kwargs['input'])['sha'], 'current')
+
     def test_ecs_diagnostics_preserve_denial_details_without_signed_urls(self):
         message = cloud.ecs_error_details({
             'Code': 'Forbidden.RAM', 'Message': 'Denied https://ecs.test/?SecurityToken=secret',

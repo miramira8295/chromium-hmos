@@ -533,7 +533,8 @@ else
         }
         /^\[[0-9]+\/[0-9]+\]/ {
           last = $0
-          if (++n == 1 || n % every == 0) {
+          split($1, progress, /[^0-9]+/)
+          if (progress[2] == 1 || progress[2] % every == 0 || progress[2] == progress[3]) {
             print; fflush(); last = ""
           }
         }
