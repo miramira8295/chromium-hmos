@@ -34407,15 +34407,20 @@ index e5934d85804c0f166fb839718ee3f1d9d5427aea..629d68258a320390b5670da471005068
        enabled_features += [ "is_linux" ]
      } else if (is_mac) {
 diff --git a/net/BUILD.gn b/net/BUILD.gn
-index 228a325df98f052770cac50c4e040996f6ed14c2..c1b2e43471c585d063ade01c51f84af88620e0ee 100644
+index 228a325..2651eb0 100644
 --- a/net/BUILD.gn
 +++ b/net/BUILD.gn
-@@ -1759,6 +1759,14 @@ component("net") {
+@@ -1759,6 +1759,19 @@ component("net") {
      ]
    }
  
 +  if (is_ohos) {
-+    sources += [ "base/platform_mime_util_ohos.cc" ]
++    sources += [
++      "base/platform_mime_util_ohos.cc",
++      "proxy_resolution/proxy_config_service_ohos_native.cc",
++      "proxy_resolution/proxy_config_service_ohos_native.h",
++    ]
++    libs = [ "net_connection" ]
 +    # Chromium 155 includes this source for chrome_root_store_only above.
 +    if (!chrome_root_store_only) {
 +      sources += [ "cert/test_root_certs_builtin.cc" ]
@@ -41551,7 +41556,7 @@ index 136c79c..3735f5c 100644
  
    // True if default credentials have already been tried for this transaction
 diff --git a/net/proxy_resolution/proxy_config_service.cc b/net/proxy_resolution/proxy_config_service.cc
-index e32f7dd..21294a3 100644
+index e32f7dd..1758bb8 100644
 --- a/net/proxy_resolution/proxy_config_service.cc
 +++ b/net/proxy_resolution/proxy_config_service.cc
 @@ -21,6 +21,8 @@
@@ -41559,7 +41564,7 @@ index e32f7dd..21294a3 100644
  #elif BUILDFLAG(IS_LINUX)
  #include "net/proxy_resolution/proxy_config_service_linux.h"
 +#elif BUILDFLAG(IS_OHOS)
-+#include "net/proxy_resolution/proxy_config_service_ohos.h"
++#include "net/proxy_resolution/proxy_config_service_ohos_native.h"
  #elif BUILDFLAG(IS_ANDROID)
  #include "net/proxy_resolution/proxy_config_service_android.h"
  #endif
@@ -41568,7 +41573,7 @@ index e32f7dd..21294a3 100644
  
    return std::move(linux_config_service);
 +#elif BUILDFLAG(IS_OHOS)
-+  return std::make_unique<ProxyConfigServiceOHOS>(main_task_runner);
++  return std::make_unique<ProxyConfigServiceOHOSNative>();
  #elif BUILDFLAG(IS_ANDROID)
    return std::make_unique<ProxyConfigServiceAndroid>(
        std::move(main_task_runner),

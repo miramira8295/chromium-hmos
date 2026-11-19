@@ -476,6 +476,7 @@ obj/net/dns/public/public/scoped_res_state.o
 obj/net/net/crl_set.o
 obj/net/net/features.o
 obj/net/net/platform_mime_util_ohos.o
+obj/net/net/proxy_config_service_ohos_native.o
 obj/net/net/system_trust_store.o
 obj/net/net/udp_socket_posix.o
 obj/net/net/unix_domain_server_socket_posix.o
