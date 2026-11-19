@@ -97,7 +97,6 @@ class Cloud:
 
     def api(self, action, **params):
         from aliyunsdkcore.request import CommonRequest
-        from aliyunsdkcore.acs_exception.exceptions import ServerException
         if time.monotonic() >= self.refresh_at:
             self.authenticate()
         request = CommonRequest()
@@ -115,19 +114,26 @@ class Cloud:
                 value = json.dumps(value, separators=(',', ':'))
             request.add_query_param(key, str(value))
         try:
-            return json.loads(self.client.do_action_with_exception(request))
-        except ServerException as error:
-            # Only service messages are safe to diagnose; transport exceptions
-            # may contain the entire signed request URL.
-            message = re.sub(r'https?://\S+', '[URL REDACTED]', error.get_error_msg())
-            raise RuntimeError(
-                f'ECS {action} failed ({error.get_error_code()}): {message[:1200]} '
-                f'RequestId={error.get_request_id()}') from None
+            # Preserve the service's AccessDeniedDetail, which the SDK's
+            # exception wrapper otherwise discards.
+            status, _, body = self.client.get_response(request)
+            reply = json.loads(body)
         except Exception as error:
             # SDK transport errors can contain a signed URL/security token.
             # Report the action and machine-readable code, never that URL.
             code = error.get_error_code() if hasattr(error, 'get_error_code') else type(error).__name__
             raise RuntimeError(f'ECS {action} failed ({code})') from None
+        if not 200 <= status < 300:
+            raise RuntimeError(f'ECS {action} failed: ' + ecs_error_details(reply))
+        return reply
+
+
+def ecs_error_details(reply):
+    details = {key: reply[key] for key in
+               ('Code', 'Message', 'RequestId', 'AccessDeniedDetail') if key in reply}
+    # Transport bodies and signed URLs are never logged.
+    return re.sub(r'https?://[^\s"<>]+', '[URL REDACTED]',
+                  json.dumps(details, ensure_ascii=False))[:5000]
 
 
 def tags(instance):

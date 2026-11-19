@@ -309,6 +309,17 @@ class LifecycleTest(unittest.TestCase):
 
 
 class CacheTest(unittest.TestCase):
+    def test_ecs_diagnostics_preserve_denial_details_without_signed_urls(self):
+        message = cloud.ecs_error_details({
+            'Code': 'Forbidden.RAM', 'Message': 'Denied https://ecs.test/?SecurityToken=secret',
+            'RequestId': 'request-test',
+            'AccessDeniedDetail': {'AuthAction': 'ecs:RunInstances', 'PolicyType': 'AccountLevelIdentityBasedPolicy'},
+            'Transport': 'private-value'})
+        self.assertIn('ecs:RunInstances', message)
+        self.assertIn('request-test', message)
+        self.assertNotIn('secret', message)
+        self.assertNotIn('private-value', message)
+
     def test_oidc_role_trust_uses_ram_action_not_the_sts_api_name(self):
         trust = json.loads((ROOT / '.github/cloud/trust-policy.json').read_text())['Statement'][0]
         self.assertIn('sts:AssumeRole', trust['Action'])
