@@ -284,6 +284,13 @@ jobs:
       - name: Create spot instance and attach retained disk
         id: provision
         run: python3 .github/cloud/cloud.py provision
+      - name: Save builder coordinates before compilation
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-builder-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build-status/cloud-state.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Compile and package on ECS
         run: python3 .github/cloud/cloud.py run
       - name: Recover diagnostics and verify artifacts
