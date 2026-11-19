@@ -97,6 +97,7 @@ class Cloud:
 
     def api(self, action, **params):
         from aliyunsdkcore.request import CommonRequest
+        from aliyunsdkcore.acs_exception.exceptions import ServerException
         if time.monotonic() >= self.refresh_at:
             self.authenticate()
         request = CommonRequest()
@@ -115,6 +116,13 @@ class Cloud:
             request.add_query_param(key, str(value))
         try:
             return json.loads(self.client.do_action_with_exception(request))
+        except ServerException as error:
+            # Only service messages are safe to diagnose; transport exceptions
+            # may contain the entire signed request URL.
+            message = re.sub(r'https?://\S+', '[URL REDACTED]', error.get_error_msg())
+            raise RuntimeError(
+                f'ECS {action} failed ({error.get_error_code()}): {message[:1200]} '
+                f'RequestId={error.get_request_id()}') from None
         except Exception as error:
             # SDK transport errors can contain a signed URL/security token.
             # Report the action and machine-readable code, never that URL.
