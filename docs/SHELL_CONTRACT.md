@@ -1478,9 +1478,18 @@ Config contains `version:1, mode:system|direct|custom, scheme:http|https|socks5,
 host, port, bypassRules` (newline-separated explicit hosts or `*.domain`),
 `bypassPrivateAddresses`. Readback adds `revision,hasCredentials`. Credentials
 use `keep|replace|remove`; keeping credentials requires the same endpoint.
-They never appear in replies, URLs or plain preferences. Immutable device-only
+They never appear in ordinary snapshots, URLs or plain preferences. Immutable device-only
 AssetStoreKit records are retired after restart. Nonsecret selection is shared
 by regular and temporary phone profiles in `files/lumie-proxy.json`.
+
+Snapshots advertising `retainsCustomConfig:true` keep the last committed custom
+endpoint, bypass settings and Asset reference when saving system/direct mode.
+Only the active mode changes; hidden unsaved custom edits are not committed.
+Readback therefore retains the custom fields and `hasCredentials` in inactive
+modes too. Returning to custom can use `keep` for that same endpoint, even if
+the previous mode was system/direct. Inactive credentials are not loaded into
+network contexts or retired on restart. Explicitly saving custom mode without
+authentication still removes its saved credential reference.
 
 Snapshots carry `desired`, `effective`, `revision`, `effectiveRevision`,
 `source`, `controlled`, `restartRequired`, `effectiveBlocked`, `status`, `httpAuth`, `socks5Auth`.

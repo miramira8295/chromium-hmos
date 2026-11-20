@@ -149,6 +149,21 @@ std::optional<base::DictValue> Validate(const base::DictValue& input) {
   config.Set("bypassPrivateAddresses", input.FindBool("bypassPrivateAddresses").value_or(false));
   return config;
 }
+// System/direct only change the active route. Keep the last committed custom
+// settings (including the Asset reference) so a later custom selection can
+// reuse them. Never persist unvalidated or hidden form edits when switching off.
+base::DictValue PreserveCustomConfig(base::DictValue config,
+                                     const base::DictValue& saved) {
+  const auto mode = String(config, "mode");
+  if (mode == "custom") return config;
+  auto candidate = saved.Clone();
+  candidate.Set("mode", "custom");
+  auto remembered = Validate(candidate);
+  if (!remembered) return config;
+  remembered->Set("mode", mode);
+  remembered->Set("credentialRef", String(saved, "credentialRef"));
+  return std::move(*remembered);
+}
 std::string Server(const base::DictValue& config) {
   return String(config, "scheme") + "://" +
       net::HostPortPair(String(config, "host"), config.FindInt("port").value_or(0)).ToString();
@@ -364,6 +379,7 @@ base::DictValue Snapshot(Profile* profile) {
   result.Set("effectiveBlocked", state->invalid);
   result.Set("proxyApiVersion", 1);
   result.Set("credentialReadback", true);
+  result.Set("retainsCustomConfig", true);
   result.Set("httpAuth", true); result.Set("socks5Auth", true);
   result.Set("testUrl", kTestUrl);
   return result;
@@ -382,7 +398,8 @@ void Broadcast(Profile* profile) {
   for (auto* otr : profile->GetAllOffTheRecordProfiles()) BroadcastToShell(otr, event.Clone());
 }
 bool SameEndpoint(const base::DictValue& a, const base::DictValue& b) {
-  return String(a,"mode") == "custom" && String(b,"mode") == "custom" &&
+  // A saved custom endpoint may currently be inactive in system/direct mode.
+  return !String(a,"host").empty() &&
       String(a,"scheme") == String(b,"scheme") && String(a,"host") == String(b,"host") &&
       a.FindInt("port") == b.FindInt("port");
 }
@@ -514,6 +531,7 @@ void ApplyProxySettings(const ShellCommandContext& context, const base::DictValu
   else if (command.FindInt("expectedRevision") != std::max(0, saved.FindInt("revision").value_or(0))) error = "conflict";
   else if (!config) error = "invalidConfig";
   if (!error.empty()) { Reply(context, command, "proxyApplyResult", error); return; }
+  *config = PreserveCustomConfig(std::move(*config), saved);
   std::string new_ref;
   const auto action = String(command,"credentialAction");
   if (String(*config,"mode") == "custom") {

@@ -98,6 +98,7 @@ jobs:
       - name: Check SOCKS5 authenticated handshake
         run: |
           python3 scripts/tests/test-shell-settings-routing.py
+          python3 scripts/tests/test-proxy-mode-retention.py
           python3 scripts/tests/test-proxy-socks5.py
           python3 scripts/tests/test-proxy-http-auth.py
       - name: Check test-page media byte ranges
