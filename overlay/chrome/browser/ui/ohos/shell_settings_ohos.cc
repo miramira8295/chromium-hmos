@@ -121,8 +121,8 @@ struct SettingsCommand {
   SettingsCommandHandler handler;
 };
 
-// Every settings command the shell may send. Adding one is one line here and
-// a handler in the file of its group.
+// Every settings command the shell may send. Also register its route in
+// shell_services_ohos.cc so the runtime bridge can reach this dispatcher.
 constexpr SettingsCommand kSettingsCommands[] = {
     // Browsing data (shell_browsing_data_ohos.cc).
     {"clearBrowsingData", &settings_internal::ClearBrowsingData},

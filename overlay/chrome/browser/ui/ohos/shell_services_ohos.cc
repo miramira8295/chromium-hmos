@@ -110,6 +110,7 @@ constexpr ShellServiceCommand kShellServiceCommands[] = {
     {"getSearchEngines", &HandleSettingsCommand},
     {"setDefaultSearchEngine", &HandleSettingsCommand},
     {"getProxySettings", &HandleSettingsCommand},
+    {"getProxyCredentials", &HandleSettingsCommand},
     {"applyProxySettings", &HandleSettingsCommand},
     {"testProxySettings", &HandleSettingsCommand},
     {"cancelProxyTest", &HandleSettingsCommand},
