@@ -1,7 +1,7 @@
 {
   "region": "eu-central-1",
   "launch_template_id": "lt-gw8eis82pr9mv0e4sqjt",
-  "launch_template_version": "5",
+  "launch_template_version": "6",
   "disk_id": "d-gw8fafb18ed971182e8k",
   "disk_uuid": "7e5aa3ce-605e-432a-b833-89516c643543",
   "engine_major": 158,
