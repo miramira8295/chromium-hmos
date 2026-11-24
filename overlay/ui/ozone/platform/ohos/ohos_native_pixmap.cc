@@ -412,8 +412,7 @@ class BufferRegistry : public base::MemoryConsumer {
       : memory_consumer_registration_(
             "OhosNativeBufferRegistry",
             {base::MemoryConsumerTraits::EstimatedMemoryUsage::kLarge,
-             base::MemoryConsumerTraits::ReleaseMemoryCost::
-                 kFreesPagesWithoutTraversal,
+             base::MemoryConsumerTraits::ReleaseMemoryDataAccess::kNone,
              base::MemoryConsumerTraits::InformationRetention::kLossless,
              base::MemoryConsumerTraits::ExecutionType::kAsynchronous,
              base::MemoryConsumerTraits::SupportsMemoryLimit::kNo},

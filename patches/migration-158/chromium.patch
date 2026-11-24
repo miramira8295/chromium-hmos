@@ -39295,51 +39295,6 @@ index 1d9e9a46ee9e5c96e3171c8077a054f8fd5c5707..2dbc34be840922d3a94f2d1f7f16f0ac
    sk_sp<SkFontConfigInterface> fci(SkFontConfigInterface::RefGlobal());
    SkFontConfigInterface::FontIdentity font_identity;
    font_identity.fID = config_id;
-diff --git a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-index 3133509f4e25086345042d11456f12b2bedff314..cb0502f54f708f07248edd4a15a017ccc8ea3b4e 100644
---- a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-+++ b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-@@ -9,6 +9,7 @@
- #include "base/feature_list.h"
- #include "base/task/single_thread_task_runner.h"
- #include "base/trace_event/trace_event.h"
-+#include "build/build_config.h"
- #include "components/viz/common/quads/compositor_frame.h"
- #include "components/viz/common/quads/texture_draw_quad.h"
- #include "components/viz/common/resources/release_callback.h"
-@@ -28,9 +29,11 @@
- #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
- #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
- #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
-+#include "ui/gfx/display_color_spaces.h"
- #include "ui/gfx/geometry/point_f.h"
- #include "ui/gfx/geometry/size_f.h"
- #include "ui/gfx/mojom/presentation_feedback.mojom-blink.h"
-+#include "ui/gfx/tone_map_util.h"
- 
- namespace {
- // Frame delay for synthetic frame timing.
-@@ -156,6 +159,20 @@ void CanvasResourceDispatcher::PrepareFrame(
-     sii->VerifySyncToken(resource.mutable_sync_token());
-   }
- 
-+#if BUILDFLAG(IS_OHOS)
-+  // This child surface bypasses cc's layer color-usage analysis. Viz merges
-+  // the frame metadata when choosing the root output color space; leaving
-+  // the default sRGB clips worker canvas P3 and HDR despite correctly tagged
-+  // resources. Classify the actual resource, including explicit linear/SDR-
-+  // transfer HDR metadata, without promoting ordinary P3 SDR to HDR.
-+  frame->metadata.content_color_usage =
-+      resource.GetColorSpace().GetContentColorUsage();
-+  if (gfx::ToneMapUtil::IsHDR(resource.GetColorSpace(),
-+                              resource.hdr_metadata)) {
-+    frame->metadata.content_color_usage = gfx::ContentColorUsage::kHDR;
-+  }
-+#endif
-+
-   const viz::ResourceId resource_id = id_generator_.GenerateNextId();
-   resource.id = resource_id;
- 
 diff --git a/third_party/blink/renderer/platform/graphics/gpu/webgpu_mailbox_texture.cc b/third_party/blink/renderer/platform/graphics/gpu/webgpu_mailbox_texture.cc
 index 8d419f75373bcad7e210a8d24a83dffcfde8cb53..93096e67e0353636e382a26b8b631edc0db002f5 100644
 --- a/third_party/blink/renderer/platform/graphics/gpu/webgpu_mailbox_texture.cc
