@@ -62,6 +62,7 @@ export interface TranslationEvent extends ShellServiceEvent, TranslationIdentity
   supported?: boolean;
   frameScope?: 'mainFrame';
   state?: TranslationStatus;
+  detectedLanguage?: string;
   sourceLanguage?: string;
   targetLanguage?: string;
   prefetchViewportRatio?: number;

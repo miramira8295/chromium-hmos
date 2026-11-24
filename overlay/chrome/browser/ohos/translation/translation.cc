@@ -12,6 +12,8 @@
 #include "base/supports_user_data.h"
 #include "base/timer/timer.h"
 #include "base/unguessable_token.h"
+#include "chrome/browser/translate/chrome_translate_client.h"
+#include "components/translate/core/browser/language_state.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/ohos/shell_services_ohos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -229,7 +231,13 @@ class Page : public content::WebContentsObserver,
       // State discovery must always expose the current document after
       // navigation.
       e.Set("navigationId", Navigation());
-      Send(ctx.widget, std::move(e));
+      if (input.FindBool("inspectPageLanguage").value_or(false) && Supported() &&
+          !ctx.profile->IsOffTheRecord() &&
+          web_contents()->GetVisibility() == content::Visibility::VISIBLE) {
+        InspectLanguage(ctx.widget, std::move(e));
+      } else {
+        Send(ctx.widget, std::move(e));
+      }
       return;
     }
     if (Str(input, "contextId") != context_ ||
@@ -418,6 +426,61 @@ class Page : public content::WebContentsObserver,
         content::WebContentsUserData<Page>(*wc),
         context_(
             Context(Profile::FromBrowserContext(wc->GetBrowserContext()))) {}
+  void InspectLanguage(gfx::AcceleratedWidget widget, base::DictValue reply) {
+    std::string detected;
+    if (auto* client = ChromeTranslateClient::FromWebContents(web_contents())) {
+      const auto& state = client->GetLanguageState();
+      detected = state.source_language();
+      if (state.IsPageTranslated() || state.translation_pending() ||
+          (!detected.empty() && !state.page_level_translation_criteria_met())) {
+        reply.Set("detectedLanguage", "");
+        Send(widget, std::move(reply));
+        return;
+      }
+    }
+    // Inspect the main document in an isolated world. Only eligibility and its
+    // declared language cross the renderer boundary, never the sampled text.
+    web_contents()->GetPrimaryMainFrame()->ExecuteJavaScriptInIsolatedWorld(
+        uR"JS((() => {
+          const root = document.documentElement;
+          if (!document.body || root.translate === false ||
+              document.querySelector('meta[name="google" i][content="notranslate" i],meta[name="google" i][value="notranslate" i]')) return null;
+          const body = document.querySelector('main,article,[role="main"]') || document.body;
+          const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+          let sample = "";
+          for (let n, visited = 0; visited < 384 && sample.length < 512 && (n = walker.nextNode()); ++visited) {
+            const parent = n.parentElement;
+            if (!parent || parent.closest('script,style,noscript,form,nav,footer,pre,code,.notranslate,textarea,input,select,[hidden],[aria-hidden="true"],[contenteditable]:not([contenteditable="false"]),[translate="no" i]') ||
+                !parent.checkVisibility({visibilityProperty:true})) continue;
+            sample += (n.data.slice(0, 512).match(/\p{L}/gu) || []).join('');
+          }
+          if (sample.length < 40) return null;
+          const declared = (root.lang || document.querySelector('meta[http-equiv="content-language" i]')?.content || '').trim().slice(0,64);
+          // A site-wide English lang is common even on predominantly CJK articles.
+          const eastAsian = (sample.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || []).length;
+          return {declared, mostlyCjk: eastAsian > sample.length * 0.65};
+        })())JS",
+        base::BindOnce(&Page::LanguageInspected, weak_.GetWeakPtr(), widget,
+                       std::move(reply), Navigation(), std::move(detected)),
+        ISOLATED_WORLD_ID_LUMIE_TRANSLATION);
+  }
+  void LanguageInspected(gfx::AcceleratedWidget widget, base::DictValue reply,
+                         std::string navigation, std::string detected,
+                         base::Value sample) {
+    std::string language;
+    if (navigation == Navigation() && sample.is_dict()) {
+      const auto& info = sample.GetDict();
+      language = detected.empty() || detected == "und" ? Str(info, "declared")
+                                                      : detected;
+      if (info.FindBool("mostlyCjk").value_or(false) &&
+          !language.starts_with("zh") && !language.starts_with("ja") &&
+          !language.starts_with("ko")) {
+        language.clear();
+      }
+    }
+    reply.Set("detectedLanguage", Language(language, false) ? language : "");
+    Send(widget, std::move(reply));
+  }
   void Execute(base::DictValue c, base::OnceCallback<void(base::Value)> cb) {
     std::string json;
     base::JSONWriter::Write(c, &json);

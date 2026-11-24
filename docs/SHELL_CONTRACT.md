@@ -1378,6 +1378,12 @@ The HAR exports `TranslationTypes` and translation fields on `BrowserCommandPayl
 The eight commands are `getTranslationCapabilities`, `getTranslationState`,
 `startTranslation`, `takeTranslationBatch`, `applyTranslationBatch`,
 `releaseTranslationBatch`, `setTranslationPresentation`, `stopTranslation`.
+For a visible regular tab, `getTranslationState` can include
+`inspectPageLanguage: true`. A capable engine returns `detectedLanguage` on
+the document-scoped reply. An empty string means no offer. Clients ignore
+absent fields on older builds. This read-only query does not start a
+translation session or return document text.
+
 Full identities, fields, error codes, examples, budgets and lifecycle policy are
 specified in [OHOS_VIEWPORT_TRANSLATION.md](OHOS_VIEWPORT_TRANSLATION.md).
 

@@ -513,6 +513,7 @@ export interface BrowserCommandPayload {
   // Translation v1: use native-issued identities from getTranslationState/start.
   sessionId?: string;
   batchId?: string;
+  inspectPageLanguage?: boolean;
   sourceLanguage?: string;
   targetLanguage?: string;
   uiLanguage?: string;
