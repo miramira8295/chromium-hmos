@@ -2796,7 +2796,7 @@ index 10f135eb45268c39e7e9f785f6ca9b38b086c8de..9b6b48ba32d00c1281f416c44324b9c1
  </translationbundle>
 \ No newline at end of file
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index f0f529901a3fcde87402a508a627cdfc2419be42..1fa1ad3734b5f7a008f3d89d1f84128398fa9057 100644
+index f0f529901a3fcde87402a508a627cdfc2419be42..53846e3f3a5d85ecdcc090e6e3f11c2399228251 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
 @@ -103,9 +103,9 @@ buildflag_header("buildflags") {
@@ -3075,6 +3075,15 @@ index f0f529901a3fcde87402a508a627cdfc2419be42..1fa1ad3734b5f7a008f3d89d1f841283
      deps += [
        "//chrome/browser/profiles/batch_upload",
        "//chrome/browser/profiles/batch_upload:impl",
+@@ -4056,7 +4238,7 @@ source_set("browser") {
+       "Carbon.framework",
+       "Quartz.framework",
+     ]
+-  } else {
++  } else if (is_win || is_linux || is_android || is_chromeos) {
+     public_deps += [ "//chrome/browser/privacy:traffic_annotation_proto" ]
+   }
+   if (enable_extensions_core) {
 @@ -4214,6 +4396,9 @@ source_set("browser") {
    if (is_linux || is_chromeos) {
      deps += [ "//third_party/fontconfig" ]
@@ -6498,10 +6507,10 @@ index f25b1e1c51ddf99536ad9043fa9b0c5d66055d66..b465b468c86b8683bc6c5ae4745c4045
    // in binary wire format from the file at |preload_data_path|.
    void LoadFromDisk(const base::FilePath& preload_data_path,
 diff --git a/chrome/browser/permissions/system/BUILD.gn b/chrome/browser/permissions/system/BUILD.gn
-index ae97d6144da21d49f5182d4423fe5a21faf01a46..8f204e0adc94496a8c56c877aa626198191a54d4 100644
+index ae97d6144da21d49f5182d4423fe5a21faf01a46..a01bc8a3f32d88805533ab7872aa2048d7b37dd6 100644
 --- a/chrome/browser/permissions/system/BUILD.gn
 +++ b/chrome/browser/permissions/system/BUILD.gn
-@@ -66,6 +66,12 @@ source_set("system") {
+@@ -66,6 +66,11 @@ source_set("system") {
        "system_media_source_win.h",
        "system_permission_settings_win.cc",
      ]
@@ -6510,7 +6519,6 @@ index ae97d6144da21d49f5182d4423fe5a21faf01a46..8f204e0adc94496a8c56c877aa626198
 +      "system_permission_settings_ohos.cc",
 +      "system_permission_settings_ohos.h",
 +    ]
-+    deps += [ "//chrome/browser:browser_public_dependencies" ]
    } else {
      sources += [ "system_permission_settings_default.cc" ]
    }
@@ -13826,6 +13834,32 @@ index 94db0848b38cc975bede7f8b88b80c6ca64ae8ee..9420c2f8f0cb5c1de3f69e4a6396a37b
    void OnDidClosePage(const base::ListValue& args);
    void HandleSetDatatypes(const base::ListValue& args);
    void HandleSetEncryptionPassphrase(const base::ListValue& args);
+diff --git a/chrome/browser/ui/webui/settings/search/BUILD.gn b/chrome/browser/ui/webui/settings/search/BUILD.gn
+index 305bdcce0f730fb662ec5085e5c0ee7256ea26fc..1b9a030f82b50ce5902c3e8bb2b5843704a6bf96 100644
+--- a/chrome/browser/ui/webui/settings/search/BUILD.gn
++++ b/chrome/browser/ui/webui/settings/search/BUILD.gn
+@@ -2,7 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
+-assert(is_win || is_mac || is_linux || is_chromeos)
++assert(is_win || is_mac || is_linux || is_chromeos || is_ohos)
+ 
+ # Native search backend for desktop chrome://settings.
+ source_set("search") {
+diff --git a/chrome/browser/ui/webui/settings/search/mojom/BUILD.gn b/chrome/browser/ui/webui/settings/search/mojom/BUILD.gn
+index ab9b2c589ac512724e3b5a1481412c9450eb63d1..ac6e8d6110976a9a2ac2eb37303efeca9f080e55 100644
+--- a/chrome/browser/ui/webui/settings/search/mojom/BUILD.gn
++++ b/chrome/browser/ui/webui/settings/search/mojom/BUILD.gn
+@@ -4,7 +4,7 @@
+ 
+ import("//mojo/public/tools/bindings/mojom.gni")
+ 
+-assert(is_win || is_mac || is_linux || is_chromeos)
++assert(is_win || is_mac || is_linux || is_chromeos || is_ohos)
+ 
+ mojom("mojom") {
+   sources = [
 diff --git a/chrome/browser/ui/webui/settings/settings_default_browser_handler.cc b/chrome/browser/ui/webui/settings/settings_default_browser_handler.cc
 index 3e91ea65ffb9c804abf6470f1fee9b10a529d4c3..5eddc9dbf8ca8c3c757cad2e12faa7246965900e 100644
 --- a/chrome/browser/ui/webui/settings/settings_default_browser_handler.cc
