@@ -8,12 +8,12 @@
 资源标识集中在 [config.json](config.json)：
 
 - 地域 `eu-central-1`。
-- 启动模板 `lt-gw8eis82pr9mv0e4sqjt`，固定版本 `3`（32 vCPU / 32 GB，编译并发 j26；保留 swap 兜底）。
+- 启动模板 `lt-gw8eis82pr9mv0e4sqjt`，固定版本 `5`（32 vCPU / 64 GB，编译并发 j32；保留 swap 兜底）。
 - 抢占式实例显式设置 `SpotDuration=1`，创建后提供一小时保护期；超过后仍可能回收。
-- 长期数据盘 `d-gw8hklmz2vbu7gozleno`，文件系统 UUID
+- 长期数据盘 `d-gw8fafb18ed971182e8k`，文件系统 UUID
   `7e5aa3ce-605e-432a-b833-89516c643543`。
 - OIDC Audience `sts.aliyuncs.com`，角色和身份提供商 ARN 也在配置文件内。
-- 当前数据盘仅用于 Chromium 157，编译并行数 32。
+- 当前数据盘仅用于 Chromium 158，编译并行数 32。
 
 ARN、资源 ID、UUID 均不是凭证。SSH 私钥只能存于 GitHub Actions Secret
 `ALIYUN_SSH_KEY`，不得提交到仓库。此 Secret 已由用户配置，2026-11-19 已确认仓库中存在。
@@ -61,7 +61,7 @@ API 22 / Native 6.0.2.130 缺少 `native_avplaybackstate.h` 和 VP9/AV1 profile 
 将本机已安装的官方 SDK 26.0.0.105 的完整目标 sysroot 上传到保留盘，
 保留 Linux 主机工具；目标库已核对为 OHOS ELF（非 macOS 主机库）。
 原 sysroot 备份为 native/sysroot-api22-6.0.2.130-backup，当前链接指向
-`/root/chromium-157/toolchain/target-sdk-26.0.0.105/sysroot`。
+`/root/chromium-158/toolchain/target-sdk-26.0.0.105/sysroot`。
 更新保留了 1612 个内容一致文件的时间戳，883 个新增/修改文件标记为更新；
 来源、SHA256 和备份路径写在盘内 `toolchain/target-sdk-receipt.json`。
 恢复服务后，之前失败的两个媒体对象已编译通过；完整编译和 HAR 发布仍待验证。
@@ -115,7 +115,7 @@ DocumentSaveOptions.autoCreateEmptyFile。打包工具改为独立的 Linux CLT 
 
 ## 执行过程
 
-沿用 `Incremental build`，157 使用 GitHub 托管调度机；155 保留原有独立 runner。
+沿用 `Incremental build`，158 使用 GitHub 托管调度机；155 保留原有独立 runner。
 全局 workflow concurrency 锁保持原样。
 
 1. 从 GitHub OIDC 获取临时 STS 凭证，只留在调度端，每 50 分钟按需刷新。
@@ -125,7 +125,7 @@ DocumentSaveOptions.autoCreateEmptyFile。打包工具改为独立的 Linux CLT 
 4. 保存实例 ID，挂载长期盘时显式设置 `DeleteWithInstance=false`，并查询核实。
 5. 通过本轮独立 known_hosts 建立 SSH，上传包含指定提交历史的 Git bundle。
    实例不接收 GitHub token、云 API 凭证或 SSH 私钥。
-6. systemd 服务按 UUID 挂盘至 `/root/chromium-157`，取得与手动构建共用的
+6. systemd 服务按 UUID 挂盘至 `/root/chromium-158`，取得与手动构建共用的
    `ci/build.lock`，从 bundle 创建独立任务仓库，保留旧的手动 repo/。
 7. 校验源码版本、SDK 和适配，修复 Ninja 记录中零字节的可重建产物，
    执行现有 `ci-incremental-build.sh`，`NINJA_JOBS=32 SKIP_HAP=1`。

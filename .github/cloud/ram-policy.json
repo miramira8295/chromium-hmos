@@ -55,7 +55,10 @@
     {
       "Effect": "Allow",
       "Action": ["ecs:AttachDisk", "ecs:DetachDisk"],
-      "Resource": "acs:ecs:eu-central-1:1349864334375917:disk/d-gw8hklmz2vbu7gozleno"
+      "Resource": [
+        "acs:ecs:eu-central-1:1349864334375917:disk/d-gw8hklmz2vbu7gozleno",
+        "acs:ecs:eu-central-1:1349864334375917:disk/d-gw8fafb18ed971182e8k"
+      ]
     }
   ]
 }

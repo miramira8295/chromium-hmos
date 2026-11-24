@@ -1,13 +1,13 @@
 {
   "region": "eu-central-1",
   "launch_template_id": "lt-gw8eis82pr9mv0e4sqjt",
-  "launch_template_version": "3",
-  "disk_id": "d-gw8hklmz2vbu7gozleno",
+  "launch_template_version": "5",
+  "disk_id": "d-gw8fafb18ed971182e8k",
   "disk_uuid": "7e5aa3ce-605e-432a-b833-89516c643543",
-  "engine_major": 157,
+  "engine_major": 158,
   "packaging_clt": "harmonyos-clt-6.1.1.280/command-line-tools",
   "role_arn": "acs:ram::1349864334375917:role/chromium-ci",
   "oidc_provider_arn": "acs:ram::1349864334375917:oidc-provider/github-action",
   "audience": "sts.aliyuncs.com",
-  "jobs": 26
+  "jobs": 32
 }

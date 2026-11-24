@@ -98,7 +98,7 @@ class LifecycleTest(unittest.TestCase):
         self.root = Path(self.folder.name)
         self.env = patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo',
                               'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1',
-                              'GITHUB_REF_NAME': 'hmos-157-adapter',
+                              'GITHUB_REF_NAME': f'hmos-{CONFIG["engine_major"]}-adapter',
                               'GITHUB_SHA': '1' * 40, 'RUNNER_TEMP': str(self.root)}, clear=True)
         self.env.start()
         self.root_patch = patch.object(cloud, 'ROOT', self.root)
