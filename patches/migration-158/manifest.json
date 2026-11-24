@@ -8,15 +8,15 @@
       "path": ".",
       "patch": "chromium.patch",
       "source_base": "0cefb18236a23db1ebb6b2bc040fbbaf8cbe759e",
-      "sha256": "f597d58fe784a47aa3887ac57abc2d136a3e972eebad318ad1c05aa87766e657",
-      "bytes": 1780030
+      "sha256": "fcf9985054d4eb48cc769c8af6ffcdd8cbe70d46e9310c792d92fc74e4bfb997",
+      "bytes": 1780907
     },
     {
       "path": "v8",
       "patch": "v8.patch",
       "source_base": "b601a2347f005e8bfadd32f285df97ffba5cf1bd",
-      "sha256": "8fd14dd82bc97c0b04592bde14935c9f155a1f10a7bb41167e809cdd39fee875",
-      "bytes": 17557
+      "sha256": "5aa047450abfee9b9bf82b5b347e6be47bc3a8fe4d9d63eee6ba901f8ccf5079",
+      "bytes": 34998
     },
     {
       "path": "third_party/angle",

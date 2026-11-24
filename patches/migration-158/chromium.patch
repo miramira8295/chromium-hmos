@@ -5786,7 +5786,7 @@ index 93a6ab81098a7296ea1ce99428125691b54ac963..2567aed66482204f27a7b90c68c56911
 +}  // namespace glic
 \ No newline at end of file
 diff --git a/chrome/browser/global_features.cc b/chrome/browser/global_features.cc
-index 5421a2ec047521fac469fd7c90fecd57b298e430..cf10e8f00a243a6f0b319da17f2dd114cac194ce 100644
+index 5421a2ec047521fac469fd7c90fecd57b298e430..0d83a0e7c0a1c58bca1f3bfcff31730dd89a41b7 100644
 --- a/chrome/browser/global_features.cc
 +++ b/chrome/browser/global_features.cc
 @@ -44,8 +44,12 @@
@@ -5803,7 +5803,7 @@ index 5421a2ec047521fac469fd7c90fecd57b298e430..cf10e8f00a243a6f0b319da17f2dd114
  #include "chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt_manager.h"
  #include "chrome/browser/ui/webui/whats_new/whats_new_registrar.h"
  #endif
-@@ -191,7 +195,7 @@ void GlobalFeatures::PostBrowserProcessInit() {
+@@ -191,14 +195,16 @@ void GlobalFeatures::PostBrowserProcessInit() {
    }
  #endif  // !BUILDFLAG(IS_ANDROID)
  
@@ -5812,6 +5812,25 @@ index 5421a2ec047521fac469fd7c90fecd57b298e430..cf10e8f00a243a6f0b319da17f2dd114
    default_browser_manager_ =
        GetUserDataFactory()
            .CreateInstance<default_browser::DefaultBrowserManager>(
+               *g_browser_process, g_browser_process,
+               default_browser::DefaultBrowserManager::CreateDefaultDelegate(),
+               base::BindRepeating(&ProfileManager::GetLastUsedProfile));
++#endif
+ 
++#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+   if (base::FeatureList::IsEnabled(features::kScheduledRestart)) {
+     scheduled_restart_manager_ = CreateScheduledRestartManager();
+     scheduled_restart_bubble_controller_ =
+@@ -333,6 +339,9 @@ void GlobalFeatures::PostMainMessageLoopRun() {
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+   DefaultBrowserPromptManager::GetInstance()->CloseAllPrompts(
+       DefaultBrowserPromptManager::CloseReason::kDismiss);
++#endif
++#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
++    BUILDFLAG(IS_OHOS)
+   default_browser_manager_.reset();
+ #endif
+ }
 diff --git a/chrome/browser/global_features.h b/chrome/browser/global_features.h
 index 6fdfa2869523cdf2218bcdb6f7fd0365878b15f7..7101588630bf1d0aac3bfbec79bf3d7c25645d1a 100644
 --- a/chrome/browser/global_features.h
