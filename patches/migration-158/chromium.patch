@@ -10612,7 +10612,7 @@ index bdfbb57337e1a6884a65b259d1009832fa1a22af..dd1195dc3c8f857d73b269be40bbf7b1
  import("//chrome/common/features.gni")
  
 diff --git a/chrome/browser/ui/tabs/tab_features.cc b/chrome/browser/ui/tabs/tab_features.cc
-index 5b0269fbf610314036f884b08407fc65c182ce60..0330f7b82fb9096fa0c8aed4be93376e487320f0 100644
+index 5b0269fbf610314036f884b08407fc65c182ce60..bc6fcc99a88c07c909618cf9b412f2d749f0930b 100644
 --- a/chrome/browser/ui/tabs/tab_features.cc
 +++ b/chrome/browser/ui/tabs/tab_features.cc
 @@ -4,6 +4,11 @@
@@ -10647,6 +10647,17 @@ index 5b0269fbf610314036f884b08407fc65c182ce60..0330f7b82fb9096fa0c8aed4be93376e
    CreateSessionServiceTabHelper(tab.GetContents());
  
    zoom::ZoomController::CreateForWebContents(tab.GetContents());
+@@ -1507,6 +1516,10 @@ void TabFeatures::WillDiscardContents(tabs::TabInterface* tab,
+ 
+   Profile* profile = tab->GetBrowserWindowInterface()->GetProfile();
+ 
++#if BUILDFLAG(IS_OHOS)
++  chrome::ohos::WatchChromeWebStoreUserAgent(new_contents);
++  chrome::ohos::WatchFullscreenVideoOrientation(new_contents);
++#endif
+   CreateSessionServiceTabHelper(new_contents);
+ 
+   zoom::ZoomController::CreateForWebContents(new_contents);
 diff --git a/chrome/browser/ui/task_manager/BUILD.gn b/chrome/browser/ui/task_manager/BUILD.gn
 index 539d51d7855bd031396b500e9474323a9db18206..0c99b5d62a808d9256f475715140a67fa71d50a6 100644
 --- a/chrome/browser/ui/task_manager/BUILD.gn
@@ -23108,23 +23119,67 @@ index 8c0e96d2c77ead11da082d9715004c3cf26acfae..698985e2f176b21a8314aaf82b0285f5
  bool OverscrollConfig::TouchpadOverscrollHistoryNavigationEnabled() {
    if (!g_is_touchpad_overscroll_history_navigation_enabled_initialized) {
 diff --git a/content/browser/renderer_host/overscroll_controller.cc b/content/browser/renderer_host/overscroll_controller.cc
-index 3285229fd361126f8e861fea3371b496d27ab102..b7cf63211bd08108ecfc9ecf6123f9b44839a0fe 100644
+index 3285229fd361126f8e861fea3371b496d27ab102..fe2289c05dd11ab483a86f6afbc89797514e5e5e 100644
 --- a/content/browser/renderer_host/overscroll_controller.cc
 +++ b/content/browser/renderer_host/overscroll_controller.cc
-@@ -306,6 +306,12 @@ bool OverscrollController::DispatchEventCompletesAction(
+@@ -22,6 +22,18 @@ namespace content {
+ 
+ namespace {
+ 
++constexpr float kFlingVelocityThreshold = 1100.f;
++
++#if BUILDFLAG(IS_OHOS)
++constexpr base::TimeDelta kPullToRefreshCoolOffDelay = base::Milliseconds(600);
++
++bool IsPullToRefreshFling(const blink::WebGestureEvent& gesture) {
++  return gesture.SourceDevice() == blink::WebGestureDevice::kTouchscreen &&
++         fabs(gesture.data.fling_start.velocity_x) <= kFlingVelocityThreshold &&
++         gesture.data.fling_start.velocity_y > kFlingVelocityThreshold;
++}
++#endif
++
+ bool IsGestureEventFromTouchpad(const blink::WebInputEvent& event) {
+   CHECK(blink::WebInputEvent::IsGestureEventType(event.GetType()),
+         base::NotFatalUntil::M154);
+@@ -114,11 +126,20 @@ bool OverscrollController::WillHandleEvent(const blink::WebInputEvent& event) {
+   if (event.GetType() == blink::WebInputEvent::Type::kGestureScrollBegin) {
+     ignore_following_inertial_events_ = false;
+     first_inertial_event_time_.reset();
++#if BUILDFLAG(IS_OHOS)
++    pull_started_during_cooldown_ = event.TimeStamp() < next_pull_to_refresh_time_;
++    pull_ignored_ = false;
++#endif
+     // Will handle events when processing ACKs to ensure the correct order.
+     return false;
+   }
+ 
+   if (event.GetType() == blink::WebInputEvent::Type::kGestureScrollEnd) {
++#if BUILDFLAG(IS_OHOS)
++    if (scroll_state_ == ScrollState::CONTENT_CONSUMING || pull_ignored_) {
++      next_pull_to_refresh_time_ = event.TimeStamp() + kPullToRefreshCoolOffDelay;
++    }
++#endif
+     // Will handle events when processing ACKs to ensure the correct order.
+     return false;
+   }
+@@ -306,6 +327,16 @@ bool OverscrollController::DispatchEventCompletesAction(
            return false;
          }
          break;
 +#if BUILDFLAG(IS_OHOS)
 +      case OVERSCROLL_SOUTH:
-+        if (gesture.data.fling_start.velocity_y < 0)
++        if (gesture.data.fling_start.velocity_y < 0) {
 +          return false;
++        }
++        if (IsPullToRefreshFling(gesture)) {
++          return true;
++        }
 +        break;
 +#endif
        case OVERSCROLL_WEST:
          if (gesture.data.fling_start.velocity_x > 0) {
            return false;
-@@ -321,8 +327,12 @@ bool OverscrollController::DispatchEventCompletesAction(
+@@ -321,8 +352,12 @@ bool OverscrollController::DispatchEventCompletesAction(
      return false;
    }
  
@@ -23139,7 +23194,23 @@ index 3285229fd361126f8e861fea3371b496d27ab102..b7cf63211bd08108ecfc9ecf6123f9b4
    const float threshold =
        overscroll_source_ == OverscrollSource::TOUCHPAD
            ? OverscrollConfig::kCompleteTouchpadThresholdPercent
-@@ -477,6 +487,12 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
+@@ -416,9 +451,14 @@ bool OverscrollController::ProcessEventForOverscroll(
+       break;
+     }
+     case blink::WebInputEvent::Type::kGestureFlingStart: {
+-      const float kFlingVelocityThreshold = 1100.f;
+       const blink::WebGestureEvent& gesture =
+           static_cast<const blink::WebGestureEvent&>(event);
++#if BUILDFLAG(IS_OHOS)
++      if (overscroll_mode_ == OVERSCROLL_SOUTH && IsPullToRefreshFling(gesture)) {
++        CompleteAction();
++        return true;
++      }
++#endif
+       float velocity_x = gesture.data.fling_start.velocity_x;
+       if (fabs(velocity_x) > kFlingVelocityThreshold) {
+         if ((overscroll_mode_ == OVERSCROLL_WEST && velocity_x < 0) ||
+@@ -477,6 +517,12 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
            overscroll_delta_x_ = ClampAbsoluteValue(
                overscroll_delta_x_, cap.value() + start_threshold);
            break;
@@ -23152,7 +23223,7 @@ index 3285229fd361126f8e861fea3371b496d27ab102..b7cf63211bd08108ecfc9ecf6123f9b4
          case OVERSCROLL_NONE:
            break;
        }
-@@ -493,6 +509,15 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
+@@ -493,6 +539,19 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
      new_mode = overscroll_delta_x_ > 0.f ? OVERSCROLL_EAST : OVERSCROLL_WEST;
    }
  
@@ -23161,14 +23232,18 @@ index 3285229fd361126f8e861fea3371b496d27ab102..b7cf63211bd08108ecfc9ecf6123f9b4
 +      OverscrollConfig::GetOhosPullToRefreshCallback() &&
 +      overscroll_delta_y_ > start_threshold &&
 +      overscroll_delta_y_ > fabs(overscroll_delta_x_) * kMinRatio) {
-+    new_mode = OVERSCROLL_SOUTH;
++    if (pull_started_during_cooldown_) {
++      pull_ignored_ = true;
++    } else {
++      new_mode = OVERSCROLL_SOUTH;
++    }
 +  }
 +#endif
 +
    // The horizontal overscroll is used for history navigation. Enable it for
    // touchpad only if TouchpadOverscrollHistoryNavigation is enabled.
    if ((new_mode == OVERSCROLL_EAST || new_mode == OVERSCROLL_WEST) &&
-@@ -517,6 +542,10 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
+@@ -517,6 +576,10 @@ bool OverscrollController::ProcessOverscroll(float delta_x,
    if (delegate_) {
      // Do not include the threshold amount when sending the deltas to the
      // delegate.
@@ -23180,7 +23255,7 @@ index 3285229fd361126f8e861fea3371b496d27ab102..b7cf63211bd08108ecfc9ecf6123f9b4
      if (fabs(delegate_delta_x) > start_threshold) {
        if (delegate_delta_x < 0) {
 diff --git a/content/browser/renderer_host/overscroll_controller.h b/content/browser/renderer_host/overscroll_controller.h
-index 2ebca75bda957fd7ea2134adbc8a5466ccc8fd55..081f4725966245aa036a8adfc96d79c7d1bb28f7 100644
+index 2ebca75bda957fd7ea2134adbc8a5466ccc8fd55..b625ebaffd87624a50d908e4ef5eb865010e324c 100644
 --- a/content/browser/renderer_host/overscroll_controller.h
 +++ b/content/browser/renderer_host/overscroll_controller.h
 @@ -9,6 +9,7 @@
@@ -23207,6 +23282,21 @@ index 2ebca75bda957fd7ea2134adbc8a5466ccc8fd55..081f4725966245aa036a8adfc96d79c7
  
  // Indicates the source device that was used to trigger the overscroll gesture.
  enum class OverscrollSource {
+@@ -164,6 +172,14 @@ class CONTENT_EXPORT OverscrollController {
+   // need to be ignored.
+   bool ignore_following_inertial_events_ = false;
+ 
++#if BUILDFLAG(IS_OHOS)
++  // Classify the whole gesture by its start time, even if it lasts past the
++  // cooldown. A rejected pull starts another cooldown when the gesture ends.
++  base::TimeTicks next_pull_to_refresh_time_;
++  bool pull_started_during_cooldown_ = false;
++  bool pull_ignored_ = false;
++#endif
++
+   // On Windows, we don't generate the inertial events (fling) but receive them
+   // from Win API. In some cases, we get a long tail of inertial events for a
+   // couple of seconds. The overscroll animation feels like stuck in these
 diff --git a/content/browser/renderer_host/render_frame_host_impl.cc b/content/browser/renderer_host/render_frame_host_impl.cc
 index ae294eab673e6e39b3e536f0ce00ae447beec5d2..5815e4309f1fa7fe9364bc8a646609dc17cb0680 100644
 --- a/content/browser/renderer_host/render_frame_host_impl.cc
@@ -28077,10 +28167,20 @@ index 7082be89cd002ccf07771a6f7f803a0fa60045a8..5200890fda458ab2c5e57693a8602192
  #endif
  
 diff --git a/gpu/command_buffer/service/shared_image/compound_image_backing.cc b/gpu/command_buffer/service/shared_image/compound_image_backing.cc
-index 688d966e97a0035d7a1e7f0b047cd7de758c34a6..c9257e6094a1b6ec35e02e0bd9d39be5a03b5a5c 100644
+index 688d966e97a0035d7a1e7f0b047cd7de758c34a6..887e996af3aae9475dcb97035779a4358eebd7c2 100644
 --- a/gpu/command_buffer/service/shared_image/compound_image_backing.cc
 +++ b/gpu/command_buffer/service/shared_image/compound_image_backing.cc
-@@ -497,6 +497,15 @@ class WrappedDawnCompoundImageRepresentation : public DawnImageRepresentation {
+@@ -66,7 +66,8 @@ gfx::GpuMemoryBufferType GetNativeBufferType() {
+   return gfx::GpuMemoryBufferType::IO_SURFACE_BUFFER;
+ #elif BUILDFLAG(IS_ANDROID)
+   return gfx::GpuMemoryBufferType::ANDROID_HARDWARE_BUFFER;
+-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)
++#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || \
++    BUILDFLAG(IS_OHOS)
+   return gfx::GpuMemoryBufferType::NATIVE_PIXMAP;
+ #elif BUILDFLAG(IS_WIN)
+   return gfx::GpuMemoryBufferType::DXGI_SHARED_HANDLE;
+@@ -497,6 +498,15 @@ class WrappedDawnCompoundImageRepresentation : public DawnImageRepresentation {
      DCHECK(wrapped_);
    }
  
@@ -39196,19 +39296,18 @@ index 1d9e9a46ee9e5c96e3171c8077a054f8fd5c5707..2dbc34be840922d3a94f2d1f7f16f0ac
    SkFontConfigInterface::FontIdentity font_identity;
    font_identity.fID = config_id;
 diff --git a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-index 3133509f4e25086345042d11456f12b2bedff314..354020e74464cd554bcda212f0ce9a80a14137b6 100644
+index 3133509f4e25086345042d11456f12b2bedff314..cb0502f54f708f07248edd4a15a017ccc8ea3b4e 100644
 --- a/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
 +++ b/third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.cc
-@@ -9,6 +9,8 @@
+@@ -9,6 +9,7 @@
  #include "base/feature_list.h"
  #include "base/task/single_thread_task_runner.h"
  #include "base/trace_event/trace_event.h"
 +#include "build/build_config.h"
-+#include "cc/paint/tone_map_util.h"
  #include "components/viz/common/quads/compositor_frame.h"
  #include "components/viz/common/quads/texture_draw_quad.h"
  #include "components/viz/common/resources/release_callback.h"
-@@ -28,6 +30,7 @@
+@@ -28,9 +29,11 @@
  #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
  #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
  #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -39216,6 +39315,10 @@ index 3133509f4e25086345042d11456f12b2bedff314..354020e74464cd554bcda212f0ce9a80
  #include "ui/gfx/geometry/point_f.h"
  #include "ui/gfx/geometry/size_f.h"
  #include "ui/gfx/mojom/presentation_feedback.mojom-blink.h"
++#include "ui/gfx/tone_map_util.h"
+ 
+ namespace {
+ // Frame delay for synthetic frame timing.
 @@ -156,6 +159,20 @@ void CanvasResourceDispatcher::PrepareFrame(
      sii->VerifySyncToken(resource.mutable_sync_token());
    }
@@ -39228,8 +39331,8 @@ index 3133509f4e25086345042d11456f12b2bedff314..354020e74464cd554bcda212f0ce9a80
 +  // transfer HDR metadata, without promoting ordinary P3 SDR to HDR.
 +  frame->metadata.content_color_usage =
 +      resource.GetColorSpace().GetContentColorUsage();
-+  if (cc::ToneMapUtil::IsHDR(resource.GetColorSpace(),
-+                             resource.hdr_metadata)) {
++  if (gfx::ToneMapUtil::IsHDR(resource.GetColorSpace(),
++                              resource.hdr_metadata)) {
 +    frame->metadata.content_color_usage = gfx::ContentColorUsage::kHDR;
 +  }
 +#endif
