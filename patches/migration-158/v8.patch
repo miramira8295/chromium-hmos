@@ -242,6 +242,51 @@ index 9eda40c51efc3fd1856dabdce0ece9217f203df5..e07db90b96e129574c72e3d2db54d081
  
    // Kernel 6.12 seems to be the first release to have the necessary fixes
    // that support signal delivery when the stack uses a non-default pkey:
+diff --git a/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc b/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
+index 04d5afd4bdad8a7b8b4792c2715204980128f4ca..c7957af58fe966c301d97d0e4042abf2af79aac8 100644
+--- a/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
++++ b/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
+@@ -586,8 +586,8 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
+   DEFINE_REG(flags);
+   __ Ldr(flags, FieldMemOperand(shared_function_info,
+                                 offsetof(SharedFunctionInfo, flags_)));
+-  __ Tst(flags, Immediate(SharedFunctionInfo::IsNativeBit::kMask |
+-                          SharedFunctionInfo::IsStrictBit::kMask));
++  __ Tst(flags, Immediate(SharedFunctionInfo::Flags::IsNativeBit::kMask |
++                          SharedFunctionInfo::Flags::IsStrictBit::kMask));
+   FREE_REG(flags);
+   __ B(&receiver_undefined, ne);
+   __ LoadGlobalProxy(receiver);
+diff --git a/src/wasm/interpreter/riscv/interpreter-builtins-riscv.cc b/src/wasm/interpreter/riscv/interpreter-builtins-riscv.cc
+index 4214fffe33906618ecc1a56ddd3850f7dd7732a7..686e4454faec9423591cd4e0b2c5a84ed32d953d 100644
+--- a/src/wasm/interpreter/riscv/interpreter-builtins-riscv.cc
++++ b/src/wasm/interpreter/riscv/interpreter-builtins-riscv.cc
+@@ -607,8 +607,8 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
+   __ LoadWord(flags, FieldMemOperand(shared_function_info,
+                                      offsetof(SharedFunctionInfo, flags_)));
+   __ Branch(&receiver_undefined, ne, flags,
+-            Operand(SharedFunctionInfo::IsNativeBit::kMask |
+-                    SharedFunctionInfo::IsStrictBit::kMask));
++            Operand(SharedFunctionInfo::Flags::IsNativeBit::kMask |
++                    SharedFunctionInfo::Flags::IsStrictBit::kMask));
+   FREE_REG(flags);
+   __ LoadGlobalProxy(receiver);
+   __ Branch(&calculate_js_function_arity);
+diff --git a/src/wasm/interpreter/x64/interpreter-builtins-x64.cc b/src/wasm/interpreter/x64/interpreter-builtins-x64.cc
+index 8c0e6be57f1ad111aabaecdec84e5ca09f6b7877..3f5500c4954a51df36e22a55718ae29f86f58fb2 100644
+--- a/src/wasm/interpreter/x64/interpreter-builtins-x64.cc
++++ b/src/wasm/interpreter/x64/interpreter-builtins-x64.cc
+@@ -498,8 +498,8 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
+   Register flags = rbx;
+   __ movl(flags, FieldOperand(shared_function_info,
+                               offsetof(SharedFunctionInfo, flags_)));
+-  __ testq(flags, Immediate(SharedFunctionInfo::IsNativeBit::kMask |
+-                            SharedFunctionInfo::IsStrictBit::kMask));
++  __ testq(flags, Immediate(SharedFunctionInfo::Flags::IsNativeBit::kMask |
++                            SharedFunctionInfo::Flags::IsStrictBit::kMask));
+   flags = no_reg;
+   __ j(not_equal, &receiver_undefined);
+   __ LoadGlobalProxy(receiver);
 diff --git a/test/unittests/base/virtual-address-space-unittest.cc b/test/unittests/base/virtual-address-space-unittest.cc
 index 3ac6b7c421d39ca4901a5c83eb2fe68b89d7a285..3b63d6166363a1be4f4cf8843b8ab03f2184734b 100644
 --- a/test/unittests/base/virtual-address-space-unittest.cc

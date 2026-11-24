@@ -15,8 +15,8 @@
       "path": "v8",
       "patch": "v8.patch",
       "source_base": "b601a2347f005e8bfadd32f285df97ffba5cf1bd",
-      "sha256": "0a0a3d6ccbd20f0ba15b0f23850a7667a0b2c759e1c3fb5475adc882780d1850",
-      "bytes": 14676
+      "sha256": "8fd14dd82bc97c0b04592bde14935c9f155a1f10a7bb41167e809cdd39fee875",
+      "bytes": 17557
     },
     {
       "path": "third_party/angle",
