@@ -14,7 +14,7 @@ spec.loader.exec_module(module)
 
 class EngineSelectionTest(unittest.TestCase):
     def test_release_paths_are_distinct_and_pinned(self):
-        for major in (155, 157):
+        for major in (155, 157, 158):
             config = module.select(f'hmos-{major}-adapter')
             self.assertEqual(config['CHROMIUM_SRC'], f'/root/chromium-{major}/src')
             self.assertEqual(config['CHROMIUM_MAJOR'], str(major))

@@ -2680,7 +2680,7 @@ void RestoreRecentlyClosed(BrowserWindowInterface* browser,
     OpenersByClosedEntry().erase(remembered);
   }
   service->RestoreEntryById(context, entry,
-                            WindowOpenDisposition::NEW_FOREGROUND_TAB);
+                            WindowOpenDisposition::kNewForegroundTab);
   // The restored tab is the active one, and it is a new tab with a new id, so
   // the relation has to be made again rather than found. Skipped when the
   // opener has itself been closed in the meantime.
@@ -4216,7 +4216,7 @@ void NavigateOnUiThread(gfx::AcceleratedWidget widget,
   }
 
   content::OpenURLParams params(
-      url, content::Referrer(), WindowOpenDisposition::CURRENT_TAB,
+      url, content::Referrer(), WindowOpenDisposition::kCurrentTab,
       transition, /*is_renderer_initiated=*/false);
   browser->OpenURL(params, {});
 }
@@ -5203,7 +5203,7 @@ void ExecuteBrowserCommandOnUiThread(gfx::AcceleratedWidget widget,
         if (BrowserWindowInterface* incognito =
                 CreateBrowserWindow(std::move(create_params))) {
           incognito->OpenGURL(GURL("chrome://newtab/"),
-                              WindowOpenDisposition::NEW_FOREGROUND_TAB);
+                              WindowOpenDisposition::kNewForegroundTab);
 
         }
       }
@@ -5219,8 +5219,8 @@ void ExecuteBrowserCommandOnUiThread(gfx::AcceleratedWidget widget,
     const std::optional<tab_groups::TabGroupId> group =
         FindGroupById(tabs, command.FindString("groupId"));
     const WindowOpenDisposition disposition =
-        background ? WindowOpenDisposition::NEW_BACKGROUND_TAB
-                   : WindowOpenDisposition::NEW_FOREGROUND_TAB;
+        background ? WindowOpenDisposition::kNewBackgroundTab
+                   : WindowOpenDisposition::kNewForegroundTab;
     if (group) {
       // Into the named group, at its end. PAGE_TRANSITION_LINK rather than
       // TYPED: this came from a link in a page, and the transition is what

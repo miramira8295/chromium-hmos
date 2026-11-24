@@ -67,7 +67,7 @@ TEST_F(RenderFrameHostImplForIncludeTest, SendAccessibilityEvent_BasicCall) {
 
 TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_NoDelegate) {
   GURL target_url = GURL("https://parent.example.test/");
-  WindowOpenDisposition disposition = WindowOpenDisposition::NEW_POPUP;
+  WindowOpenDisposition disposition = WindowOpenDisposition::kNewPopup;
   bool allow_popup = true;
   content::mojom::FrameHost::GetCreateNewWindowCallback callback = base::DoNothing();
   
@@ -82,7 +82,7 @@ TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_NoDelegate) {
 
 TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_AllowPopupTrue) {
   GURL target_url = GURL("https://parent.example.test/");
-  WindowOpenDisposition disposition = WindowOpenDisposition::NEW_POPUP;
+  WindowOpenDisposition disposition = WindowOpenDisposition::kNewPopup;
   bool allow_popup = true;
   content::mojom::FrameHost::GetCreateNewWindowCallback callback = base::DoNothing();
   
@@ -92,7 +92,7 @@ TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_AllowPopupTrue) {
 
 TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_AllowPopupFalse_HasTransientActivation) {
   GURL target_url = GURL("https://parent.example.test/");
-  WindowOpenDisposition disposition = WindowOpenDisposition::NEW_POPUP;
+  WindowOpenDisposition disposition = WindowOpenDisposition::kNewPopup;
   bool allow_popup = false;
   content::mojom::FrameHost::GetCreateNewWindowCallback callback = base::DoNothing();
   
@@ -102,7 +102,7 @@ TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_AllowPopupFalse_Has
 
 TEST_F(RenderFrameHostImplForIncludeTest, GetCreateNewWindow_AllowPopupFalse_NoTransientActivation) {
   GURL target_url = GURL("https://parent.example.test/");
-  WindowOpenDisposition disposition = WindowOpenDisposition::NEW_POPUP;
+  WindowOpenDisposition disposition = WindowOpenDisposition::kNewPopup;
   bool allow_popup = false;
   content::mojom::FrameHost::GetCreateNewWindowCallback callback = base::DoNothing();
 

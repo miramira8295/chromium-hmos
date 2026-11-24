@@ -1014,18 +1014,18 @@ TEST(NWebAuraShellTest, ApplicationWindowIdsFollowBoundChromiumWidgets) {
 }
 
 TEST(NWebAuraShellTest, SeparateWindowsOpenAsForegroundTabs) {
-  EXPECT_EQ(WindowOpenDisposition::NEW_FOREGROUND_TAB,
+  EXPECT_EQ(WindowOpenDisposition::kNewForegroundTab,
             GetPlatformAdjustedWindowOpenDisposition(
-                WindowOpenDisposition::NEW_POPUP));
-  EXPECT_EQ(WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                WindowOpenDisposition::kNewPopup));
+  EXPECT_EQ(WindowOpenDisposition::kNewForegroundTab,
             GetPlatformAdjustedWindowOpenDisposition(
-                WindowOpenDisposition::NEW_WINDOW));
-  EXPECT_EQ(WindowOpenDisposition::NEW_BACKGROUND_TAB,
+                WindowOpenDisposition::kNewWindow));
+  EXPECT_EQ(WindowOpenDisposition::kNewBackgroundTab,
             GetPlatformAdjustedWindowOpenDisposition(
-                WindowOpenDisposition::NEW_BACKGROUND_TAB));
-  EXPECT_EQ(WindowOpenDisposition::CURRENT_TAB,
+                WindowOpenDisposition::kNewBackgroundTab));
+  EXPECT_EQ(WindowOpenDisposition::kCurrentTab,
             GetPlatformAdjustedWindowOpenDisposition(
-                WindowOpenDisposition::CURRENT_TAB));
+                WindowOpenDisposition::kCurrentTab));
 }
 
 }  // namespace

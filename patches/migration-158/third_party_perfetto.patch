@@ -1,0 +1,20 @@
+diff --git a/src/base/unix_socket.cc b/src/base/unix_socket.cc
+index e4926cdc676fdbff3ab863be6b0e631d62f97493..f4d8102e053f0c8fade30e6bc5170d367ef76ab9 100644
+--- a/src/base/unix_socket.cc
++++ b/src/base/unix_socket.cc
+@@ -743,8 +743,15 @@ ssize_t UnixSocketRaw::Receive(void* msg,
+   uint32_t fds_len = 0;
+ 
+   if (max_files > 0) {
++#if defined(OS_OHOS)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wsign-compare"
++#endif
+     for (cmsghdr* cmsg = CMSG_FIRSTHDR(&msg_hdr); cmsg;
+          cmsg = CMSG_NXTHDR(&msg_hdr, cmsg)) {
++#if defined(OS_OHOS)
++#pragma clang diagnostic pop
++#endif
+       const size_t payload_len = cmsg->cmsg_len - CMSG_LEN(0);
+       if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+         PERFETTO_DCHECK(payload_len % sizeof(int) == 0u);

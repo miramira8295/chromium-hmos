@@ -168,11 +168,11 @@ if [[ -n "${PACKAGE_ONLY:-}" ]]; then
 else
   compiled_here=true
 
-  if [[ "${CHROMIUM_MAJOR:-157}" == 157 ]]; then
+  if [[ "${CHROMIUM_MAJOR:-157}" =~ ^(157|158)$ ]]; then
     # Preparation applies the rebased snapshot, including the shared patches
     # recorded by checksum in migration-157/manifest.json. Replaying the 155
     # hunks here would restore interfaces removed by Chromium 157.
-    say "157 uses the complete migrated native snapshot"
+    say "${CHROMIUM_MAJOR:-157} uses the complete migrated native snapshot"
     bash "${repo_root}/scripts/setup-adblock-rust.sh" || die "Rust toolchain setup failed"
   else
   # Shared by 154 and the prepared 155 snapshot.
