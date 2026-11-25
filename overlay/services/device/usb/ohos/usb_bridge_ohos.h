@@ -24,6 +24,7 @@ void DispatchUsbMessageOhos(const std::string& message_json);
 void SetUsbEventCallbackOhos(UsbEventCallbackOhos callback);
 void SetHidEventCallbackOhos(UsbEventCallbackOhos callback);
 void SetSerialEventCallbackOhos(UsbEventCallbackOhos callback);
+void CloseUsbPipeOhos(int pipe_id, base::OnceClosure on_closed);
 void SendUsbCommandOhos(base::DictValue command,
                         UsbResponseCallbackOhos callback);
 

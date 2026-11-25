@@ -126,11 +126,12 @@ interface SerialPortInfo {
 export class UsbBridge {
   private readonly componentId: string;
   private readonly nativePort: UsbNativePort;
-  private readonly pipes: Map<number, usb.USBDevicePipe> = new Map();
+  // Native usbfs handles outlive individual windows. Any active bridge can
+  // receive the close for a pipe opened by an earlier window.
+  private static readonly pipes: Map<number, usb.USBDevicePipe | null> = new Map();
   private readonly hidConnections: Map<number, HidConnectionState> = new Map();
   private readonly openSerialPorts: Set<number> = new Set();
   private subscriber: commonEventManager.CommonEventSubscriber | undefined = undefined;
-  private nextPipeId: number = 1;
   private nextHidConnectionId: number = 1;
 
   constructor(componentId: string, nativePort: UsbNativePort) {
@@ -165,13 +166,6 @@ export class UsbBridge {
       }
     });
     this.hidConnections.clear();
-    this.pipes.forEach((pipe: usb.USBDevicePipe): void => {
-      try {
-        usb.closePipe(pipe);
-      } catch (_error) {
-      }
-    });
-    this.pipes.clear();
     if (this.subscriber) {
       try {
         commonEventManager.unsubscribe(this.subscriber);
@@ -278,23 +272,32 @@ export class UsbBridge {
       usb.closePipe(pipe);
       throw new Error('Could not obtain the USB device file descriptor');
     }
-    const pipeId = this.nextPipeId++;
-    this.pipes.set(pipeId, pipe);
+    // Native request IDs are unique across windows.
+    UsbBridge.pipes.set(id, pipe);
     this.sendReply({
       id: id,
       ok: true,
       fileDescriptor: fileDescriptor,
-      pipeId: pipeId
+      pipeId: id
     });
   }
 
   private close(id: number, pipeId: number): void {
-    const pipe = this.pipes.get(pipeId);
-    if (pipe) {
-      usb.closePipe(pipe);
-      this.pipes.delete(pipeId);
+    const pipe = UsbBridge.pipes.get(pipeId);
+    if (pipe === undefined) {
+      throw new Error('Unknown WebUSB pipe');
+    }
+    if (pipe !== null) {
+      const result = usb.closePipe(pipe);
+      if (result !== 0) {
+        this.sendReply({ id: id, ok: false, error: 'Failed to close WebUSB pipe', errorCode: result });
+        return;
+      }
+      // Keep the confirmed result if delivering the synchronous NAPI reply throws.
+      UsbBridge.pipes.set(pipeId, null);
     }
     this.sendReply({ id: id, ok: true });
+    UsbBridge.pipes.delete(pipeId);
   }
 
   private async hidEnumerate(id: number): Promise<void> {

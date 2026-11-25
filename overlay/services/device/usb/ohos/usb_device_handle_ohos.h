@@ -6,7 +6,6 @@
 #define SERVICES_DEVICE_USB_OHOS_USB_DEVICE_HANDLE_OHOS_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "base/values.h"
 #include "services/device/usb/usb_device_handle_usbfs.h"
 
 namespace device {
@@ -25,8 +24,6 @@ class UsbDeviceHandleOhos : public UsbDeviceHandleUsbfs {
   ~UsbDeviceHandleOhos() override;
 
   void FinishClose() override;
-  void ClosePipe(base::OnceClosure on_closed);
-  void OnPipeClosed(base::OnceClosure on_closed, base::DictValue response);
 
   const int pipe_id_;
 };

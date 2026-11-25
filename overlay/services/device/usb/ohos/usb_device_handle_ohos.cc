@@ -7,8 +7,6 @@
 #include <utility>
 
 #include "base/functional/bind.h"
-#include "base/task/sequenced_task_runner.h"
-#include "base/time/time.h"
 #include "services/device/usb/ohos/usb_bridge_ohos.h"
 #include "services/device/usb/usb_device.h"
 #include "services/device/usb/usb_service.h"
@@ -40,28 +38,7 @@ UsbDeviceHandleOhos::UsbDeviceHandleOhos(scoped_refptr<UsbDevice> device,
 UsbDeviceHandleOhos::~UsbDeviceHandleOhos() = default;
 
 void UsbDeviceHandleOhos::FinishClose() {
-  ReleaseFileDescriptor(base::BindOnce(&UsbDeviceHandleOhos::ClosePipe, this));
-}
-
-void UsbDeviceHandleOhos::ClosePipe(base::OnceClosure on_closed) {
-  base::DictValue command;
-  command.Set("method", "close");
-  command.Set("pipeId", pipe_id_);
-  SendUsbCommandOhos(
-      std::move(command),
-      base::BindOnce(&UsbDeviceHandleOhos::OnPipeClosed, this, std::move(on_closed)));
-}
-
-void UsbDeviceHandleOhos::OnPipeClosed(base::OnceClosure on_closed,
-                                      base::DictValue response) {
-  if (response.FindBool("ok").value_or(false)) {
-    std::move(on_closed).Run();
-    return;
-  }
-  // The kernel may still own transfer buffers while the pipe is open.
-  task_runner()->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&UsbDeviceHandleOhos::ClosePipe, this,
-                                std::move(on_closed)), base::Seconds(5));
+  ReleaseFileDescriptor(base::BindOnce(&CloseUsbPipeOhos, pipe_id_));
 }
 
 }  // namespace device

@@ -7,6 +7,7 @@
 #include <map>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "base/check.h"
 #include "base/functional/bind.h"
@@ -16,6 +17,7 @@
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 
 namespace device {
 namespace {
@@ -34,8 +36,11 @@ class UsbBridgeState {
   };
 
   void SetCommandCallback(UsbCommandCallbackOhos callback) {
-    base::AutoLock lock(lock_);
-    command_callback_ = std::move(callback);
+    {
+      base::AutoLock lock(lock_);
+      command_callback_ = std::move(callback);
+    }
+    RetryPendingCloses();
   }
 
   void SetEventCallback(UsbEventCallbackOhos callback) {
@@ -53,8 +58,35 @@ class UsbBridgeState {
     serial_target_ = BindToCurrentSequence(std::move(callback));
   }
 
+  void ClosePipe(int pipe_id, base::OnceClosure on_closed) {
+    auto runner = base::SequencedTaskRunner::GetCurrentDefault();
+    base::DictValue command;
+    command.Set("method", "close");
+    command.Set("pipeId", pipe_id);
+    int id;
+    {
+      base::AutoLock lock(lock_);
+      id = ++next_request_id_;
+      command.Set("id", id);
+      pending_closes_.emplace(
+          id, PendingClose{base::WriteJson(command).value(), runner,
+                           std::move(on_closed)});
+    }
+    DispatchPendingClose(id);
+    // One timed retry covers transient failures or a dropped dispatch. Further
+    // attempts wait for bridge registration, enumeration or a new open.
+    runner->PostDelayedTask(
+        FROM_HERE, base::BindOnce(&UsbBridgeState::DispatchPendingClose,
+                                  base::Unretained(this), id),
+        base::Seconds(5));
+  }
+
   void SendCommand(base::DictValue command, UsbResponseCallbackOhos callback) {
     CHECK(base::SequencedTaskRunner::HasCurrentDefault());
+    const std::string* method = command.FindString("method");
+    if (method && (*method == "open" || *method == "enumerate")) {
+      RetryPendingCloses();
+    }
     int request_id;
     UsbCommandCallbackOhos dispatcher;
     {
@@ -117,6 +149,40 @@ class UsbBridgeState {
   }
 
  private:
+  struct PendingClose {
+    std::string command;
+    scoped_refptr<base::SequencedTaskRunner> runner;
+    base::OnceClosure on_closed;
+  };
+
+  void DispatchPendingClose(int id) {
+    UsbCommandCallbackOhos dispatcher;
+    std::string command;
+    {
+      base::AutoLock lock(lock_);
+      auto it = pending_closes_.find(id);
+      if (it == pending_closes_.end() || !command_callback_) {
+        return;
+      }
+      dispatcher = command_callback_;
+      command = it->second.command;
+    }
+    dispatcher.Run(command);
+  }
+
+  void RetryPendingCloses() {
+    std::vector<int> ids;
+    {
+      base::AutoLock lock(lock_);
+      for (const auto& entry : pending_closes_) {
+        ids.push_back(entry.first);
+      }
+    }
+    for (int id : ids) {
+      DispatchPendingClose(id);
+    }
+  }
+
   void FailRequest(int request_id, const std::string& message) {
     base::DictValue response;
     response.Set("id", request_id);
@@ -130,6 +196,16 @@ class UsbBridgeState {
     PendingResponse pending;
     {
       base::AutoLock lock(lock_);
+      auto close = pending_closes_.find(request_id);
+      if (close != pending_closes_.end()) {
+        // The kernel can still own transfer buffers until OHOS confirms close.
+        if (response.FindBool("ok").value_or(false)) {
+          close->second.runner->PostTask(FROM_HERE,
+                                         std::move(close->second.on_closed));
+          pending_closes_.erase(close);
+        }
+        return;
+      }
       auto it = pending_responses_.find(request_id);
       if (it == pending_responses_.end()) {
         return;
@@ -171,6 +247,7 @@ class UsbBridgeState {
   EventTarget hid_target_ GUARDED_BY(lock_);
   EventTarget serial_target_ GUARDED_BY(lock_);
   int next_request_id_ GUARDED_BY(lock_) = 0;
+  std::map<int, PendingClose> pending_closes_ GUARDED_BY(lock_);
   std::map<int, PendingResponse> pending_responses_ GUARDED_BY(lock_);
 };
 
@@ -199,6 +276,10 @@ void SetHidEventCallbackOhos(UsbEventCallbackOhos callback) {
 
 void SetSerialEventCallbackOhos(UsbEventCallbackOhos callback) {
   GetBridge().SetSerialEventCallback(std::move(callback));
+}
+
+void CloseUsbPipeOhos(int pipe_id, base::OnceClosure on_closed) {
+  GetBridge().ClosePipe(pipe_id, std::move(on_closed));
 }
 
 void SendUsbCommandOhos(base::DictValue command,

@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "services/device/usb/ohos/usb_bridge_ohos.h"
@@ -180,8 +181,7 @@ void UsbDeviceOhos::Open(OpenCallback callback) {
   command.Set("deviceName", platform_id_);
   SendUsbCommandOhos(
       std::move(command),
-      base::BindOnce(&UsbDeviceOhos::OnOpenResponse, weak_factory_.GetWeakPtr(),
-                     std::move(callback)));
+      base::BindOnce(&UsbDeviceOhos::OnOpenResponse, this, std::move(callback)));
 }
 
 void UsbDeviceOhos::OnPermissionResponse(ResultCallback callback,
@@ -197,7 +197,13 @@ void UsbDeviceOhos::OnOpenResponse(OpenCallback callback,
   if (response.FindBool("ok").value_or(false)) {
     const int file_descriptor = response.FindInt("fileDescriptor").value_or(-1);
     const int pipe_id = response.FindInt("pipeId").value_or(0);
-    handle = UsbDeviceHandleOhos::Create(this, file_descriptor, pipe_id);
+    if (service_ && service_->GetDevice(guid()).get() == this) {
+      handle = UsbDeviceHandleOhos::Create(this, file_descriptor, pipe_id);
+    }
+    // The device can disconnect while the platform is opening the pipe.
+    if (!handle && pipe_id > 0) {
+      CloseUsbPipeOhos(pipe_id, base::DoNothing());
+    }
     if (handle) {
       handles().push_back(handle.get());
     }
