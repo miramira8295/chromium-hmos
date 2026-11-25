@@ -70,7 +70,6 @@ struct SkiaOutputDeviceOhosGraphite::State {
   }
   [[noreturn]] void ColorFailure(const char* stage) { Fail(stage); }
   SkImageInfo info;
-  int samples = 1;
   std::map<uint32_t, Imported> imports;
   sk_sp<SkSurface> current;
   wgpu::Texture texture;
@@ -431,10 +430,9 @@ bool SkiaOutputDeviceOhosGraphite::Reshape(const ReshapeParams& params) {
   }
   // A brightness update changes color conversion/metadata, not the buffer's
   // dimensions or VkFormat. Preserve imports and avoid a CPU/GPU wait.
-  if (s.info != params.image_info || s.samples != params.sample_count)
+  if (s.info != params.image_info)
     s.Clear();
   s.info = params.image_info;
-  s.samples = params.sample_count;
   return !s.info.isEmpty();
 }
 SkSurface* SkiaOutputDeviceOhosGraphite::BeginPaint(

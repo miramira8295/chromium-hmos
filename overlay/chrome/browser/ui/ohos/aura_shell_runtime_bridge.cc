@@ -52,6 +52,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/self_deleting.h"
 #include "base/no_destructor.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_split.h"
@@ -7145,8 +7146,9 @@ class ShellShareService
     : public content::DocumentService<blink::mojom::ShareService> {
  public:
   ShellShareService(content::RenderFrameHost& frame,
-                    mojo::PendingReceiver<blink::mojom::ShareService> receiver)
-      : DocumentService(frame, std::move(receiver)) {}
+                    mojo::PendingReceiver<blink::mojom::ShareService> receiver,
+                    base::SelfDeletingPassKey key)
+      : DocumentService(frame, std::move(receiver), key) {}
 
   void Share(const std::string& title,
              const std::string& text,
@@ -7170,6 +7172,9 @@ class ShellShareService
     DispatchRuntimeEvent(GetBrowserWidget(browser), std::move(event));
     std::move(callback).Run(blink::mojom::ShareError::OK);
   }
+
+ private:
+  ~ShellShareService() override = default;
 };
 
 }  // namespace
@@ -7178,7 +7183,7 @@ void BindAuraShellShareService(
     content::RenderFrameHost* frame,
     mojo::PendingReceiver<blink::mojom::ShareService> receiver) {
   // DocumentService owns itself and goes with the document.
-  new ShellShareService(*frame, std::move(receiver));
+  base::MakeSelfDeleting<ShellShareService>(*frame, std::move(receiver));
 }
 
 namespace {
@@ -7343,10 +7348,10 @@ class ShellDateTimeChooser
  public:
   ShellDateTimeChooser(
       content::RenderFrameHost& frame,
-      mojo::PendingReceiver<blink::mojom::DateTimeChooser> receiver)
-      : DocumentService(frame, std::move(receiver)) {}
+      mojo::PendingReceiver<blink::mojom::DateTimeChooser> receiver,
+      base::SelfDeletingPassKey key)
+      : DocumentService(frame, std::move(receiver), key) {}
 
-  ~ShellDateTimeChooser() override { Finish(false, 0); }
 
   void OpenDateTimeDialog(blink::mojom::DateTimeDialogValuePtr value,
                           OpenDateTimeDialogCallback callback) override {
@@ -7412,6 +7417,8 @@ class ShellDateTimeChooser
   }
 
  private:
+  ~ShellDateTimeChooser() override { Finish(false, 0); }
+
   void Finish(bool success, double value) {
     if (request_id_) {
       DateTimePickerRequests().erase(request_id_);
@@ -7460,7 +7467,7 @@ void BindAuraShellDateTimeChooser(
     content::RenderFrameHost* frame,
     mojo::PendingReceiver<blink::mojom::DateTimeChooser> receiver) {
   // DocumentService owns itself and goes with the document.
-  new ShellDateTimeChooser(*frame, std::move(receiver));
+  base::MakeSelfDeleting<ShellDateTimeChooser>(*frame, std::move(receiver));
 }
 
 void CompleteShellDateTimePicker(const base::DictValue& command) {
@@ -7969,21 +7976,13 @@ std::map<int, base::WeakPtr<ShellNfc>>& ShellNfcSessions() {
 class ShellNfc : public content::DocumentService<device::mojom::NFC> {
  public:
   ShellNfc(content::RenderFrameHost& frame,
-           mojo::PendingReceiver<device::mojom::NFC> receiver)
-      : DocumentService(frame, std::move(receiver)),
+           mojo::PendingReceiver<device::mojom::NFC> receiver,
+           base::SelfDeletingPassKey key)
+      : DocumentService(frame, std::move(receiver), key),
         session_id_(NextShellPickerRequestId()) {
     ShellNfcSessions()[session_id_] = weak_factory_.GetWeakPtr();
   }
 
-  ~ShellNfc() override {
-    ShellNfcSessions().erase(session_id_);
-    if (!watch_ids_.empty()) {
-      Dispatch("nfcScanStop", base::DictValue());
-    }
-    FinishWatches(Cancelled());
-    FinishWrite(Cancelled());
-    FinishReadOnly(Cancelled());
-  }
 
   // device::mojom::NFC:
   void SetClient(mojo::PendingRemote<device::mojom::NFCClient> client) override {
@@ -8110,6 +8109,16 @@ class ShellNfc : public content::DocumentService<device::mojom::NFC> {
   }
 
  private:
+  ~ShellNfc() override {
+    ShellNfcSessions().erase(session_id_);
+    if (!watch_ids_.empty()) {
+      Dispatch("nfcScanStop", base::DictValue());
+    }
+    FinishWatches(Cancelled());
+    FinishWrite(Cancelled());
+    FinishReadOnly(Cancelled());
+  }
+
   static device::mojom::NDEFErrorPtr Cancelled() {
     return device::mojom::NDEFError::New(
         device::mojom::NDEFErrorType::OPERATION_CANCELLED,
@@ -8164,7 +8173,7 @@ class ShellNfc : public content::DocumentService<device::mojom::NFC> {
 void BindAuraShellNfc(content::RenderFrameHost* frame,
                       mojo::PendingReceiver<device::mojom::NFC> receiver) {
   // DocumentService owns itself and goes with the document.
-  new ShellNfc(*frame, std::move(receiver));
+  base::MakeSelfDeleting<ShellNfc>(*frame, std::move(receiver));
 }
 
 // nfcScanStarted { requestId, errorType?, message? } / nfcTagRead {

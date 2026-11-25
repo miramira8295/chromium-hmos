@@ -126,7 +126,6 @@ struct SkiaOutputDeviceOhosPhoneVulkan::State {
       ColorFailure(stage);
   }
   SkImageInfo info;
-  int samples = 1;
   std::map<uint32_t, Imported> imports;
   sk_sp<SkSurface> scratch;
   sk_sp<SkSurface> current;
@@ -267,7 +266,7 @@ struct SkiaOutputDeviceOhosPhoneVulkan::State {
     auto texture =
         GrBackendTextures::MakeVk(info.width(), info.height(), image);
     item.surface = SkSurfaces::WrapBackendTexture(
-        provider->GetGrContext(), texture, kTopLeft_GrSurfaceOrigin, samples,
+        provider->GetGrContext(), texture, kTopLeft_GrSurfaceOrigin, /*sampleCnt=*/1,
         color_type(), info.refColorSpace(), nullptr);
     if (!item.surface)
       ColorFailure("Skia wrap imported image");
@@ -462,10 +461,9 @@ bool SkiaOutputDeviceOhosPhoneVulkan::Reshape(const ReshapeParams& params) {
   }
   // A brightness update changes color conversion/metadata, not the buffer's
   // dimensions or VkFormat. Preserve imports and avoid a CPU/GPU wait.
-  if (s.info != params.image_info || s.samples != params.sample_count)
+  if (s.info != params.image_info)
     s.Clear();
   s.info = params.image_info;
-  s.samples = params.sample_count;
   return !s.info.isEmpty();
 }
 SkSurface* SkiaOutputDeviceOhosPhoneVulkan::BeginPaint(
@@ -490,7 +488,7 @@ SkSurface* SkiaOutputDeviceOhosPhoneVulkan::BeginPaint(
     // no available buffer. Keep Viz alive and retry the real queue next frame.
     if (!s.scratch)
       s.scratch = SkSurfaces::RenderTarget(
-          s.provider->GetGrContext(), skgpu::Budgeted::kYes, s.info, s.samples,
+          s.provider->GetGrContext(), skgpu::Budgeted::kYes, s.info, /*sampleCount=*/1,
           kTopLeft_GrSurfaceOrigin, nullptr);
     s.current = s.scratch;
     if (!s.current)

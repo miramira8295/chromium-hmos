@@ -29861,7 +29861,7 @@ index 2c95bba5ee0fb0a14f6d6cb6de5b591fa155bd8d..a5d88f87decef81a89033aeed4c0b9d7
    virtual std::optional<VulkanYCbCrInfo> GetVkCbCrInfo(
        SharedContextState* context_state);
 diff --git a/gpu/command_buffer/service/shared_image/shared_image_factory.cc b/gpu/command_buffer/service/shared_image/shared_image_factory.cc
-index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5edaed15cc4 100644
+index bd86085de64da45349456cb587e45324d82aceac..0a25ea679ec0d6df6f2387912044d10429a8cc67 100644
 --- a/gpu/command_buffer/service/shared_image/shared_image_factory.cc
 +++ b/gpu/command_buffer/service/shared_image/shared_image_factory.cc
 @@ -9,7 +9,9 @@
@@ -29964,7 +29964,7 @@ index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5ed
  #endif  // BUILDFLAG(IS_OZONE)
  
  #if BUILDFLAG(IS_APPLE)
-@@ -703,6 +748,40 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
+@@ -703,6 +748,41 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
    gpu::SharedImageCapabilities shared_image_caps;
    shared_image_caps.supports_scanout_shared_images =
        shared_image_manager_->SupportsScanoutImages();
@@ -29985,10 +29985,11 @@ index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5ed
 +    shared_image_caps.supports_ohos_video_native_buffers = true;
 +  }
 +  shared_image_caps.supports_ohos_native_rgba_f16 =
-+      context_state_ && gr_context_type_ == GrContextType::kGL &&
-+      gl::GetANGLEImplementation() == gl::ANGLEImplementation::kVulkan &&
++      gr_context_type_ == GrContextType::kVulkan ||
++      (context_state_ && gr_context_type_ == GrContextType::kGL &&
++       gl::GetANGLEImplementation() == gl::ANGLEImplementation::kVulkan &&
 +      gl::GLFence::IsGpuFenceSupported() &&
-+      native_import;
++       native_import);
 +#if BUILDFLAG(SKIA_USE_DAWN)
 +  if (context_state_ && context_state_->IsGraphiteDawnVulkan()) {
 +    auto* dawn = context_state_->dawn_context_provider();
@@ -30005,7 +30006,7 @@ index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5ed
  
  #if BUILDFLAG(IS_WIN)
    // Scanout for software video frames is supported on Windows except on D3D9.
-@@ -717,13 +796,37 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
+@@ -717,13 +797,37 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
        gr_context_type_ == GrContextType::kGraphiteDawn;
    shared_image_caps.supports_r16_shared_images =
        is_angle_metal || is_skia_graphite;
@@ -30043,7 +30044,7 @@ index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5ed
    }
  
    // RGB-to-YUV conversion is the only client that renders into these formats,
-@@ -746,6 +849,24 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
+@@ -746,6 +850,24 @@ gpu::SharedImageCapabilities SharedImageFactory::MakeCapabilities() {
              kA16_float_SkColorType);
    }
  
@@ -30068,7 +30069,7 @@ index bd86085de64da45349456cb587e45324d82aceac..d066c2621c6a6d3865bcc1e55afba5ed
    const bool display_compositor_on_another_thread =
        shared_image_manager_->display_context_on_another_thread();
    if (!context_state_) {
-@@ -826,8 +947,9 @@ SharedImageBackingFactory* SharedImageFactory::GetFactoryByUsage(
+@@ -826,8 +948,9 @@ SharedImageBackingFactory* SharedImageFactory::GetFactoryByUsage(
      gfx::GpuMemoryBufferType gmb_type,
      std::optional<SharedImageAccessStream> stream,
      const AccessParams* params) {
@@ -36572,6 +36573,61 @@ index 9c45eb5b32a5cf254111158b6bed14125017263e..5ff14e79f7347204c783282ac0d69252
    friend class UsbServiceMac;
    friend class UsbServiceWin;
  
+diff --git a/services/device/usb/usb_device_handle_usbfs.cc b/services/device/usb/usb_device_handle_usbfs.cc
+index b22d8887b16ac24ed0bf0f5cc1fe70e26ab3bc03..f2962ff7fdc142946fb93989be79bfef3c607e14 100644
+--- a/services/device/usb/usb_device_handle_usbfs.cc
++++ b/services/device/usb/usb_device_handle_usbfs.cc
+@@ -249,7 +249,7 @@ UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::~BlockingTaskRunnerHelper() {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+ }
+ 
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+ void UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper::ReleaseFileDescriptor() {
+   // This method intentionally releases ownership of the file descriptor without
+   // closing it. It is used only on Android, where the underlying file
+@@ -949,7 +949,15 @@ void UsbDeviceHandleUsbfs::ReleaseFileDescriptor(base::OnceClosure callback) {
+   // after ReleaseFileDescriptor() runs.
+   helper_.Reset();
+ }
+-#endif  // BUILDFLAG(IS_ANDROID)
++#elif BUILDFLAG(IS_OHOS)
++void UsbDeviceHandleUsbfs::ReleaseFileDescriptor(
++    base::OnceCallback<void(base::OnceClosure)> close_pipe) {
++  helper_.AsyncCall(&BlockingTaskRunnerHelper::ReleaseFileDescriptor)
++      .Then(base::BindOnce(std::move(close_pipe),
++                           base::BindOnce(&UsbDeviceHandleUsbfs::FinishCloseComplete, this)));
++  helper_.Reset();
++}
++#endif
+ 
+ void UsbDeviceHandleUsbfs::FinishClose() {
+   // Retain |this| until |helper_| stops watching and closes |fd_| on the
+diff --git a/services/device/usb/usb_device_handle_usbfs.h b/services/device/usb/usb_device_handle_usbfs.h
+index 402699d143a6aff3760323a1d19c0750f5ea14f5..67e53e9cad1f1ba2b4791add4a6bdc8b1ba28c37 100644
+--- a/services/device/usb/usb_device_handle_usbfs.h
++++ b/services/device/usb/usb_device_handle_usbfs.h
+@@ -110,7 +110,10 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
+   // then resets |helper_|. Used only on Android where the file descriptor is
+   // owned and closed by the Java UsbDeviceConnection object.
+   void ReleaseFileDescriptor(base::OnceClosure callback);
+-#endif  // BUILDFLAG(IS_ANDROID)
++#elif BUILDFLAG(IS_OHOS)
++  // The platform owns the fd. Keep transfers alive until it confirms closure.
++  void ReleaseFileDescriptor(base::OnceCallback<void(base::OnceClosure)> close_pipe);
++#endif
+ 
+   // Closes |fd_| and |lifeline_fd_| on the blocking task runner, then resets
+   // |helper_|. Used on Linux and ChromeOS. Subclasses (such as
+@@ -219,7 +222,7 @@ class UsbDeviceHandleUsbfs::BlockingTaskRunnerHelper {
+                           base::WeakPtr<UsbDeviceHandleUsbfs> device_handle,
+                           scoped_refptr<base::SequencedTaskRunner> task_runner);
+ 
+-#if BUILDFLAG(IS_ANDROID)
++#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_OHOS)
+   // Stops watching and releases ownership of |fd_| without closing it.
+   // Used only on Android where the file descriptor is owned and closed
+   // by the Java UsbDeviceConnection object via JNI.
 diff --git a/services/device/usb/usb_service.cc b/services/device/usb/usb_service.cc
 index cbe4b23a1bc9057fe6108f88b077d7b57e1a695d..cdb85ea8bb6a147b1e6f8a0a89d0fd1a28f83683 100644
 --- a/services/device/usb/usb_service.cc
@@ -38919,7 +38975,7 @@ index 7fe68c83075f22815fa9db0d925558a617ef3580..cae323be4a02eb0dd50e45f5ca93d980
    auto* callback = MakeWGPUOnceCallback(resolver->WrapCallbackInScriptScope(
        BindOnce(&GPUBuffer::OnMapAsyncCallback, WrapPersistent(this))));
 diff --git a/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc b/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
-index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee031492133b5a 100644
+index 32daaf43e24a0205449ebcf8001525d2db0a20ec..8708d2d9103212ed5fa24cfe6a68caf775669722 100644
 --- a/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
 +++ b/third_party/blink/renderer/modules/webgpu/gpu_canvas_context.cc
 @@ -7,6 +7,7 @@
@@ -39018,7 +39074,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
    if (!swap_buffers_) {
      auto staticBitmapImage = MakeFallbackStaticBitmapImage(
          V8GPUCanvasAlphaMode::Enum::kPremultiplied);
-@@ -526,6 +571,29 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
+@@ -526,6 +571,25 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
    }
  #endif
  
@@ -39029,11 +39085,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
 +                                   .SharedImageInterface()
 +                             : nullptr;
 +  const bool ohos_native_float_compositor =
-+      compositor_context &&
-+      (compositor_context->ContextProvider().GetCapabilities()
-+           .using_vulkan_context ||
-+       (compositor_sii && compositor_sii->GetCapabilities()
-+                              .supports_ohos_native_rgba_f16));
++      compositor_sii && compositor_sii->GetCapabilities().supports_ohos_native_rgba_f16;
 +  // NativeBuffer render targets cannot reliably be written as storage images.
 +  // Keep storage access on a regular Dawn texture and blit only for presentation.
 +  // Likewise, system GLES needs an 8-bit presentation image; native Vulkan
@@ -39048,7 +39100,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
    // If the context is configured with STORAGE_BINDING texture usage and
    // "bgra8unorm" is the preferred format but the adapter doesn't support the
    // "bgra8unorm-storage" feature, we can guess that the app is using the
-@@ -601,6 +669,12 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
+@@ -601,6 +665,12 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
      // In cases where a copy is necessary the swap buffers will always use the
      // preferred canvas format.
      swap_texture_descriptor_.format = GPU::GetPreferredCanvasFormat();
@@ -39061,7 +39113,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
  
      // The swap buffer texture doesn't need any view formats.
      swap_texture_descriptor_.viewFormats = nullptr;
-@@ -613,6 +687,53 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
+@@ -613,6 +683,53 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
    }
  
    ParseCanvasToneMapping(descriptor->toneMapping(), hdr_metadata_);
@@ -39115,7 +39167,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
  
    const wgpu::DawnTextureInternalUsageDescriptor* internal_usage_desc = nullptr;
    if (const wgpu::ChainedStruct* next_in_chain =
-@@ -629,7 +750,7 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
+@@ -629,7 +746,7 @@ void GPUCanvasContext::configure(const GPUCanvasConfiguration* descriptor,
    swap_buffers_ = base::AdoptRef(new WebGPUSwapBufferProvider(
        this, device_->GetDawnControlClient(), device_->GetHandle(),
        swap_texture_descriptor_.usage, internal_usage,
@@ -39124,7 +39176,7 @@ index 32daaf43e24a0205449ebcf8001525d2db0a20ec..2a1c8fa31b1f783caa37ad18e0ee0314
        kTopLeft_GrSurfaceOrigin));
  
    // Note: SetContentsOpaque is only an optimization hint. It doesn't
-@@ -810,6 +931,12 @@ GPUCanvasContext::GetFrontBufferMailboxTexture() {
+@@ -810,6 +927,12 @@ GPUCanvasContext::GetFrontBufferMailboxTexture() {
  }
  
  void GPUCanvasContext::ReplaceDrawingBuffer(bool destroy_swap_buffers) {
