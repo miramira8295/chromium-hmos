@@ -6,8 +6,8 @@
 
 namespace media_router {
 
-bool MaybeGetWifiSSID(const std::string& if_name, std::string* ssid_out) {
-  return false;
+std::optional<std::string> MaybeGetWifiSSID(std::string_view if_name) {
+  return std::nullopt;
 }
 
 }  // namespace media_router
