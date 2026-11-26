@@ -63,6 +63,7 @@ source_set("aura_shell_api") {
     "//base",
     "//components/ohos_accessibility",
     "//components/ohos_system_service",
+    "//content/public/browser",
     "//device/bluetooth",
     "//ui/ozone/platform/ohos:native_window_registry",
   ]

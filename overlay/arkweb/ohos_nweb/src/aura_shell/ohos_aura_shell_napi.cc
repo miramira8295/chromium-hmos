@@ -18,13 +18,16 @@
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/location.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/ui/ohos/aura_shell_runtime_bridge.h"
 #include "components/ohos_accessibility/accessibility_provider_ohos.h"
 #include "components/ohos_system_service/system_service_ohos.h"
+#include "content/public/browser/browser_thread.h"
 #include "device/bluetooth/ohos/bluetooth_bridge_ohos.h"
 #include "hilog/log.h"
 #include "ohos_nweb/src/aura_shell/ohos_aura_shell_host.h"
@@ -500,6 +503,22 @@ void ReleaseUsbFunction(const std::string& component_id) {
 }
 
 void DispatchAuxiliaryWindowEvent(const ui::OhosLogicalWindowState& state) {
+  // Registering a listener on the ArkUI thread synchronously enumerates any
+  // open windows. Resolve their Views metadata on Chromium UI. Re-check a
+  // visible auxiliary widget there in case it has since closed or been hosted.
+  if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI) &&
+      content::BrowserThread::IsThreadInitialized(content::BrowserThread::UI)) {
+    auto runner = content::GetUIThreadTaskRunner({});
+    if (state.visible && state.auxiliary && !state.destroyed) {
+      runner->PostTask(FROM_HERE,
+                       base::BindOnce(&ui::ReplayOhosAuxiliaryWindowState,
+                                      state.widget));
+    } else {
+      runner->PostTask(FROM_HERE,
+                       base::BindOnce(&DispatchAuxiliaryWindowEvent, state));
+    }
+    return;
+  }
   base::DictValue event;
   event.Set("version", 1);
   event.Set("widget", static_cast<double>(state.widget));

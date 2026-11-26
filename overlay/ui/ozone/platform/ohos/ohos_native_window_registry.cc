@@ -727,6 +727,22 @@ class NativeWindowRegistry {
     }
   }
 
+  void ReplayAuxiliaryWindowState(gfx::AcceleratedWidget widget) {
+    OhosLogicalWindowStateCallback callback;
+    OhosLogicalWindowState state;
+    {
+      base::AutoLock lock(lock_);
+      auto it = logical_windows_.find(widget);
+      if (it == logical_windows_.end() || !it->second.visible ||
+          !it->second.auxiliary || !logical_window_state_callback_) {
+        return;
+      }
+      state = MakeLogicalWindowState(widget, it->second);
+      callback = logical_window_state_callback_;
+    }
+    callback.Run(state);
+  }
+
   void SetLogicalWindowCloseCallback(gfx::AcceleratedWidget widget,
                                      OhosLogicalWindowCloseCallback callback) {
     base::AutoLock lock(lock_);
@@ -1090,6 +1106,10 @@ bool RequestOhosWindowAction(gfx::AcceleratedWidget widget,
 void SetOhosLogicalWindowStateCallback(
     OhosLogicalWindowStateCallback callback) {
   GetRegistry().SetLogicalWindowStateCallback(std::move(callback));
+}
+
+void ReplayOhosAuxiliaryWindowState(gfx::AcceleratedWidget widget) {
+  GetRegistry().ReplayAuxiliaryWindowState(widget);
 }
 
 void SetOhosLogicalWindowCloseCallback(

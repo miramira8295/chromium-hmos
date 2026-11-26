@@ -174,6 +174,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/side_panel/side_panel.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/web_app_menu_model.h"
 #include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
@@ -182,7 +183,6 @@
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"  // nogncheck
-#include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "base/scoped_multi_source_observation.h"
 #include "components/find_in_page/find_notification_details.h"
 #include "components/find_in_page/find_result_observer.h"
@@ -190,6 +190,7 @@
 #include "components/find_in_page/find_types.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_result.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_utils.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/media_capture_devices.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -425,6 +426,26 @@ bool IsWebAppBrowser(BrowserWindowInterface* browser) {
   return browser &&
          (browser->GetType() == BrowserWindowInterface::Type::TYPE_APP ||
           browser->GetType() == BrowserWindowInterface::Type::TYPE_APP_POPUP);
+}
+
+// A desktop shortcut identifies the installed window, even before its first tab
+// is inserted and after its page navigates outside the app's scope.
+void PopulateWebAppIdentity(BrowserWindowInterface* browser,
+                            AuraShellWindowMetadata& metadata) {
+  metadata.is_pwa = IsWebAppBrowser(browser);
+  if (!metadata.is_pwa) {
+    return;
+  }
+  const auto* controller = web_app::AppBrowserController::From(browser);
+  if (!controller) {
+    return;
+  }
+  metadata.app_id = controller->app_id();
+  auto* provider = web_app::WebAppProvider::GetForWebApps(browser->GetProfile());
+  if (provider && provider->on_registry_ready().is_signaled()) {
+    metadata.start_url =
+        provider->registrar_unsafe().GetAppStartUrl(metadata.app_id).spec();
+  }
 }
 
 BrowserWindowInterface* FindBrowserForWidget(gfx::AcceleratedWidget widget) {
@@ -2972,15 +2993,18 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
   state.Set("canInstallWebApp", false);
   state.Set("canGoBack", false);
   state.Set("canGoForward", false);
-  state.Set("isPwaWindow", false);
+  AuraShellWindowMetadata app_metadata;
+  PopulateWebAppIdentity(browser, app_metadata);
+  const bool is_pwa_window = app_metadata.is_pwa;
+  state.Set("isPwaWindow", is_pwa_window);
   // Whether newIncognitoWindow will do anything on this device. False on
   // phones, where --single-process rules out a second profile entirely.
   state.Set("incognitoSupported",
             !content::RenderProcessHost::run_renderer_in_process());
   state.Set("isIncognito", browser && browser->GetProfile() &&
                                browser->GetProfile()->IsOffTheRecord());
-  state.Set("pwaAppId", "");
-  state.Set("pwaStartUrl", "");
+  state.Set("pwaAppId", app_metadata.app_id);
+  state.Set("pwaStartUrl", app_metadata.start_url);
   state.Set("bookmarked", false);
 
   TabStripModel* tabs = browser ? browser->GetTabStripModel() : nullptr;
@@ -2992,10 +3016,6 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
   }
 
   state.Set("ready", true);
-  const bool is_pwa_window =
-      browser->GetType() == BrowserWindowInterface::Type::TYPE_APP ||
-      browser->GetType() == BrowserWindowInterface::Type::TYPE_APP_POPUP;
-  state.Set("isPwaWindow", is_pwa_window);
   state.Set("tabCount", tabs->count());
   state.Set("activeTabIndex", tabs->active_index());
   const BrowserTargetState target =
@@ -3133,18 +3153,8 @@ std::string BuildBrowserStateJson(std::string_view ui_family,
                   web_app::CanCreateWebApp(browser));
     state.Set("canGoBack", active->GetController().CanGoBack());
     state.Set("canGoForward", active->GetController().CanGoForward());
-    if (is_pwa_window) {
+    if (is_pwa_window && app_metadata.start_url.empty()) {
       state.Set("pwaStartUrl", url.spec());
-      if (const webapps::AppId* app_id =
-              web_app::WebAppTabHelper::GetAppId(active)) {
-        state.Set("pwaAppId", *app_id);
-        if (web_app::WebAppProvider* provider =
-                web_app::WebAppProvider::GetForWebApps(browser->GetProfile())) {
-          state.Set(
-              "pwaStartUrl",
-              provider->registrar_unsafe().GetAppStartUrl(*app_id).spec());
-        }
-      }
     }
   }
 
@@ -6383,6 +6393,11 @@ void RestoreAuraShellPopupWindow(gfx::AcceleratedWidget widget) {
 
 std::optional<AuraShellWindowMetadata> GetAuraShellWindowMetadata(
     gfx::AcceleratedWidget widget) {
+  // An ArkUI listener registration can synchronously replay visible windows
+  // from the N-API thread. BrowserWindowInterface and Views belong to UI.
+  if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
+    return std::nullopt;
+  }
   BrowserWindowInterface* browser = FindBrowserForWidget(widget);
   if (!browser) {
     return std::nullopt;
@@ -6401,9 +6416,7 @@ std::optional<AuraShellWindowMetadata> GetAuraShellWindowMetadata(
     }
     return metadata;
   }
-  metadata.is_pwa =
-      browser->GetType() == BrowserWindowInterface::Type::TYPE_APP ||
-      browser->GetType() == BrowserWindowInterface::Type::TYPE_APP_POPUP;
+  PopulateWebAppIdentity(browser, metadata);
   metadata.is_web_popup =
       browser->GetType() == BrowserWindowInterface::Type::TYPE_POPUP;
   bool desktop_popup = false;
@@ -6429,19 +6442,10 @@ std::optional<AuraShellWindowMetadata> GetAuraShellWindowMetadata(
     return metadata;
   }
   metadata.url = active->GetVisibleURL().spec();
-  metadata.start_url = metadata.url;
-  metadata.title = base::UTF16ToUTF8(active->GetTitle());
-  if (metadata.is_pwa) {
-    if (const webapps::AppId* app_id =
-            web_app::WebAppTabHelper::GetAppId(active)) {
-      metadata.app_id = *app_id;
-      if (web_app::WebAppProvider* provider =
-              web_app::WebAppProvider::GetForWebApps(browser->GetProfile())) {
-        metadata.start_url =
-            provider->registrar_unsafe().GetAppStartUrl(*app_id).spec();
-      }
-    }
+  if (metadata.start_url.empty()) {
+    metadata.start_url = metadata.url;
   }
+  metadata.title = base::UTF16ToUTF8(active->GetTitle());
   return metadata;
 }
 
@@ -7684,8 +7688,18 @@ void LaunchShellWebApp(const base::DictValue& command) {
                  << (app_id ? *app_id : std::string());
     return;
   }
-  provider->scheduler().LaunchApp(*app_id, std::nullopt, base::DoNothing(),
-                                  apps::LaunchSource::kFromOtherApp);
+  provider->scheduler().LaunchApp(
+      *app_id, std::nullopt,
+      base::BindOnce([](base::WeakPtr<BrowserWindowInterface> browser,
+                        base::WeakPtr<content::WebContents>,
+                        apps::LaunchContainer) {
+        // The initial Show can precede browser registration. Replay only the
+        // exact window returned by this launch if it still needs a surface.
+        if (IsWebAppBrowser(browser.get())) {
+          ui::ReplayOhosAuxiliaryWindowState(GetBrowserWidget(browser.get()));
+        }
+      }),
+      apps::LaunchSource::kFromOtherApp);
 }
 
 // getWebApps { requestId } -> webApps { requestId, apps: [{ appId, title,

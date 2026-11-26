@@ -953,6 +953,12 @@ TEST(NWebAuraShellTest, PwaWindowBindsExactAbilitySurfaceAndBecomesPrimary) {
   ui::SetOhosLogicalWindowVisible(kWidget, true);
   ASSERT_FALSE(states.empty());
   EXPECT_TRUE(states.back().auxiliary);
+  const size_t before_replay = states.size();
+  const uint64_t stacking_order = states.back().stacking_order;
+  ui::ReplayOhosAuxiliaryWindowState(kWidget);
+  ASSERT_EQ(before_replay + 1, states.size());
+  EXPECT_EQ(kWidget, states.back().widget);
+  EXPECT_EQ(stacking_order, states.back().stacking_order);
 
   ui::RegisterOhosNativeSurface(kComponentId, native_window,
                                 gfx::Rect(120, 160, 1200, 800), 2.0f);
@@ -967,6 +973,9 @@ TEST(NWebAuraShellTest, PwaWindowBindsExactAbilitySurfaceAndBecomesPrimary) {
   EXPECT_TRUE(
       ui::WaitForOhosNativeSurface(kWidget, base::Milliseconds(1)).has_value());
   EXPECT_TRUE(ui::IsOhosPrimaryLogicalWindow(kWidget));
+  const size_t hosted_count = states.size();
+  ui::ReplayOhosAuxiliaryWindowState(kWidget);
+  EXPECT_EQ(hosted_count, states.size());
   // Getting a surface of its own is not the window going away: the shell
   // would close the window it had just opened.
   ASSERT_FALSE(states.empty());

@@ -36,6 +36,7 @@ stubs = r'''
 #include <algorithm>
 #include <cassert>
 #include <map>
+#include <string>
 #define BUILDFLAG(x) 1
 namespace gfx {
 using AcceleratedWidget = int;
@@ -48,7 +49,35 @@ struct BrowserWindowInterface {
   enum class Type { TYPE_NORMAL, TYPE_APP, TYPE_APP_POPUP, TYPE_POPUP };
   Type type;
   Type GetType() { return type; }
+  BrowserWindowInterface* GetProfile() { return this; }
 };
+struct AuraShellWindowMetadata {
+  bool is_pwa = false;
+  std::string app_id, start_url;
+};
+namespace web_app {
+struct AppBrowserController {
+  static const AppBrowserController* From(BrowserWindowInterface*) {
+    static const AppBrowserController controller;
+    return &controller;
+  }
+  std::string app_id() const { return "installed-window"; }
+};
+struct WebAppProvider {
+  bool ready = false;
+  static WebAppProvider* GetForWebApps(BrowserWindowInterface*) {
+    static WebAppProvider provider;
+    return &provider;
+  }
+  const WebAppProvider& on_registry_ready() const { return *this; }
+  bool is_signaled() const { return ready; }
+  const WebAppProvider& registrar_unsafe() const { assert(ready); return *this; }
+  const WebAppProvider& GetAppStartUrl(const std::string& id) const {
+    assert(id == "installed-window"); return *this;
+  }
+  std::string spec() const { return "https://example.test/app"; }
+};
+}
 BrowserWindowInterface* browsers[3];
 BrowserWindowInterface* FindBrowserForWidget(int id) { return browsers[id]; }
 namespace base { struct AutoLock { explicit AutoLock(int&) {} }; }
@@ -85,6 +114,19 @@ int main() {
   assert(!IsWebAppBrowser(nullptr));
   assert(!IsWebAppBrowser(&normal));
   assert(IsWebAppBrowser(&app) && IsWebAppBrowser(&popup));
+  // There is deliberately no active tab or WebAppTabHelper in this fixture.
+  // Even an unready registry and an initial blank document must identify the
+  // PWA to the shell; unrelated browser windows must never claim the request.
+  AuraShellWindowMetadata identity, popup_identity, browser_identity;
+  PopulateWebAppIdentity(&app, identity);
+  assert(identity.is_pwa && identity.app_id == "installed-window");
+  assert(identity.start_url.empty());
+  web_app::WebAppProvider::GetForWebApps(&app)->ready = true;
+  PopulateWebAppIdentity(&popup, popup_identity);
+  assert(popup_identity.app_id == identity.app_id);
+  assert(popup_identity.start_url == "https://example.test/app");
+  PopulateWebAppIdentity(&normal, browser_identity);
+  assert(!browser_identity.is_pwa && browser_identity.app_id.empty());
   BrowserWebContentsDelegate browser, pwa;
   pwa.app_browser_controller_ = &app;
   content::WebContents page;
@@ -117,6 +159,7 @@ int main() {
 '''
 source = stubs + '\n' + '\n'.join([
     function(bridge, 'bool IsWebAppBrowser('),
+    function(bridge, 'void PopulateWebAppIdentity('),
     function(bridge, 'gfx::Insets ModalDialogInsetsForWidget('),
     *[function(patched, signature) for signature in (
         'int BrowserWebContentsDelegate::GetTopControlsHeight()',

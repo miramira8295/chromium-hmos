@@ -212,6 +212,9 @@ bool RequestOhosWindowAction(gfx::AcceleratedWidget widget,
                              OhosWindowAction action);
 bool HasOhosWindowActionCallback(gfx::AcceleratedWidget widget);
 void SetOhosLogicalWindowStateCallback(OhosLogicalWindowStateCallback callback);
+// Re-announce the current state without changing focus, visibility or stacking.
+// Only unhosted, visible auxiliary windows need a surface from the shell.
+void ReplayOhosAuxiliaryWindowState(gfx::AcceleratedWidget widget);
 void SetOhosLogicalWindowCloseCallback(gfx::AcceleratedWidget widget,
                                        OhosLogicalWindowCloseCallback callback);
 void SetOhosDragCallback(gfx::AcceleratedWidget widget,
