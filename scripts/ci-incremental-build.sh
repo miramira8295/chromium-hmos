@@ -173,6 +173,9 @@ else
     # recorded by checksum in migration-157/manifest.json. Replaying the 155
     # hunks here would restore interfaces removed by Chromium 157.
     say "${CHROMIUM_MAJOR:-157} uses the complete migrated native snapshot"
+    if [[ "${CHROMIUM_MAJOR:-157}" == 158 ]]; then
+      apply_incremental_patch "${repo_root}/patches/ohos-lumie-shell-action-158.patch"
+    fi
     bash "${repo_root}/scripts/setup-adblock-rust.sh" || die "Rust toolchain setup failed"
   else
   # Shared by 154 and the prepared 155 snapshot.

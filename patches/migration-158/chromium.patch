@@ -2513,14 +2513,23 @@ index 06bfcf5a90d093b9ac8e255e93ef2ffd0a00421e..361652a54b98d67ed41a6dbec48d4901
    shared_library("chrome_dll") {
      configs -= [ "//build/config/compiler:thinlto_optimize_default" ]
 diff --git a/chrome/app/chrome_command_ids.h b/chrome/app/chrome_command_ids.h
-index f526d4df2d5a440f91484bd1923b805adeb5b1b5..06b5fa8d8ae4832c6f85070fa036957336d6fc13 100644
+index f526d4df2d5a440f91484bd1923b805adeb5b1b5..c7523aa42f2970bda12d4be01871190e1c486c77 100644
 --- a/chrome/app/chrome_command_ids.h
 +++ b/chrome/app/chrome_command_ids.h
-@@ -605,6 +605,9 @@
+@@ -605,6 +605,18 @@
  #define IDC_SPELLCHECK_MENU 57329
  #define IDC_WRITING_DIRECTION_MENU 57328
  
-+// Keep this app menu command below the unbounded bookmark command range.
++// OHOS: back to the shell's browser from Chromium's own UI. Not in the
++// actions framework: it is reachable only from the app menu, on a platform
++// with no other menu bars to carry it.
++//
++// Below COMMAND_ID_FIRST_UNBOUNDED, which every bounded command has to be.
++// The first attempt took one past the highest number in this file, which
++// was 0xE000 exactly -- the start of the app menu's bookmark range, whose
++// members are 0xE000 + a multiple of five. The menu read the item as a
++// bookmark and asked a delegate that only exists once the bookmark
++// submenu has been opened, so hovering the item dereferenced null.
 +#define IDC_OHOS_USE_SHELL_UI 57331
 +
  // macOS Top-Level Menu Bar containers
@@ -8651,53 +8660,11 @@ index 4f044b94a517e526b1a88e125f0d3f8ecc656312..f6fe505d47f009e12d179afcfede95e4
  
  source_set("bookmarks") {
    sources = [
-diff --git a/chrome/browser/ui/actions/chrome_action_id.h b/chrome/browser/ui/actions/chrome_action_id.h
-index 4bcf8e9afd61ef1d7badcbb77d80347fe2cec649..e19cdb65aab41c85a27124c4c1d78f41824e7031 100644
---- a/chrome/browser/ui/actions/chrome_action_id.h
-+++ b/chrome/browser/ui/actions/chrome_action_id.h
-@@ -304,6 +304,9 @@
-   E(kRestoreWindow, IDC_RESTORE_WINDOW) \
-   E(kActionMoveWindow, IDC_MOVE_WINDOW) \
-   E(kActionSizeWindow, IDC_SIZE_WINDOW)
-+#elif BUILDFLAG(IS_OHOS)
-+#define CHROME_PLATFORM_SPECIFIC_ACTION_IDS \
-+  E(kActionOhosUseShellUi, IDC_OHOS_USE_SHELL_UI)
- #elif BUILDFLAG(IS_ANDROID)
- #define CHROME_PLATFORM_SPECIFIC_ACTION_IDS \
-   E(kActionToggleMultiselect, IDC_TOGGLE_MULTISELECT) \
 diff --git a/chrome/browser/ui/browser_actions.cc b/chrome/browser/ui/browser_actions.cc
-index d716fe0590cf29c376bbdc3b75e2751e88239ee4..ded1228e5a80e6fafe330632f8a602839a48f277 100644
+index d716fe0590cf29c376bbdc3b75e2751e88239ee4..29286208cd5e4d272053e91e68130f4ee441b4dd 100644
 --- a/chrome/browser/ui/browser_actions.cc
 +++ b/chrome/browser/ui/browser_actions.cc
-@@ -69,6 +69,9 @@
- #include "ui/base/interaction/element_identifier.h"
- #include "ui/base/interaction/element_tracker.h"
- #include "ui/base/window_open_disposition.h"
-+#if BUILDFLAG(IS_OHOS)
-+#include "chrome/browser/ui/ohos/aura_shell_runtime_bridge.h"
-+#endif
- #if BUILDFLAG(IS_MAC)
- #include "chrome/browser/global_keyboard_shortcuts_mac.h"
- #include "chrome/browser/ui/browser_commands_mac.h"
-@@ -1146,6 +1149,17 @@ void BrowserActions::InitializePageActionIconActions() {
- }
- 
- void BrowserActions::InitializeChromeMenuActions() {
-+#if BUILDFLAG(IS_OHOS)
-+  root_action_item_->AddChild(
-+      actions::ActionItem::Builder(base::BindRepeating(
-+          [](actions::ActionItem*, actions::ActionInvocationContext) {
-+            chrome::ohos::RequestAuraShellBrowserChrome("shell");
-+          }))
-+          .SetActionId(kActionOhosUseShellUi)
-+          .SetText(chrome::ohos::AuraShellUiMenuLabel())
-+          .Build());
-+#endif
-+
-   Profile* const profile = base::to_address(profile_);
-   TabStripModel* const tab_strip_model = bwi_->GetTabStripModel();
-   BrowserWindowInterface* const bwi = base::to_address(bwi_);
-@@ -3939,7 +3953,7 @@ void BrowserActions::InitializeToolbarAndMiscActions() {
+@@ -3939,7 +3939,7 @@ void BrowserActions::InitializeToolbarAndMiscActions() {
                [](BrowserWindowInterface* bwi, actions::ActionItem* item,
                   actions::ActionInvocationContext context) {
                  base::RecordAction(base::UserMetricsAction("CreateShortcut"));
