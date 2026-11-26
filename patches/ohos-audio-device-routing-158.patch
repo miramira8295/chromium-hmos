@@ -1,0 +1,46 @@
+diff --git a/media/audio/BUILD.gn b/media/audio/BUILD.gn
+index eaab870f618ec7cd9c74062f77a3fc8fcbca838c..a06e47bce1b380f077c6608e458779c37cc93253 100644
+--- a/media/audio/BUILD.gn
++++ b/media/audio/BUILD.gn
+@@ -302,6 +302,8 @@ source_set("audio") {
+       "ohos/ohos_audio_input.h",
+       "ohos/ohos_audio_output.cc",
+       "ohos/ohos_audio_output.h",
++      "ohos/ohos_audio_route.cc",
++      "ohos/ohos_audio_route.h",
+     ]
+     libs += [ "ohaudio" ]
+   }
+diff --git a/content/browser/renderer_host/media/media_devices_manager.cc b/content/browser/renderer_host/media/media_devices_manager.cc
+index da86c44a2a04890259b3c68055c728e867712a50..a8f8535d4e9784ba452a7d5bd9fb788c314af59c 100644
+--- a/content/browser/renderer_host/media/media_devices_manager.cc
++++ b/content/browser/renderer_host/media/media_devices_manager.cc
+@@ -50,6 +50,12 @@
+ #include "third_party/blink/public/common/mediastream/media_devices.h"
+ #include "third_party/blink/public/mojom/mediastream/media_devices.mojom.h"
+ 
++#if BUILDFLAG(IS_OHOS)
++#include "content/public/browser/content_browser_client.h"
++#include "content/public/common/content_client.h"
++#include "content/public/common/content_switches.h"
++#endif
++
+ #if BUILDFLAG(IS_MAC)
+ #include "base/functional/callback_helpers.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -873,8 +879,14 @@ void MediaDevicesManager::StartMonitoringAndPopulateCache(
+   if (!base::SystemMonitor::Get())
+     return;
+ 
+-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
++#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_OHOS)
+   if (start_audio_device_monitoring && !monitoring_started_for_audio_ &&
++#if BUILDFLAG(IS_OHOS)
++      // An in-process audio service already shares the browser's SystemMonitor.
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kSingleProcess) &&
++      !GetContentClient()->browser()->OverridesAudioManager() &&
++#endif
+       base::FeatureList::IsEnabled(features::kAudioServiceOutOfProcess)) {
+     CHECK(!audio_service_device_listener_, base::NotFatalUntil::M155);
+ 

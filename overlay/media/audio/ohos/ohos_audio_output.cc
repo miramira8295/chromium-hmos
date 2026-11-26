@@ -17,6 +17,7 @@
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "media/audio/audio_manager_base.h"
+#include "media/audio/ohos/ohos_audio_route.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_pull_fifo.h"
 #include "media/base/audio_sample_types.h"
@@ -32,8 +33,9 @@ bool IsSuccess(OH_AudioStream_Result result) {
 }  // namespace
 
 OhosAudioOutputStream::OhosAudioOutputStream(AudioManagerBase* audio_manager,
-                                             const AudioParameters& params)
-    : audio_manager_(audio_manager), params_(params) {
+                                             const AudioParameters& params,
+                                             std::optional<uint32_t> device_id)
+    : audio_manager_(audio_manager), params_(params), device_id_(device_id) {
   CHECK(audio_manager_);
   CHECK(params_.IsValid());
 }
@@ -58,7 +60,7 @@ bool OhosAudioOutputStream::Open() {
 
   const OH_AudioRenderer_Callbacks callbacks = {
       &OhosAudioOutputStream::OnWriteData,
-      &OhosAudioOutputStream::OnStreamEvent,
+      device_id_ ? nullptr : &OhosAudioOutputStream::OnStreamEvent,
       &OhosAudioOutputStream::OnInterruptEvent,
       &OhosAudioOutputStream::OnError,
   };
@@ -78,7 +80,11 @@ bool OhosAudioOutputStream::Open() {
           builder, AUDIOSTREAM_USAGE_MUSIC)) &&
       IsSuccess(OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks,
                                                           this)) &&
-      IsSuccess(OH_AudioStreamBuilder_GenerateRenderer(builder, &renderer_));
+      (!device_id_ ||
+       IsSuccess(OH_AudioStreamBuilder_SetRendererOutputDeviceChangeCallback(
+           builder, &OhosAudioOutputStream::OnDeviceChange, this))) &&
+      IsSuccess(OH_AudioStreamBuilder_GenerateRenderer(builder, &renderer_)) &&
+      (!device_id_ || SelectOhosAudioOutput(*device_id_, renderer_));
 
   const OH_AudioStream_Result destroy_result =
       OH_AudioStreamBuilder_Destroy(builder);
@@ -110,6 +116,10 @@ void OhosAudioOutputStream::Start(AudioSourceCallback* callback) {
   {
     base::AutoLock auto_lock(lock_);
     CHECK(!callback_);
+    if (route_lost_) {
+      callback->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+      return;
+    }
     callback_ = callback;
   }
 
@@ -192,6 +202,24 @@ int32_t OhosAudioOutputStream::OnWriteData(OH_AudioRenderer* renderer,
 }
 
 // static
+void OhosAudioOutputStream::OnDeviceChange(
+    OH_AudioRenderer* renderer,
+    void* user_data,
+    OH_AudioStream_DeviceChangeReason reason) {
+  if (reason != REASON_OLD_DEVICE_UNAVAILABLE) {
+    return;
+  }
+  auto* stream = static_cast<OhosAudioOutputStream*>(user_data);
+  base::AutoLock auto_lock(stream->lock_);
+  if (!stream->route_lost_) {
+    stream->route_lost_ = true;
+    if (stream->callback_) {
+      stream->callback_->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+    }
+  }
+}
+
+// static
 int32_t OhosAudioOutputStream::OnStreamEvent(OH_AudioRenderer* renderer,
                                              void* user_data,
                                              OH_AudioStream_Event event) {
@@ -231,7 +259,7 @@ int32_t OhosAudioOutputStream::FillBuffer(void* buffer, int32_t length) {
       UNSAFE_BUFFERS(base::span(static_cast<int16_t*>(buffer), sample_count));
 
   base::AutoLock auto_lock(lock_);
-  if (!callback_ || !audio_bus_ || !pull_fifo_ ||
+  if (!callback_ || route_lost_ || !audio_bus_ || !pull_fifo_ ||
       sample_count % params_.channels() != 0) {
     std::ranges::fill(samples, 0);
     return AUDIOSTREAM_SUCCESS;

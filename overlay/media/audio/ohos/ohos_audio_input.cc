@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <ohaudio/native_audio_routing_manager.h>
 #include <ohaudio/native_audiostreambuilder.h>
 
 #include "base/check.h"
@@ -20,6 +21,7 @@
 #include "base/logging.h"
 #include "base/task/sequenced_task_runner.h"
 #include "media/audio/audio_manager_base.h"
+#include "media/audio/ohos/ohos_audio_route.h"
 #include "media/base/audio_block_fifo.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/sample_format.h"
@@ -60,8 +62,9 @@ bool HasMicrophonePermission() {
 }  // namespace
 
 OhosAudioInputStream::OhosAudioInputStream(AudioManagerBase* audio_manager,
-                                           const AudioParameters& params)
-    : audio_manager_(audio_manager), params_(params) {
+                                           const AudioParameters& params,
+                                           std::optional<uint32_t> device_id)
+    : audio_manager_(audio_manager), params_(params), device_id_(device_id) {
   CHECK(audio_manager_);
   CHECK(params_.IsValid());
 }
@@ -135,6 +138,18 @@ void OhosAudioInputStream::StartWhenMicrophonePermissionIsReady() {
     ReportError(AudioInputCallback::Error::kStartupFailed);
     return;
   }
+  if (device_id_) {
+    // The newly generated capturer can report its initial system route before
+    // we request the page's microphone. Monitor changes from selection onward.
+    {
+      base::AutoLock auto_lock(lock_);
+      route_state_ = RouteState::kMonitoring;
+    }
+    if (!SelectOhosAudioInput(*device_id_, capturer_)) {
+      ReportError(AudioInputCallback::Error::kStartupFailed);
+      return;
+    }
+  }
   if (!IsSuccess(OH_AudioCapturer_Start(capturer_))) {
     LOG(ERROR) << "OHAudio failed to start an input stream";
     ReportError(AudioInputCallback::Error::kStartupFailed);
@@ -179,6 +194,9 @@ bool OhosAudioInputStream::InitializeCapturer() {
           builder, AUDIOSTREAM_SOURCE_TYPE_VOICE_COMMUNICATION)) &&
       IsSuccess(OH_AudioStreamBuilder_SetCapturerCallback(builder, callbacks,
                                                           this)) &&
+      (!device_id_ ||
+       IsSuccess(OH_AudioStreamBuilder_SetCapturerDeviceChangeCallback(
+           builder, &OhosAudioInputStream::OnDeviceChange, this))) &&
       IsSuccess(OH_AudioStreamBuilder_GenerateCapturer(builder, &capturer_));
 
   const OH_AudioStream_Result destroy_result =
@@ -209,6 +227,7 @@ void OhosAudioInputStream::Stop() {
 
   base::AutoLock auto_lock(lock_);
   callback_ = nullptr;
+  route_state_ = RouteState::kUnselected;
   last_capture_time_ = base::TimeTicks();
   if (audio_fifo_) {
     audio_fifo_->Clear();
@@ -269,6 +288,37 @@ int32_t OhosAudioInputStream::OnReadData(OH_AudioCapturer* capturer,
 }
 
 // static
+void OhosAudioInputStream::OnDeviceChange(
+    OH_AudioCapturer* capturer,
+    void* user_data,
+    OH_AudioDeviceDescriptorArray* devices) {
+  auto* stream = static_cast<OhosAudioInputStream*>(user_data);
+  bool matches = false;
+  if (devices) {
+    uint32_t id = 0;
+    // OHAudio transfers the current capture route in an owned descriptor array.
+    matches = devices->size == 1 && devices->descriptors &&
+              *devices->descriptors &&
+              OH_AudioDeviceDescriptor_GetDeviceId(*devices->descriptors, &id) ==
+                  AUDIOCOMMON_RESULT_SUCCESS && id == stream->device_id_;
+    OH_AudioRoutingManager* manager = nullptr;
+    if (OH_AudioManager_GetAudioRoutingManager(&manager) ==
+            AUDIOCOMMON_RESULT_SUCCESS && manager) {
+      OH_AudioRoutingManager_ReleaseDevices(manager, devices);
+    }
+  }
+  // Do not deliver samples from a replacement microphone to a track opened
+  // with an explicit device ID. Chromium can offer the new default to the page.
+  if (!matches) {
+    base::AutoLock auto_lock(stream->lock_);
+    if (stream->callback_ && stream->route_state_ == RouteState::kMonitoring) {
+      stream->route_state_ = RouteState::kLost;
+      stream->callback_->OnError(AudioInputCallback::Error::kRuntimeError);
+    }
+  }
+}
+
+// static
 int32_t OhosAudioInputStream::OnStreamEvent(OH_AudioCapturer* capturer,
                                             void* user_data,
                                             OH_AudioStream_Event event) {
@@ -321,7 +371,7 @@ int32_t OhosAudioInputStream::CaptureData(OH_AudioCapturer* capturer,
   }
 
   base::AutoLock auto_lock(lock_);
-  if (!callback_ || !audio_fifo_) {
+  if (!callback_ || route_state_ == RouteState::kLost || !audio_fifo_) {
     return AUDIOSTREAM_SUCCESS;
   }
 

@@ -105,6 +105,20 @@
   <pre id="orientation-log"></pre>
 </section>
 
+
+<section>
+  <h2>8. 会议音频设备</h2>
+  <p class="hint">在 HTTPS 或 localhost 上测试。启用麦克风后选择设备，插拔耳机时观察设备列表，再试听所选输出。测试音与麦克风独立，麦克风声音不会回放或上传。</p>
+  <label>麦克风 <select id="route-input"><option value="">系统默认</option></select></label>
+  <button id="route-start">启用所选麦克风</button>
+  <button id="route-stop" class="secondary">停止麦克风</button>
+  <br>
+  <label>输出 <select id="route-output"><option value="">系统默认</option></select></label>
+  <button id="route-play">试听 1 秒</button>
+  <button id="route-refresh" class="secondary">刷新设备</button>
+  <pre id="route-log" aria-live="polite"></pre>
+</section>
+
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -365,6 +379,68 @@ async function guard(log, fn) {
     log('已解锁');
   });
 }
+
+// ---- 8. WebRTC capture, output selection and hotplug ------------------------
+{
+  const log = logger('route-log');
+  const media = navigator.mediaDevices;
+  const player = new Audio($('media-audio').src);
+  const input = $('route-input');
+  const output = $('route-output');
+  let stream;
+  let generation = 0;
+  let toneTimer;
+
+  function stopInput() {
+    generation++;
+    stream?.getTracks().forEach(track => track.stop());
+    stream = undefined;
+  }
+
+  async function refresh() {
+    const devices = await media.enumerateDevices();
+    for (const [select, kind] of [[input, 'audioinput'], [output, 'audiooutput']]) {
+      const selected = select.value;
+      const physical = devices.filter(d => d.kind === kind && d.deviceId && d.deviceId !== 'default');
+      select.replaceChildren(new Option('系统默认', ''));
+      for (const [i, device] of physical.entries()) {
+        select.add(new Option(device.label || `设备 ${i + 1}`, device.deviceId));
+      }
+      if (physical.some(d => d.deviceId === selected)) select.value = selected;
+    }
+    log(`可选麦克风 ${input.length - 1} 个，输出 ${output.length - 1} 个（另有系统默认）`);
+  }
+
+  $('route-refresh').onclick = () => guard(log, refresh);
+  media?.addEventListener('devicechange', () => { log('devicechange'); guard(log, refresh); });
+  $('route-start').onclick = () => guard(log, async () => {
+    stopInput();
+    const token = generation;
+    const id = input.value;
+    const next = await media.getUserMedia({audio: id ? {deviceId: {exact: id}} : true});
+    if (token !== generation) {
+      next.getTracks().forEach(track => track.stop());
+      return;
+    }
+    stream = next;
+    const [track] = next.getAudioTracks();
+    log('采集已开始', track.label, id && track.getSettings().deviceId !== id ? '设备 ID 不匹配' : '');
+    track.onended = () => log('采集设备已断开');
+    await refresh();
+  });
+  $('route-stop').onclick = () => { stopInput(); log('采集已停止'); };
+  $('route-play').onclick = () => guard(log, async () => {
+    clearTimeout(toneTimer);
+    player.pause();
+    await player.setSinkId(output.value);
+    player.currentTime = 0;
+    await player.play();
+    toneTimer = setTimeout(() => player.pause(), 1000);
+    log('请确认声音来自', output.selectedOptions[0].text);
+  });
+  window.addEventListener('pagehide', () => { stopInput(); clearTimeout(toneTimer); player.pause(); });
+}
+
 </script>
 </body>
 </html>

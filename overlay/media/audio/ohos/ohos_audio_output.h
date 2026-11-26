@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
@@ -26,7 +27,8 @@ class AudioPullFifo;
 class OhosAudioOutputStream final : public AudioOutputStream {
  public:
   OhosAudioOutputStream(AudioManagerBase* audio_manager,
-                        const AudioParameters& params);
+                        const AudioParameters& params,
+                        std::optional<uint32_t> device_id = std::nullopt);
 
   OhosAudioOutputStream(const OhosAudioOutputStream&) = delete;
   OhosAudioOutputStream& operator=(const OhosAudioOutputStream&) = delete;
@@ -46,6 +48,9 @@ class OhosAudioOutputStream final : public AudioOutputStream {
                              void* user_data,
                              void* buffer,
                              int32_t length);
+  static void OnDeviceChange(OH_AudioRenderer* renderer,
+                             void* user_data,
+                             OH_AudioStream_DeviceChangeReason reason);
   static int32_t OnStreamEvent(OH_AudioRenderer* renderer,
                                void* user_data,
                                OH_AudioStream_Event event);
@@ -65,11 +70,13 @@ class OhosAudioOutputStream final : public AudioOutputStream {
 
   const raw_ptr<AudioManagerBase> audio_manager_;
   const AudioParameters params_;
+  const std::optional<uint32_t> device_id_;
   OH_AudioRenderer* renderer_ = nullptr;
   std::unique_ptr<AudioBus> audio_bus_;
   std::unique_ptr<AudioPullFifo> pull_fifo_;
 
   base::Lock lock_;
+  bool route_lost_ GUARDED_BY(lock_) = false;
   raw_ptr<AudioSourceCallback> callback_ GUARDED_BY(lock_) = nullptr;
   double volume_ GUARDED_BY(lock_) = 1.0;
 };

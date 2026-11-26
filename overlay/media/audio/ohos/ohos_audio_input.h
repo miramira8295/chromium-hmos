@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "base/memory/raw_ptr.h"
@@ -28,7 +29,8 @@ class AudioManagerBase;
 class OhosAudioInputStream final : public AudioInputStream {
  public:
   OhosAudioInputStream(AudioManagerBase* audio_manager,
-                       const AudioParameters& params);
+                       const AudioParameters& params,
+                       std::optional<uint32_t> device_id = std::nullopt);
 
   OhosAudioInputStream(const OhosAudioInputStream&) = delete;
   OhosAudioInputStream& operator=(const OhosAudioInputStream&) = delete;
@@ -52,6 +54,9 @@ class OhosAudioInputStream final : public AudioInputStream {
                             void* user_data,
                             void* buffer,
                             int32_t length);
+  static void OnDeviceChange(OH_AudioCapturer* capturer,
+                             void* user_data,
+                             OH_AudioDeviceDescriptorArray* devices);
   static int32_t OnStreamEvent(OH_AudioCapturer* capturer,
                                void* user_data,
                                OH_AudioStream_Event event);
@@ -73,6 +78,7 @@ class OhosAudioInputStream final : public AudioInputStream {
 
   const raw_ptr<AudioManagerBase> audio_manager_;
   const AudioParameters params_;
+  const std::optional<uint32_t> device_id_;
   OH_AudioCapturer* capturer_ = nullptr;
   std::unique_ptr<AudioBlockFifo> audio_fifo_;
   base::TimeTicks permission_wait_deadline_;
@@ -81,6 +87,8 @@ class OhosAudioInputStream final : public AudioInputStream {
   bool automatic_gain_control_ = false;
 
   base::Lock lock_;
+  enum class RouteState { kUnselected, kMonitoring, kLost };
+  RouteState route_state_ GUARDED_BY(lock_) = RouteState::kUnselected;
   raw_ptr<AudioInputCallback> callback_ GUARDED_BY(lock_) = nullptr;
   double volume_ GUARDED_BY(lock_) = 1.0;
   base::TimeTicks last_capture_time_ GUARDED_BY(lock_);

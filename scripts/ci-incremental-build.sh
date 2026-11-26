@@ -175,6 +175,7 @@ else
     say "${CHROMIUM_MAJOR:-157} uses the complete migrated native snapshot"
     if [[ "${CHROMIUM_MAJOR:-157}" == 158 ]]; then
       apply_incremental_patch "${repo_root}/patches/ohos-lumie-shell-action-158.patch"
+      apply_incremental_patch "${repo_root}/patches/ohos-audio-device-routing-158.patch"
     fi
     bash "${repo_root}/scripts/setup-adblock-rust.sh" || die "Rust toolchain setup failed"
   else

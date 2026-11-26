@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/weak_ptr.h"
 #include "media/audio/audio_manager_base.h"
 
 namespace media {
@@ -46,9 +47,19 @@ class MEDIA_EXPORT AudioManagerOhos final : public AudioManagerBase {
 
  protected:
   bool GetAudioInputDeviceNames(AudioDeviceNames* device_names) override;
+  bool GetAudioOutputDeviceNames(AudioDeviceNames* device_names) override;
+  void ShutdownOnAudioThread() override;
   AudioParameters GetPreferredOutputStreamParameters(
       const std::string& output_device_id,
       const AudioParameters& input_params) override;
+
+ private:
+  bool GetDeviceNames(bool input, AudioDeviceNames* device_names);
+  void StartDeviceMonitor();
+  void OnDevicesChanged(bool output_changed);
+
+  bool monitoring_devices_ = false;
+  base::WeakPtrFactory<AudioManagerOhos> weak_factory_{this};
 };
 
 }  // namespace media
