@@ -1,4 +1,6 @@
 // Exercise the production route implementation against public OHAudio calls.
+#include <dlfcn.h>
+
 #include <cassert>
 #include <vector>
 
@@ -122,6 +124,19 @@ OH_AudioDeviceEnhanceManager_SelectOutputDeviceForAudioRenderer(
 int main() {
   using namespace media;
   AudioDeviceNames visible;
+#ifdef TEST_LOCAL_LIBRARY
+  const char* symbol = "OH_AudioManager_GetAudioDeviceEnhanceManager";
+  void* library = dlopen("libohaudio.so", RTLD_NOW | RTLD_LOCAL);
+  assert(library && dlsym(library, symbol) && !dlsym(RTLD_DEFAULT, symbol));
+  assert(GetSelectableOhosAudioDevices(true, &visible));
+  assert(visible.size() == 1 && visible.front().unique_id == "17");
+  assert(SelectOhosAudioInput(17, &mic));
+  assert(SelectOhosAudioOutput(18, &renderer));
+  assert(!SelectOhosAudioOutput(9, &renderer));
+  assert(!dlsym(RTLD_DEFAULT, symbol) && outstanding_arrays == 0);
+  dlclose(library);
+  return 0;
+#endif
   visible.emplace_back("Default", "default");
   supported = false;
   assert(!GetSelectableOhosAudioDevices(true, &visible));

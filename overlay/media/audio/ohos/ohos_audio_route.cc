@@ -21,6 +21,14 @@ struct OH_AudioDeviceEnhanceManager;
 namespace media {
 namespace {
 
+void* ResolveAudioSymbol(const char* name) {
+  // The engine is loaded with RTLD_LOCAL. Its dependencies need not be
+  // visible through RTLD_DEFAULT on the device.
+  static void* const library = dlopen("libohaudio.so", RTLD_NOW | RTLD_LOCAL);
+  void* symbol = library ? dlsym(library, name) : nullptr;
+  return symbol ? symbol : dlsym(RTLD_DEFAULT, name);
+}
+
 struct EnhancedRouting {
   using Result = OH_AudioCommon_Result;
   using Manager = OH_AudioDeviceEnhanceManager;
@@ -34,16 +42,13 @@ struct EnhancedRouting {
                                   OH_AudioDeviceDescriptor*);
 
   GetManager get = reinterpret_cast<GetManager>(
-      dlsym(RTLD_DEFAULT, "OH_AudioManager_GetAudioDeviceEnhanceManager"));
-  IsSupported supported = reinterpret_cast<IsSupported>(
-      dlsym(RTLD_DEFAULT,
-            "OH_AudioDeviceEnhanceManager_IsEnhancedRoutingSupported"));
-  SelectInput input = reinterpret_cast<SelectInput>(
-      dlsym(RTLD_DEFAULT,
-            "OH_AudioDeviceEnhanceManager_SelectInputDeviceForAudioCapturer"));
-  SelectOutput output = reinterpret_cast<SelectOutput>(
-      dlsym(RTLD_DEFAULT,
-            "OH_AudioDeviceEnhanceManager_SelectOutputDeviceForAudioRenderer"));
+      ResolveAudioSymbol("OH_AudioManager_GetAudioDeviceEnhanceManager"));
+  IsSupported supported = reinterpret_cast<IsSupported>(ResolveAudioSymbol(
+      "OH_AudioDeviceEnhanceManager_IsEnhancedRoutingSupported"));
+  SelectInput input = reinterpret_cast<SelectInput>(ResolveAudioSymbol(
+      "OH_AudioDeviceEnhanceManager_SelectInputDeviceForAudioCapturer"));
+  SelectOutput output = reinterpret_cast<SelectOutput>(ResolveAudioSymbol(
+      "OH_AudioDeviceEnhanceManager_SelectOutputDeviceForAudioRenderer"));
 
   Manager* ForDirection(bool is_input) const {
     Manager* manager = nullptr;

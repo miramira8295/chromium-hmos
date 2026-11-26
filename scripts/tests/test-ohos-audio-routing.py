@@ -13,7 +13,7 @@ BACKEND = ROOT / 'overlay/media/audio/ohos'
 
 
 class AudioRoutingTest(unittest.TestCase):
-    def run_with_platform(self, *flags):
+    def run_with_platform(self, *flags, local_library=False):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             def header(path, contents):
@@ -38,16 +38,28 @@ struct AudioDeviceName { std::string device_name; std::string unique_id; };
 using AudioDeviceNames = std::list<AudioDeviceName>;
 }
 ''')
+            env = os.environ.copy()
+            if local_library:
+                # Do not link the enhanced API into the test executable.
+                subprocess.run([os.getenv('CXX', 'c++'), '-std=c++20', '-shared', '-fPIC',
+                                str(FIXTURES / 'local_routing.cc'), '-o', str(tmp / 'libohaudio.so')],
+                               check=True)
+                path = 'DYLD_LIBRARY_PATH' if sys.platform == 'darwin' else 'LD_LIBRARY_PATH'
+                env[path] = str(tmp)
             exe = tmp / 'route_test'
             link = ['-Wl,-export_dynamic'] if sys.platform == 'darwin' else ['-rdynamic', '-ldl']
             subprocess.run([os.getenv('CXX', 'c++'), '-std=c++20', '-I', str(tmp),
                             '-I', str(FIXTURES), '-I', str(ROOT / 'overlay'), *flags,
                             str(BACKEND / 'ohos_audio_route.cc'), str(FIXTURES / 'route_test.cc'),
                             *link, '-o', str(exe)], check=True)
-            subprocess.run([str(exe)], check=True, timeout=10)
+            subprocess.run([str(exe)], check=True, env=env, timeout=10)
 
     def test_selectable_routes_and_runtime_rejections(self):
         self.run_with_platform()
+
+    def test_runtime_symbols_loaded_with_local_visibility(self):
+        self.run_with_platform('-DWITHOUT_ENHANCED_ROUTING', '-DTEST_LOCAL_LIBRARY',
+                               local_library=True)
 
     def test_device_change_callback_shutdown_and_retry(self):
         # Compile the manager methods themselves. Other Chromium audio machinery
